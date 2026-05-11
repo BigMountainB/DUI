@@ -3952,47 +3952,64 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** On-road hitchhiker pickup — risk/reward.  ~60% positive (drugs
-   *  recovery / score bonus / free weapon), ~40% negative (robbed of
+  /** On-road hitchhiker pickup — risk/reward.  70 % positive (drugs
+   *  recovery / score bonus / free weapon), 30 % negative (robbed of
    *  score, drugs, or a weapon).  Be careful who you pick up. */
   _hitchhikerPickup() {
     this.effects.triggerShake(80, 0.002);
     const r = Math.random();
 
-    // ── 18% — friendly biker, free rocket ─────────────────────────────
-    if (r < 0.18) {
+    // ── 14% — friendly biker, free rocket ─────────────────────────────
+    if (r < 0.14) {
       this.cops.addF12Token('rocket');
       this._showPopup('🤝 BIKER GAVE\nYOU A 🚀 ROCKET!', '#88FFCC');
       return;
     }
-    // ── 18% — old hippie, free grenade ────────────────────────────────
-    if (r < 0.36) {
+    // ── 14% — old hippie, free grenade ────────────────────────────────
+    if (r < 0.28) {
       this.cops.addF12Token('grenade');
       this._showPopup('🤝 OLD HIPPIE\n💣 GRENADE!', '#88FFCC');
       return;
     }
-    // ── 12% — disguise (skip a star or two) ───────────────────────────
-    if (r < 0.48) {
+    // ── 14% — disguise ───────────────────────────────────────────────
+    if (r < 0.42) {
       this.cops.addF12Token('disguise');
       this._showPopup('🤝 GAVE YOU A\n🎭 DISGUISE!', '#88FFCC');
       return;
     }
-    // ── 12% — sober up + bonus $ ────────────────────────────────────
-    if (r < 0.60) {
+    // ── 14% — sober up + bonus $ ─────────────────────────────────────
+    if (r < 0.56) {
       this.drugs.applyRecovery(0.20);
       const bonus = Math.round(PTS_HITCH * this._scoreMult());
       this.score += bonus;
       this._showPopup(`🤝 NICE FOLKS!\n+$${bonus}, sobered up`, '#88FFCC');
       return;
     }
-    // ── 22% — sketchy stranger robs score ─────────────────────────────
-    if (r < 0.82) {
+    // ── 14% — party favor: random non-OD drug bar filled to 90% ──────
+    if (r < 0.70) {
+      const safeDrugs = [DRUGS.ALCOHOL, DRUGS.WEED, DRUGS.SHROOMS, DRUGS.LSD]
+        .filter(id => this.drugs.isUnlocked?.(id));
+      if (safeDrugs.length) {
+        const drug = safeDrugs[(Math.random() * safeDrugs.length) | 0];
+        this.drugs.levels[drug] = 0.90;
+        const label = DRUG_CONFIG?.[drug]?.label ?? drug.toUpperCase();
+        this._showPopup(`🤝 PARTY FAVOR!\n${label}  →  90%`, '#88FFCC');
+      } else {
+        // Nothing unlocked yet — fall back to a small cash bonus.
+        const bonus = Math.round(PTS_HITCH * this._scoreMult() * 0.5);
+        this.score += bonus;
+        this._showPopup(`🤝 GAVE YOU\n+$${bonus}`, '#88FFCC');
+      }
+      return;
+    }
+    // ── 15% — sketchy stranger robs score ─────────────────────────────
+    if (r < 0.85) {
       const loss = Math.min(this.score, 600);
       this.score -= loss;
       this._showPopup(`💀 ROBBED!\n−$${loss}`, '#FF4444');
       return;
     }
-    // ── 13% — armed robbery, takes a random F12 token ─────────────────
+    // ── 10% — armed robbery, takes a random F12 token ─────────────────
     if (r < 0.95) {
       const tokens = this.cops.f12Tokens;
       let stolen = null;

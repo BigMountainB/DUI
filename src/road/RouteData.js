@@ -626,17 +626,11 @@ export function buildRoute(count = ROUTE_SEGS) {
       });
     }
 
-    // ── Hitchhiker ────────────────────────────────────────────────────
-    if (rng.bool(0.006)) {
-      sprites.push({
-        type:            'hitchhiker',
-        offset:          rng.range(-0.9, -0.75),
-        baseW:  80, baseH: 200,
-        collected:       false,
-        isCollectible:   true,
-        collectibleType: 'hitchhiker',
-      });
-    }
+    // Hitchhikers used to spawn 0.6 %/segment everywhere on the open
+    // highway, which made Tap-mode players inadvertently brush them
+    // along the constantly-left-pulling shoulder.  They now ONLY appear
+    // at on/off-ramps near each rest stop — see the rest-stop loop
+    // below where they're seeded into the ramp window.
 
     segments.push({
       index:     i,
@@ -985,6 +979,32 @@ export function buildRoute(count = ROUTE_SEGS) {
       seg.rampStrength = Math.max(seg.rampStrength ?? 0, 1 - k / AFTER_SEGS);
       seg.rampStopId   = rs.id;
     }
+    // ── Hitchhikers at the on/off-ramp ───────────────────────────────
+    // Seed 1-2 hitchhiker sprites along the ramp window so they ONLY
+    // appear at exits / rest stops, not on the open highway.  Offsets
+    // pushed further left (-1.10 to -1.25) so a player coasting in the
+    // travel lanes doesn't brush them — they require a deliberate
+    // pull-toward-the-shoulder to be collected.
+    {
+      const hhCount = 1 + (rng.next() < 0.5 ? 1 : 0);
+      for (let h = 0; h < hhCount; h++) {
+        // Pick a segment ~25-75 % into the approach ramp window.
+        const t = 0.25 + rng.next() * 0.50;
+        const k = Math.floor(t * RAMP_WINDOW_SEG);
+        const hhIdx = (exitSeg - RAMP_WINDOW_SEG + 1 + k + count) % count;
+        const seg = segments[hhIdx];
+        if (!seg || isWet(seg)) continue;
+        seg.sprites.push({
+          type:            'hitchhiker',
+          offset:          -(1.10 + rng.next() * 0.15),
+          baseW:  80, baseH: 200,
+          collected:       false,
+          isCollectible:   true,
+          collectibleType: 'hitchhiker',
+        });
+      }
+    }
+
     // Clear the right-shoulder scenery (trees, buildings, sign clutter)
     // off every ramp-tagged segment.  The ramp asphalt extends out to
     // ~x=2.4 lane units; anything spawned with positive offset > 1.0 is
