@@ -2420,17 +2420,21 @@ export class GameScene extends Phaser.Scene {
         'cop_random_parked',   // parked roadside cops count as structures
       ]);
       let _scenicHit = false;
-      for (let di = 0; di <= 4 && !_scenicHit; di++) {
+      // di range 0..14 — matches the pickup-collection loop above.
+      // The car's virtual Z is ~3000 (PLAYER_VIRTUAL_Z), so trees /
+      // buildings register as "at the car" when their projected screen-Y
+      // lands inside the car sprite's vertical band, which happens 10-15
+      // segments ahead due to perspective.
+      for (let di = 0; di <= 14 && !_scenicHit; di++) {
         const idx = (segIdx + di) % this.road.segments.length;
         const seg = this.road.segments[idx];
         if (!seg?.sprites) continue;
         for (const sp of seg.sprites) {
           if (!SCENERY_TYPES.has(sp.type)) continue;
           if (sp.collected) continue;
-          // Match sign: only check sprites on the side the player is on.
-          if ((sp.offset > 0) !== (p.x > 0)) continue;
+          // Lateral overlap — rely purely on dX so any side can fire.
           const dX = Math.abs(sp.offset - p.x);
-          if (dX > 0.35) continue;            // ~1/3 lane wide hitbox
+          if (dX > 0.45) continue;            // ~half a lane wide hitbox
           const relZ = di * SEG_LENGTH + SEG_LENGTH / 2;
           const proj = this.road.getVehicleProjection(relZ, sp.offset);
           if (!proj) continue;
