@@ -131,6 +131,8 @@ export class GameScene extends Phaser.Scene {
     this._tiltLeftActive  = false;
     this._tiltRightActive = false;
     this._tiltGamma       = 0;
+    // Flappy-mode edge-trigger for left = fire-weapon.
+    this._prevLeftRawForFire = false;
   }
 
   create() {
@@ -590,50 +592,43 @@ export class GameScene extends Phaser.Scene {
     // Mute button is right-aligned at SCREEN_W-123 (right edge), runs
     // from y=8 to y=52 (44 px tall).  Tilt sits at y=72, right-aligned
     // to the mute's right edge so the column reads cleanly.
-    const tiltY      = 72;
-    const tiltAnchor = SCREEN_W - 123;   // mute button's right edge
-    const swW        = 80;
-    const swH        = 28;
-    const tiltLbl = this.add.text(tiltAnchor - swW - 10, tiltY, 'TILT STEER', {
+    // ── Steering mode picker (cycle Classic → Tilt → Flappy) ───────────
+    const steerY      = 72;
+    const steerAnchor = SCREEN_W - 123;   // mute button's right edge
+    const steerSwW    = 120;
+    const steerSwH    = 28;
+    const steerLbl = this.add.text(steerAnchor - steerSwW - 10, steerY, 'STEERING', {
       fontSize: '15px', fontFamily: 'Impact, Arial Black, sans-serif',
       color: '#FFFFFF', stroke: '#000000', strokeThickness: 4,
     }).setOrigin(1, 0.5).setDepth(62).setVisible(false);
-    const tiltOnInit = !!this.registry?.get?.('tiltSteerEnabled');
-    const tiltSwBg = this.add.rectangle(tiltAnchor, tiltY, swW, swH,
-      tiltOnInit ? 0x44CC88 : 0x444444, 1)
+    const MODE_ORDER = ['classic', 'tilt', 'flappy'];
+    const MODE_LABELS = { classic: 'CLASSIC', tilt: 'TILT', flappy: 'FLAPPY' };
+    const MODE_COLORS = { classic: 0x6688CC, tilt: 0x44CC88, flappy: 0xCC8844 };
+    const initMode = this._steeringMode();
+    const steerSwBg = this.add.rectangle(steerAnchor, steerY, steerSwW, steerSwH,
+      MODE_COLORS[initMode], 1)
       .setOrigin(1, 0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
       .setInteractive({ useHandCursor: true });
-    const tiltSwTxt = this.add.text(tiltAnchor - swW / 2, tiltY,
-      tiltOnInit ? 'ON' : 'OFF', {
+    const steerSwTxt = this.add.text(steerAnchor - steerSwW / 2, steerY,
+      MODE_LABELS[initMode], {
         fontSize: '16px', fontFamily: 'Impact, Arial Black, sans-serif',
         color: '#000000',
       }).setOrigin(0.5).setDepth(63).setVisible(false);
-    const refreshTilt = (on) => {
-      tiltSwBg.setFillStyle(on ? 0x44CC88 : 0x444444, 1);
-      tiltSwTxt.setText(on ? 'ON' : 'OFF');
+    this._refreshSteeringBtn = () => {
+      const m = this._steeringMode();
+      steerSwBg.setFillStyle(MODE_COLORS[m] ?? 0x444444, 1);
+      steerSwTxt.setText(MODE_LABELS[m] ?? m.toUpperCase());
     };
-    tiltSwBg.on('pointerdown', (ptr) => {
+    steerSwBg.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
-      const cur = !!this.registry?.get?.('tiltSteerEnabled');
-      if (!cur) {
-        // Synchronous call — preserves the iOS user-gesture context.
-        this._enableTiltSteer((res) => {
-          if (res === 'granted') {
-            this.registry?.set?.('tiltSteerEnabled', true);
-            refreshTilt(true);
-          } else if (res === 'denied') {
-            this._showPopup('TILT PERMISSION DENIED\nIs the page on HTTPS?', '#FF4444');
-          } else {
-            this._showPopup('TILT NOT SUPPORTED', '#FF4444');
-          }
-        });
-      } else {
-        this._disableTiltSteer();
-        this.registry?.set?.('tiltSteerEnabled', false);
-        refreshTilt(false);
-      }
+      const cur = this._steeringMode();
+      const next = MODE_ORDER[(MODE_ORDER.indexOf(cur) + 1) % MODE_ORDER.length];
+      this._setSteeringMode(next);
+      // For tilt the registry write happens inside the async permission
+      // callback; for classic/flappy it's already set, so refresh now.
+      if (next !== 'tilt') this._refreshSteeringBtn();
     });
-    this._pauseObjects.push(tiltLbl, tiltSwBg, tiltSwTxt);
+    this._pauseObjects.push(steerLbl, steerSwBg, steerSwTxt);
 
     this._hudObjects.push(this._pauseGfx, ...this._pauseObjects);
 
@@ -1026,13 +1021,58 @@ export class GameScene extends Phaser.Scene {
   _isLeftRaw()  { return this._touchLeft  || this._tiltLeftActive  || !!this.cursors?.left.isDown  || !!this.wasd?.left.isDown; }
   _isRightRaw() { return this._touchRight || this._tiltRightActive || !!this.cursors?.right.isDown || !!this.wasd?.right.isDown; }
 
+  /** Steering mode — 'classic' (default), 'tilt', or 'flappy'.
+   *  Persists in the registry.  Migrates the legacy `tiltSteerEnabled`
+   *  boolean so existing saves still have tilt steering if they had it. */
+  _steeringMode() {
+    let m = this.registry?.get?.('steeringMode');
+    if (!m) {
+      m = this.registry?.get?.('tiltSteerEnabled') ? 'tilt' : 'classic';
+      this.registry?.set?.('steeringMode', m);
+    }
+    return m;
+  }
+  _setSteeringMode(mode) {
+    const prev = this._steeringMode();
+    if (prev === mode) return;
+    if (mode === 'tilt') {
+      // Synchronous — preserves iOS user-gesture context.  Falls back to
+      // classic if permission is denied / unsupported.
+      this._enableTiltSteer?.((res) => {
+        if (res === 'granted') {
+          this.registry?.set?.('steeringMode', 'tilt');
+          this.registry?.set?.('tiltSteerEnabled', true);
+        } else {
+          this.registry?.set?.('steeringMode', 'classic');
+          this.registry?.set?.('tiltSteerEnabled', false);
+          this._showPopup?.(res === 'denied'
+            ? 'TILT PERMISSION DENIED'
+            : 'TILT NOT SUPPORTED', '#FF4444');
+        }
+        this._refreshSteeringBtn?.();
+      });
+      return;
+    }
+    if (prev === 'tilt') {
+      this._disableTiltSteer?.();
+      this.registry?.set?.('tiltSteerEnabled', false);
+    }
+    this.registry?.set?.('steeringMode', mode);
+  }
+
   /** Steering input with optional drunk-delay buffer.  When alcohol is
    *  above 75 %, the player gets occasional "lurches" — random windows
    *  (every 5-10 s) lasting 0.6-1.2 s during which their steering input
    *  is read from a stale frame (350-600 ms ago).  Outside a lurch the
    *  input passes through unchanged.  Below 75 % alcohol there's no
-   *  effect at all. */
-  _isLeft()  { return this._delayedSteer().left; }
+   *  effect at all.
+   *
+   *  Flappy mode: LEFT input is repurposed as "fire weapon", so the
+   *  steering path always sees left=false.  Right input is unchanged. */
+  _isLeft()  {
+    if (this._steeringMode() === 'flappy') return false;
+    return this._delayedSteer().left;
+  }
   _isRight() { return this._delayedSteer().right; }
 
   _delayedSteer() {
@@ -1321,6 +1361,15 @@ export class GameScene extends Phaser.Scene {
     if (this._touchCycleArmed) {
       this._touchCycleArmed = false;
       this._cycleWeapon();
+    }
+
+    // ── Flappy mode: LEFT input → fire selected weapon (edge-trigger) ──
+    if (this._steeringMode() === 'flappy') {
+      const leftNow = this._isLeftRaw();
+      if (leftNow && !this._prevLeftRawForFire) this._useTopF12?.();
+      this._prevLeftRawForFire = leftNow;
+    } else {
+      this._prevLeftRawForFire = false;
     }
 
     // ── Physics ───────────────────────────────────────────────────────
@@ -1923,8 +1972,17 @@ export class GameScene extends Phaser.Scene {
     if (_tractionOk) gripMul = 1;
     const slipMul = 1 + (1 - gripMul) * 1.5;   // 1.0 dry, ~1.15 rain, ~1.375 snow
 
+    // Flappy mode — constant leftward "gravity" pulls the car off-center
+    // unless the player holds right to counter.  Magnitude is ~60 % of
+    // TURN_SPEED so right input clearly wins when pressed but the pull
+    // becomes obvious within a second of release.
+    const flappyGravity = (this._steeringMode() === 'flappy')
+      ? -TURN_SPEED * 0.60
+      : 0;
+
     p.x += (
       p.steerVelocity  * dt * gripMul
+      + flappyGravity      * dt
       + phys.steerDrift   * dt
       + centrifugal        * dt * slipMul
       + phys.extraCurve    * p.speed * 0.001 * dt
