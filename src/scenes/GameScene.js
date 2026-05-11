@@ -2869,6 +2869,7 @@ export class GameScene extends Phaser.Scene {
     // buttons in a row, active one tinted yellow.  Resolved star count
     // is passed through to onConfirm so _startGameplay can seed it.
     let startStars = 0;
+    let refreshStarBtns = null;          // hoisted so checkboxes can repaint it
     if (mode === 'custom') {
       const starRowY  = panelY + panelH - 104;
       const starBtnW  = 28;
@@ -2879,7 +2880,7 @@ export class GameScene extends Phaser.Scene {
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0, 0.5).setDepth(D + 3);
       const starButtons = [];
-      const refreshStarBtns = () => {
+      refreshStarBtns = () => {
         starButtons.forEach((entry, i) => {
           const isOn = i === startStars;
           entry.bg.clear();
@@ -2950,7 +2951,15 @@ export class GameScene extends Phaser.Scene {
           cbState[key] = !cbState[key];
           drawBox(cbState[key]);
           if (key === 'noNpcDamage') noNpcDamage = cbState[key];
-          if (key === 'noPolice')    noPolice    = cbState[key];
+          if (key === 'noPolice') {
+            noPolice = cbState[key];
+            // Checking "No police" implicitly zeros wanted level — stars
+            // are meaningless when the police system is off entirely.
+            if (cbState[key]) {
+              startStars = 0;
+              refreshStarBtns?.();
+            }
+          }
         };
         box.on('pointerdown', (ptr) => {
           ptr.event?.stopPropagation?.();
@@ -4512,26 +4521,32 @@ export class GameScene extends Phaser.Scene {
       const tunnelLaneOffset = inTunnel ? clamp(laneOffset, -0.48, 0.48) : laneOffset;
       const proj = this.road.getVehicleProjection(relZ, tunnelLaneOffset);
       if (!proj || proj.sw < 2) return;
-      // Tire shadow — the surface contact point sampled from the road,
-      // not from where the sprite ended up.  An 8-bit darkening ellipse
-      // hides any minor sprite/road mismatch.
-      if (shadowG) {
-        const shW = proj.sw * 0.78;
-        const shH = Math.max(1.2, proj.sw * 0.10);
-        shadowG.fillStyle(0x000000, 0.32);
-        shadowG.fillEllipse(proj.sx, proj.sy - shH * 0.05, shW, shH);
-      }
-      if (used >= pool.length) return;
-      const s = pool[used++];
       const useTex = texKey || 'npc_car_white';
-      if (s.texture.key !== useTex) s.setTexture(useTex);
-      // Display size targeting proj.sw px wide (so width matches projection
-      // regardless of source-image dimensions).
       const tex = this.textures.get(useTex)?.source?.[0];
       const baseW = tex?.width  || 64;
       const baseH = tex?.height || 40;
       const targetW = proj.sw * (scaleHint ?? 1) * (inTunnel ? 0.88 : 1);
       const targetH = targetW * (baseH / baseW);
+      // Tire shadow — anchored to the visual BOTTOM of the car sprite
+      // (origin 0.5, 0.5 → bottom edge sits at proj.sy + targetH/2),
+      // then pulled in slightly so the shadow tucks under the wheels
+      // instead of floating below the bumper.  A second shadow is
+      // drawn at the ghost-car offset during double-vision so the
+      // ghost copy doesn't float without a shadow of its own.
+      if (shadowG) {
+        const shW = proj.sw * 0.78;
+        const shH = Math.max(1.2, proj.sw * 0.10);
+        const shY = proj.sy + targetH * 0.38;
+        shadowG.fillStyle(0x000000, 0.32);
+        shadowG.fillEllipse(proj.sx, shY, shW, shH);
+        if (ghostOffset > 0) {
+          shadowG.fillStyle(0x000000, 0.32 * ghostAlpha);
+          shadowG.fillEllipse(proj.sx + ghostOffset, shY, shW, shH);
+        }
+      }
+      if (used >= pool.length) return;
+      const s = pool[used++];
+      if (s.texture.key !== useTex) s.setTexture(useTex);
       // Unified world-space depth — all roadside sprites (buildings, trees,
       // cars, drugs) share the 7.0–9.5 band, mapped from z-distance so that
       // a *closer* sprite always paints over a *farther* one regardless of
