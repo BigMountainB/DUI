@@ -380,6 +380,26 @@ export class RestStopScene extends Phaser.Scene {
         payload: {},
       });
     }
+
+    // ── Quart of 710 Oil — +15 HP top-up.  "710" = "OIL" upside down. ──
+    const _vehMaxHp     = VEHICLES[this._vehicleId]?.hp ?? 100;
+    const _hpAtEntry    = this._durabilityAtEntry ?? _vehMaxHp;
+    const _hpAlreadyMax = _hpAtEntry >= _vehMaxHp;
+    if (_hpAlreadyMax) {
+      gasItems.push({
+        id: 'oil_710', label: '🛢  710 OIL',
+        cost: 0, desc: 'HP already maxed.',
+        payload: {},
+      });
+    } else {
+      gasItems.push({
+        id: 'oil_710', label: '🛢  ADD A QUART OF 710 OIL',
+        cost: 50,
+        desc: `+15 HP (capped at ${_vehMaxHp} max).`,
+        payload: { oil710: true },
+      });
+    }
+
     SECTIONS.gas.items = gasItems;
 
     // ── DEALER_CARS: build region-filtered vehicle catalog ──────────
@@ -939,6 +959,13 @@ export class RestStopScene extends Phaser.Scene {
       // Repair to 65% (rounded), but never DECREASE current durability.
       const target = 65;
       this._purchases.durabilityOnResume = Math.max(this._purchases.durabilityOnResume ?? 0, target);
+    }
+    if (p.oil710) {
+      // +15 HP, capped at the vehicle's max.  Stacks if bought multiple
+      // times in one stop.
+      const vehMax = VEHICLES[this._vehicleId]?.hp ?? 100;
+      const cur    = this._purchases.durabilityOnResume ?? this._durabilityAtEntry ?? vehMax;
+      this._purchases.durabilityOnResume = Math.min(vehMax, cur + 15);
     }
     if (p.tractionTires) {
       this._purchases.tractionTires = true;
