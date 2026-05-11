@@ -5623,11 +5623,13 @@ export class GameScene extends Phaser.Scene {
     const makeRoundedBtn = (cx, cy, w, h, fill, strokeColor, strokeW, baseAlpha, hoverFill, onTap, isActive) => {
       const r = Math.round(h * 0.20);     // ~20% rounding — clearly soft corners without looking pillish
       const g = this.add.graphics().setDepth(d + 10);
-      const draw = (alpha = baseAlpha, fc = fill) => {
+      // Draw signature accepts overrides for stroke too, so the active-
+      // panel highlight can swap to a thick yellow border per repaint.
+      const draw = (alpha = baseAlpha, fc = fill, sw = strokeW, sc = strokeColor) => {
         g.clear();
         g.fillStyle(fc, alpha);
         g.fillRoundedRect(cx, cy, w, h, r);
-        g.lineStyle(strokeW, strokeColor, 1);
+        g.lineStyle(sw, sc, 1);
         g.strokeRoundedRect(cx + 0.5, cy + 0.5, w - 1, h - 1, r);
       };
       draw();
@@ -5649,14 +5651,17 @@ export class GameScene extends Phaser.Scene {
     // persisted choice.
     this._wheelCursor = current;
     // Helper: paint every wheel panel based on the cursor position.
-    // Active panel gets the thick yellow stroke + ◀ marker.  Also pushes
-    // the cursor's blurb into the description line below the car.
+    // Active panel gets a thick yellow stroke (5 px) + the ◀ marker.
+    // Inactive panels get their own resting stroke color (white for the
+    // difficulty bars, grey for the SAVED GAME chip) at 2 px.
     const refreshWheel = () => {
       const cursor = this._wheelCursor;
       for (const id of Object.keys(this._titleWheelMap)) {
         const entry = this._titleWheelMap[id];
-        const isOn = id === cursor;
-        entry.bg._roundedBtnDraw?.(isOn ? 1.0 : 0.78, entry.fill);
+        const isOn  = id === cursor;
+        const sw    = isOn ? 5 : 2;
+        const sc    = isOn ? 0xFFEE00 : (entry.restStroke ?? 0xFFFFFF);
+        entry.bg._roundedBtnDraw?.(isOn ? 1.0 : 0.78, entry.fill, sw, sc);
         entry.marker?.setVisible(isOn);
       }
       const blurb = this._titlePanelInfo?.[cursor]?.blurb
@@ -5793,13 +5798,18 @@ export class GameScene extends Phaser.Scene {
       fontSize: '1px',
     }).setOrigin(0.5).setDepth(d + 10).setVisible(false);
 
-    // Title-screen icon row sits in the UPPER-LEFT corner — same slot
-    // as the in-game score multiplier (hudMult).  Order left→right:
-    // 🗺 MAP, 🚗 GARAGE, 🏆 TROPHY.  All three are 40×40 with 8px gap.
-    const ICON_BASE_X = 12;
-    const ICON_Y      = 12;
+    // Title-screen icon row sits JUST LEFT of the rear-view mirror
+    // (mirror is 260 px wide, centered: spans [SCREEN_W/2-130, SCREEN_W/2+130]).
+    // Order left→right: 🗺 MAP, 🚗 GARAGE, 🏆 TROPHY.  All 40×40 with
+    // 8 px gap.  Placing them here keeps the top-LEFT corner (where
+    // the score / multiplier / distance HUD lives) clear once gameplay
+    // starts.
     const ICON_SIZE   = 40;
     const ICON_GAP    = 8;
+    const ICON_ROW_W  = 3 * ICON_SIZE + 2 * ICON_GAP;
+    const MIRROR_LEFT = SCREEN_W / 2 - 130;
+    const ICON_BASE_X = MIRROR_LEFT - 12 - ICON_ROW_W;
+    const ICON_Y      = 12;
 
     // 🏆 Achievements button — last in the row.
     {
