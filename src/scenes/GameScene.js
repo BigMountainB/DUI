@@ -3675,6 +3675,16 @@ export class GameScene extends Phaser.Scene {
   _onCollect(sprite) {
     const type = sprite.collectibleType;
 
+    // Difficulty-tiered HP top-up — every pickup tops the player off a
+    // bit on easier modes.  Easy +1 HP, Normal +0.5 HP, Hard/Custom 0.
+    // cop_roadblock is excluded because it's a hazard collision, not a
+    // reward pickup.
+    if (type !== 'cop_roadblock') {
+      const mode = Difficulty.mode?.();
+      const hpBonus = mode === 'easy' ? 1 : mode === 'normal' ? 0.5 : 0;
+      if (hpBonus > 0) this.damage?.repair?.(hpBonus);
+    }
+
     if (type === 'hitchhiker') {
       this._hitchhikerPickup();
       return;
@@ -4115,6 +4125,10 @@ export class GameScene extends Phaser.Scene {
     const save      = this.registry.get('save');
     const tiers     = save?.get?.('checkpointTiers') ?? {};
     const allSaves  = save?.get?.('restStopSaves') ?? {};
+    // Custom mode is a sandbox — every checkpoint is tappable so the
+    // player can warp anywhere without grinding through the route on
+    // a scored difficulty first.
+    const inCustom  = Difficulty.mode?.() === 'custom';
     // Pre-index saves by stopId — newest-first — so each label can find
     // its target snapshot in O(1).
     const savesByStop = {};
@@ -4141,8 +4155,10 @@ export class GameScene extends Phaser.Scene {
       g.strokePath();
       const tier      = tiers[rs.id];
       const snapHere  = savesByStop[rs.id];
-      const tappable  = !!snapHere;
-      const labelCol  = TIER_HEX[tier] ?? (tappable ? '#DDEEFF' : '#778899');
+      const tappable  = !!snapHere || inCustom;
+      const labelCol  = inCustom
+        ? '#88FFCC'
+        : (TIER_HEX[tier] ?? (tappable ? '#DDEEFF' : '#778899'));
       const lbl = this.add.text(px, ly,
         rs.name.split(',')[0], {
         fontSize: '14px', fontFamily: IMPACT,
@@ -4152,12 +4168,17 @@ export class GameScene extends Phaser.Scene {
         lbl.setInteractive({ useHandCursor: true });
         lbl.on('pointerdown', (ptr) => {
           ptr.event?.stopPropagation?.();
-          // Restore difficulty the snapshot was saved under, then
-          // resume.  Close the modal first so the load doesn't fight
-          // the modal's input handlers.
           this._closeMapModal?.();
-          if (snapHere.difficulty) Difficulty.set(snapHere.difficulty, this.registry);
-          this._resumeFromSavedSnapshot?.(snapHere);
+          if (snapHere) {
+            // Real save — restore its difficulty + state.
+            if (snapHere.difficulty) Difficulty.set(snapHere.difficulty, this.registry);
+            this._resumeFromSavedSnapshot?.(snapHere);
+          } else if (inCustom) {
+            // Custom-mode sandbox warp — fresh start at that stop.
+            this.scene.start('Game', {
+              resumeFromStop: rs.id, resumeScore: 0, resumeStars: 0,
+            });
+          }
         });
       }
       this.cameras.main?.ignore?.(lbl);

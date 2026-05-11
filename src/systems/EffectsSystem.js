@@ -576,22 +576,20 @@ export class EffectsSystem {
         const nodCycleIdx = Math.floor(this.time * _nodFreq / (Math.PI * 2));
         if (nodCycleIdx !== this._lastNodCycleIdx) {
           this._lastNodCycleIdx = nodCycleIdx;
-          // Every 4th nod is a "full close" — eyelids slam shut.
-          this._fullCloseThisCycle = (nodCycleIdx % 4) === 3;
+          // Every 2nd nod is a "full close" — eyelids slam shut.
+          // (Doubled from every-4th per user — full closes hit 50% more
+          // often so the visual punctuation is more frequent.)
+          this._fullCloseThisCycle = (nodCycleIdx % 2) === 1;
         }
       }
-      // Heroin nod envelope drives a vignette swell on each nod peak —
-      // tunnel vision closing in as the head drops, opening back up as
-      // it lifts.  Continuous wave instead of discrete blackouts.
-      const heroBoost = (this._heroNodAmount ?? 0) * 0.85;
-      // Rx roulette tunnel pick adds a flat vignette bump.
+      // Heroin no longer contributes to the rectangular ring-vignette —
+      // the perimeter blobs below carry the entire heroin look, since
+      // the rectangle in the centre of the screen was reading as a UI
+      // artifact.  Fent/ket/rx/tranq still use the ring vignette.
       const rxTunnelBoost = (this._rxRoll === 3) ? 0.25 : 0;
-      // Tranq combo (hero + ket) deepens the vignette.
-      const tranqBoost = this._comboTranq ? 0.20 : 0;
-      // Fentanyl: bumped from × 1.2 → × 1.8 (50% darker rings, per user).
-      const vigStrength = clamp(
-        hero * 0.8 + fent * 1.8 + ketVig + heroBoost
-        + rxTunnelBoost + tranqBoost,
+      const tranqBoost    = this._comboTranq ? 0.20 : 0;
+      const vigStrength   = clamp(
+        fent * 1.8 + ketVig + rxTunnelBoost + tranqBoost,
         0, 1);
       if (vigStrength > 0.02) {
         this._drawVignette(this.vignetteGfx, vigStrength);
@@ -656,7 +654,9 @@ export class EffectsSystem {
         const nod           = this._heroNodAmount ?? 0;
         // Base radius scales with hero level + breathes with the nod.
         // Full-close cycle adds a big extra so the blobs slam shut.
-        const fullCloseBoost = this._fullCloseThisCycle ? 130 * nod : 0;
+        // Boost bumped from 130 → 195 (50% bigger blobs when fully
+        // closing) so the closed state really constricts the view.
+        const fullCloseBoost = this._fullCloseThisCycle ? 195 * nod : 0;
         const baseR = 70 + heroIntensity * 35 + nod * 75 + fullCloseBoost;
 
         // Perimeter blob count per side — top/bottom denser than sides
