@@ -423,7 +423,12 @@ export class RestStopScene extends Phaser.Scene {
     // charger (CarGo west-side stops); add to the gas tab so they
     // sit alongside refuel/charge.
     if (_isCharger) {
-      SECTIONS.gas.items = [...SECTIONS.gas.items, ...shopDrugItems('charge', _pickupCounts)];
+      // Dedupe against gas shop's own drugs — weed overlaps both pools
+      // and the user was seeing it listed twice at chargers.
+      const _alreadyListed = new Set(SECTIONS.gas.items.map(it => it.id));
+      const _chargeExtras  = shopDrugItems('charge', _pickupCounts)
+        .filter(it => !_alreadyListed.has(it.id));
+      SECTIONS.gas.items = [...SECTIONS.gas.items, ..._chargeExtras];
     }
 
     // ── Background — blue highway services sign ─────────────────────
