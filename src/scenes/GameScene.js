@@ -5574,29 +5574,28 @@ export class GameScene extends Phaser.Scene {
       color: '#88CCFF', stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(d + 10);
 
-    // Bottom-row buttons: [RESUME] [EASY] [NORMAL] [HARD] all sharing the
-    // same chip styling.  Tapping a difficulty selects + starts the run
-    // in one motion; Resume opens the code-entry prompt.  Currently-active
-    // difficulty is highlighted.
+    // Price-Is-Right style vertical "wheel" of difficulty panels stacked
+    // on the right side of the title screen.  Each panel is a bold
+    // colored bar with the mode name; the currently-selected mode has a
+    // thicker yellow stroke + a small ▶ pointer on the left edge.
+    // Up/Down arrow keys cycle the selection.  RESUME remains as a
+    // separate small chip at the bottom-left.
     const save = this.registry.get('save');
     const last = save?.get?.('lastRestStop');
     const modes = Difficulty.allModes();
     const current = Difficulty.mode();
 
-    // Five chips in a row: [RESUME] [EASY] [NORMAL] [HARD] [CUSTOM].
-    // Narrower than before so the chips don't span ~95% of the screen
-    // width — leaves visible road on either side of the row, and the
-    // blurb text wraps inside each chip via its existing wordWrap.
-    const btnW   = 118;
-    const btnH   = 72;     // taller to give a 2-3-line blurb room
+    const btnW   = 200;
+    const btnH   = 52;
     const gap    = 6;
-    const cols   = 2 + modes.length;          // Resume + Easy + Normal + Hard + Custom
-    const totalW = cols * btnW + (cols - 1) * gap;
-    const startX = (SCREEN_W - totalW) / 2;
-    // Lifted slightly so the taller (72-px) chips keep an 18-px bottom
-    // margin instead of crowding the screen edge.
-    const btnY   = SCREEN_H - 90;
+    // Stack: Easy, Normal, Hard, Custom (4 panels).
+    const allModeIds = [...modes.map(m => m.id), 'custom'];
+    const totalH = allModeIds.length * btnH + (allModeIds.length - 1) * gap;
+    const wheelX = SCREEN_W - btnW - 24;
+    const wheelTopY = (SCREEN_H - totalH) / 2 + 24;
+    const btnY   = SCREEN_H - 90;            // legacy ref — used by other code paths
     this._titleDifficultyBtns = [];
+    this._titleWheelMap = {};                // mode id → bg graphics, for repaints
 
     // Helper: rounded-rect button with hover + tap.  Returns the graphics
     // object so the caller can register it with the title-fade list.
@@ -5624,108 +5623,108 @@ export class GameScene extends Phaser.Scene {
       return g;
     };
 
-    // Resume button — leftmost, grey/black so it doesn't read as a
-    // difficulty.  Always shown; on first run with no saves, the prompt
-    // opens blank for entering a code.
-    {
-      const cx = startX;
+    // Helper: paint every wheel panel based on the live Difficulty.mode().
+    // Active mode gets a thick yellow stroke + a left-edge ▶ marker.
+    const refreshWheel = () => {
+      const live = Difficulty.mode();
+      for (const id of Object.keys(this._titleWheelMap)) {
+        const entry = this._titleWheelMap[id];
+        const isOn = id === live;
+        entry.bg._roundedBtnDraw?.(isOn ? 1.0 : 0.78, entry.fill);
+        entry.marker?.setVisible(isOn);
+      }
+    };
+    this._refreshDifficultyHighlights = refreshWheel;
+
+    // Bright Price-Is-Right colors per panel.
+    const PANEL_INFO = {
+      easy:   { fill: 0x33AA55, label: 'EASY',   blurb: 'No weather. Gentle cops.' },
+      normal: { fill: 0xDDAA22, label: 'NORMAL', blurb: 'Day/night + rain + snow.' },
+      hard:   { fill: 0xCC2244, label: 'HARD',   blurb: '×1.5 damage. +10% traffic.' },
+      custom: { fill: 0x2299CC, label: 'CUSTOM', blurb: 'Drag your own drug levels.' },
+    };
+
+    allModeIds.forEach((id, i) => {
+      const cy   = wheelTopY + i * (btnH + gap);
+      const info = PANEL_INFO[id] ?? { fill: 0x666666, label: id.toUpperCase(), blurb: '' };
+      const isActive = id === current;
+      const strokeColor = isActive ? 0xFFEE00 : 0xFFFFFF;
+      const strokeW     = isActive ? 5 : 2;
+      const baseAlpha   = isActive ? 1.0 : 0.78;
       const bg = makeRoundedBtn(
-        cx, btnY, btnW, btnH,
+        wheelX, cy, btnW, btnH,
+        info.fill, strokeColor, strokeW, baseAlpha, info.fill,
+        () => {
+          if (id === 'custom') {
+            this._buildDrugSliderModal({
+              mode: 'custom',
+              onConfirm: ({ drugLevels, noNpcDamage, noPolice }) => {
+                Difficulty.set('custom', this.registry);
+                this._customStartLevels = drugLevels;
+                this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
+                this._startGameplay();
+              },
+            });
+          } else {
+            Difficulty.set(id, this.registry);
+            refreshWheel();
+          }
+        },
+      );
+      bg.removeAllListeners('pointerout');
+      bg.on('pointerout', () => refreshWheel());
+
+      // ▶ left-edge selection marker — only visible on the active panel.
+      const marker = this.add.text(wheelX - 14, cy + btnH / 2, '▶', {
+        fontSize: '22px', fontFamily: 'Arial, sans-serif',
+        color: '#FFEE00', stroke: '#000', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(d + 11).setVisible(isActive);
+
+      const lbl = this.add.text(wheelX + btnW / 2, cy + 10, info.label, {
+        fontSize: '24px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
+        color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
+      }).setOrigin(0.5, 0).setDepth(d + 11);
+      const sub = this.add.text(wheelX + btnW / 2, cy + btnH - 14, info.blurb, {
+        fontSize: '10px', fontFamily: 'Arial, sans-serif', color: '#FFFFFF',
+        wordWrap: { width: btnW - 12 }, align: 'center',
+      }).setOrigin(0.5, 1).setDepth(d + 11);
+      this._titleDifficultyBtns.push(bg, marker, lbl, sub);
+      this._titleWheelMap[id] = { bg, marker, fill: info.fill };
+    });
+
+    // Up/Down arrow keys cycle the wheel selection.
+    if (!this._titleWheelKeysAttached) {
+      this._titleWheelKeysAttached = true;
+      const cycleWheel = (dir) => {
+        if (!this._awaitingStart) return;
+        const live = Difficulty.mode();
+        const idx  = Math.max(0, allModeIds.indexOf(live));
+        const next = allModeIds[(idx + dir + allModeIds.length) % allModeIds.length];
+        if (next === 'custom') return;          // custom requires the slider modal
+        Difficulty.set(next, this.registry);
+        refreshWheel();
+      };
+      this.input.keyboard?.on('keydown-UP',   () => cycleWheel(-1));
+      this.input.keyboard?.on('keydown-DOWN', () => cycleWheel(+1));
+    }
+
+    // RESUME chip — small, bottom-left, separate from the wheel.
+    {
+      const rW = 140, rH = 38;
+      const rX = 24;
+      const rY = SCREEN_H - rH - 24;
+      const bg = makeRoundedBtn(
+        rX, rY, rW, rH,
         0x222222, 0xAAAAAA, 2, 1.0, 0x333333,
         () => this._promptForCode(last?.code ?? ''),
       );
-      const lbl = this.add.text(cx + btnW / 2, btnY + 14, 'RESUME', {
-        fontSize: '18px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
+      const lbl = this.add.text(rX + rW / 2, rY + rH / 2, '▶ RESUME', {
+        fontSize: '16px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0.5, 0).setDepth(d + 11);
-      const sub = this.add.text(cx + btnW / 2, btnY + 36, 'Enter save code', {
-        fontSize: '9px', fontFamily: 'Arial, sans-serif', color: '#CCCCCC',
-        wordWrap: { width: btnW - 8 }, align: 'center',
-      }).setOrigin(0.5, 0).setDepth(d + 11);
+      }).setOrigin(0.5).setDepth(d + 11);
       this._titleResume    = bg;
       this._titleResumeTxt = lbl;
-      this._titleDifficultyBtns.push(bg, lbl, sub);
-    }
-
-    // Difficulty buttons — Easy / Normal / Hard.
-    modes.forEach((m, i) => {
-      const cx = startX + (i + 1) * (btnW + gap);
-      const isActive = m.id === current;
-      const fill   = m.id === 'easy'   ? 0x227755
-                   : m.id === 'normal' ? 0x886622
-                   :                     0x882222;
-      const baseAlpha = isActive ? 1.0 : 0.65;
-      const strokeW   = isActive ? 4 : 2;
-      const bg = makeRoundedBtn(
-        cx, btnY, btnW, btnH,
-        fill, 0xFFFFFF, strokeW, baseAlpha, fill,
-        () => {
-          // Tapping a difficulty button now ONLY selects it (the
-          // pointerout handler below re-renders the highlight).  Player
-          // must tap somewhere off-menu OR press Right / Space / Enter
-          // to actually launch the run.
-          Difficulty.set(m.id, this.registry);
-        },
-        isActive,
-      );
-      // Re-bind hover so the active highlight returns to baseAlpha (1.0)
-      // for the active mode and 0.65 for the inactive ones.
-      bg.removeAllListeners('pointerout');
-      bg.on('pointerout', () => {
-        const live = m.id === Difficulty.mode();
-        bg._roundedBtnDraw?.(live ? 1.0 : 0.65, fill);
-      });
-      const lbl = this.add.text(cx + btnW / 2, btnY + 14, m.label, {
-        fontSize: '18px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
-        color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0.5, 0).setDepth(d + 11);
-      const sub = this.add.text(cx + btnW / 2, btnY + 36, m.blurb, {
-        fontSize: '9px', fontFamily: 'Arial, sans-serif', color: '#FFEEAA',
-        wordWrap: { width: btnW - 8 }, align: 'center',
-      }).setOrigin(0.5, 0).setDepth(d + 11);
-      this._titleDifficultyBtns.push(bg, lbl, sub);
-    });
-
-    // CUSTOM button — peer of the difficulty buttons, on the far end of
-    // the row from RESUME.  Cyan fill so it visually distinguishes from
-    // the green/amber/red difficulty chips.
-    {
-      const isActiveC = current === 'custom';
-      const cx = startX + (1 + modes.length) * (btnW + gap);
-      const fillC = 0x227699;
-      const baseAlphaC = isActiveC ? 1.0 : 0.65;
-      const strokeWC   = isActiveC ? 4 : 2;
-      const cBg = makeRoundedBtn(
-        cx, btnY, btnW, btnH,
-        fillC, 0xFFFFFF, strokeWC, baseAlphaC, fillC,
-        () => {
-          this._buildDrugSliderModal({
-            mode: 'custom',
-            onConfirm: ({ drugLevels, noNpcDamage, noPolice }) => {
-              Difficulty.set('custom', this.registry);
-              this._customStartLevels = drugLevels;
-              this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
-              this._startGameplay();
-            },
-          });
-        },
-        isActiveC,
-      );
-      cBg.removeAllListeners('pointerout');
-      cBg.on('pointerout', () => {
-        const live = Difficulty.mode() === 'custom';
-        cBg._roundedBtnDraw?.(live ? 1.0 : 0.65, fillC);
-      });
-      const cLbl = this.add.text(cx + btnW / 2, btnY + 14, 'CUSTOM', {
-        fontSize: '18px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
-        color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0.5, 0).setDepth(d + 11);
-      const cSub = this.add.text(cx + btnW / 2, btnY + 36,
-        'Drag bars; no points awarded', {
-        fontSize: '9px', fontFamily: 'Arial, sans-serif', color: '#FFEEAA',
-        wordWrap: { width: btnW - 8 }, align: 'center',
-      }).setOrigin(0.5, 0).setDepth(d + 11);
-      this._titleDifficultyBtns.push(cBg, cLbl, cSub);
+      this._titleDifficultyBtns.push(bg, lbl);
     }
 
     // Stub _titleTap so the existing fade-out / hud-list code that
