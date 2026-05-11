@@ -139,6 +139,19 @@ export class DrugSystem {
         // until the 10-mi mark trips and the bar is force-reset to 0.
         if (id === DRUGS.WEED && weedPermastonedActive) continue;
         let decay = cfg.decayRate;
+        // Alcohol asymmetric decay — first 50 % of the bar sticks around
+        // (decay ×0.6) so it's easy to stay tipsy; above 50 % the body
+        // burns it off faster (decay ramps up to ×2.5 at full bar) so
+        // extreme drunkenness wears off quickly.  Net: easier to reach
+        // and maintain a buzz, harder to stay maxed.
+        if (id === DRUGS.ALCOHOL) {
+          if (level <= 0.5) {
+            decay *= 0.6;
+          } else {
+            const t = (level - 0.5) / 0.5;        // 0 at 50 %, 1 at 100 %
+            decay *= 0.6 + (2.5 - 0.6) * t;       // 0.6 → 2.5
+          }
+        }
         // Cocaine speeds up alcohol metabolism (~2× faster at full coke bar)
         if (id === DRUGS.ALCOHOL && cokeLevel > 0.1) {
           decay *= 1 + cokeLevel * 1.2;
