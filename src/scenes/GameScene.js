@@ -1379,32 +1379,10 @@ export class GameScene extends Phaser.Scene {
       // active (defaulting to Normal on first run).
       if (!this._anyKeyAttached) {
         this._anyKeyAttached = true;
-        // Dispatch the action implied by the current wheel cursor:
-        //   easy/normal/hard → start the run with that difficulty
-        //   custom           → open the drug-slider modal
-        //   saved            → open the save-code prompt
-        const fireCursor = () => {
-          if (!this._awaitingStart) return;
-          const cur = this._wheelCursor ?? Difficulty.mode();
-          if (cur === 'custom') {
-            this._buildDrugSliderModal({
-              mode: 'custom',
-              onConfirm: ({ drugLevels, noNpcDamage, noPolice, startStars }) => {
-                Difficulty.set('custom', this.registry);
-                this._customStartLevels = drugLevels;
-                this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
-                this._customStartStars = Math.max(0, Math.min(5, startStars ?? 0));
-                this._startGameplay();
-              },
-            });
-            return;
-          }
-          if (cur === 'saved') {
-            this._promptForCode(last?.code ?? '');
-            return;
-          }
-          this._startGameplay();
-        };
+        // Both the START button on the right and these handlers route
+        // through the same dispatcher (`this._fireTitleCursor`), set
+        // up when the title HUD is built.
+        const fireCursor = () => this._fireTitleCursor?.();
         this.input.keyboard?.once('keydown-ENTER', fireCursor);
         this.input.keyboard?.once('keydown-SPACE', fireCursor);
         this.input.keyboard?.once('keydown-RIGHT', fireCursor);
@@ -5987,6 +5965,57 @@ export class GameScene extends Phaser.Scene {
       this._titleResumeTxt = lbl;
       this._titleDifficultyBtns.push(bg, marker, lbl);
       this._titleWheelMap['saved'] = { bg, marker, fill: savedFill };
+    }
+
+    // Shared "fire the cursor" dispatcher — used by the BIG START
+    // button on the right side, the keyboard once-handlers in the
+    // title update loop, and the off-menu tap.  Decides what action
+    // the current wheel cursor implies.
+    this._fireTitleCursor = () => {
+      if (!this._awaitingStart) return;
+      const cur = this._wheelCursor ?? Difficulty.mode();
+      if (cur === 'custom') {
+        this._buildDrugSliderModal({
+          mode: 'custom',
+          onConfirm: ({ drugLevels, noNpcDamage, noPolice, startStars }) => {
+            Difficulty.set('custom', this.registry);
+            this._customStartLevels = drugLevels;
+            this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
+            this._customStartStars = Math.max(0, Math.min(5, startStars ?? 0));
+            this._startGameplay();
+          },
+        });
+        return;
+      }
+      if (cur === 'saved') {
+        this._promptForCode(last?.code ?? '');
+        return;
+      }
+      this._startGameplay();
+    };
+
+    // ── Big green START button — right side of title screen ─────────
+    // Sized 220 × 90, vertically centered on the right edge so it
+    // mirrors the wheel column on the left.  Tap = same as the
+    // off-menu tap or pressing Right / Space / Enter.  Visible only
+    // during awaitingStart and pushed into _titleDifficultyBtns so the
+    // existing show/hide flow handles it on gameplay start.
+    {
+      const startBtnW = 220;
+      const startBtnH = 90;
+      const startBtnX = SCREEN_W - startBtnW - 24;
+      const startBtnY = (SCREEN_H - startBtnH) / 2;
+      const startBg = makeRoundedBtn(
+        startBtnX, startBtnY, startBtnW, startBtnH,
+        0x2E9D4E, 0xFFFFFF, 4, 1.0, 0x44B560,
+        () => this._fireTitleCursor?.(),
+      );
+      const startLbl = this.add.text(startBtnX + startBtnW / 2, startBtnY + startBtnH / 2,
+        '▶ START', {
+          fontSize: '38px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
+          color: '#FFFFFF', stroke: '#000', strokeThickness: 5,
+        }).setOrigin(0.5).setDepth(d + 11);
+      this._titleDifficultyBtns.push(startBg, startLbl);
     }
 
     // Stub _titleTap so the existing fade-out / hud-list code that
