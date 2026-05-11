@@ -504,29 +504,29 @@ export class GameScene extends Phaser.Scene {
     );
     this._pauseObjects.push(startOverBtn.bg, startOverBtn.txt);
 
-    // ── Pause menu: 🗺 MAP and 🚗 GARAGE icon buttons ───────────────────
-    // Sit centered just above the START OVER / FROM CHECKPOINT row so the
-    // player can pop the route map or swap vehicles mid-run without
-    // having to leave to the title screen.
-    const iconRowY = buttonY - 56;
-    const iconSize = 40;
-    const iconGap  = 16;
-    const mapX     = SCREEN_W / 2 - iconSize - iconGap / 2;
-    const garX     = SCREEN_W / 2 + iconGap / 2;
+    // ── Pause menu: 🗺 MAP, 🚗 GARAGE, 🏆 ACHIEVEMENTS icon buttons ──────
+    // Sit on the SAME row as the steering picker (y=14) — three small
+    // icons left of the picker, all within the hudMult slot.  Bottom
+    // of the pause overlay is reserved for primary actions
+    // (START OVER / FROM CHECKPOINT).
+    const iconRowY = 0;           // top of icon — same baseline as picker
+    const iconSize = 28;
+    const iconGap  = 6;
+    const iconStartX = 10;
     const makeIconBtn = (px, glyph, onClick) => {
       const bg = this.add.graphics().setDepth(62).setVisible(false);
       const draw = (alpha = 1) => {
         bg.clear();
         bg.fillStyle(0x222222, alpha);
-        bg.fillRoundedRect(px, iconRowY, iconSize, iconSize, 8);
+        bg.fillRoundedRect(px, iconRowY, iconSize, iconSize, 6);
         bg.lineStyle(2, 0x66CCFF, 1);
-        bg.strokeRoundedRect(px + 0.5, iconRowY + 0.5, iconSize - 1, iconSize - 1, 8);
+        bg.strokeRoundedRect(px + 0.5, iconRowY + 0.5, iconSize - 1, iconSize - 1, 6);
       };
       draw(0.85);
       bg.setInteractive(new Phaser.Geom.Rectangle(px, iconRowY, iconSize, iconSize), Phaser.Geom.Rectangle.Contains);
       bg.input.cursor = 'pointer';
       const lbl = this.add.text(px + iconSize / 2, iconRowY + iconSize / 2, glyph, {
-        fontSize: '22px',
+        fontSize: '16px',
       }).setOrigin(0.5).setDepth(63).setVisible(false);
       bg.on('pointerover', () => draw(1));
       bg.on('pointerout',  () => draw(0.85));
@@ -536,9 +536,13 @@ export class GameScene extends Phaser.Scene {
       });
       return [bg, lbl];
     };
+    const mapX = iconStartX;
+    const garX = mapX + iconSize + iconGap;
+    const achX = garX + iconSize + iconGap;
     const [mapBg, mapLbl] = makeIconBtn(mapX, '🗺', () => this._buildMapModal());
     const [garBg, garLbl] = makeIconBtn(garX, '🚗', () => this._buildGarageModal());
-    this._pauseObjects.push(mapBg, mapLbl, garBg, garLbl);
+    const [achBg, achLbl] = makeIconBtn(achX, '🏆', () => this._buildAchievementsModal());
+    this._pauseObjects.push(mapBg, mapLbl, garBg, garLbl, achBg, achLbl);
 
     const checkpointBtn = this._buildPauseButton(
       SCREEN_W / 2 + 110, buttonY, 200, 38, 'FROM CHECKPOINT',
