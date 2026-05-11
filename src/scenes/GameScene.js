@@ -1346,29 +1346,42 @@ export class GameScene extends Phaser.Scene {
       // active (defaulting to Normal on first run).
       if (!this._anyKeyAttached) {
         this._anyKeyAttached = true;
-        this.input.keyboard?.once('keydown-ENTER', () => {
-          if (this._awaitingStart) this._startGameplay();
-        });
-        this.input.keyboard?.once('keydown-SPACE', () => {
-          if (this._awaitingStart) this._startGameplay();
-        });
-        // Right-arrow (the Tap-mode "action" key) also launches the run
-        // — matches the in-game control so the player doesn't have to
-        // learn two keys.
-        this.input.keyboard?.once('keydown-RIGHT', () => {
-          if (this._awaitingStart) this._startGameplay();
-        });
-        // Tap anywhere off-menu starts the run.  hitTestPointer returns
-        // all interactive game objects under the pointer; if it's empty
-        // the player tapped open road / sky / scenery, not a button.
+        // Dispatch the action implied by the current wheel cursor:
+        //   easy/normal/hard → start the run with that difficulty
+        //   custom           → open the drug-slider modal
+        //   saved            → open the save-code prompt
+        const fireCursor = () => {
+          if (!this._awaitingStart) return;
+          const cur = this._wheelCursor ?? Difficulty.mode();
+          if (cur === 'custom') {
+            this._buildDrugSliderModal({
+              mode: 'custom',
+              onConfirm: ({ drugLevels, noNpcDamage, noPolice }) => {
+                Difficulty.set('custom', this.registry);
+                this._customStartLevels = drugLevels;
+                this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
+                this._startGameplay();
+              },
+            });
+            return;
+          }
+          if (cur === 'saved') {
+            this._promptForCode(last?.code ?? '');
+            return;
+          }
+          this._startGameplay();
+        };
+        this.input.keyboard?.once('keydown-ENTER', fireCursor);
+        this.input.keyboard?.once('keydown-SPACE', fireCursor);
+        this.input.keyboard?.once('keydown-RIGHT', fireCursor);
+        // Tap anywhere off-menu fires the cursor's action.
         this.input.once('pointerdown', (ptr) => {
           if (!this._awaitingStart) return;
           const hits = this.input.hitTestPointer?.(ptr) ?? [];
           const onUI = hits.some(o => o?.input?.enabled);
-          if (!onUI) this._startGameplay();
+          if (!onUI) fireCursor();
           else {
-            // Re-arm: that tap was on a difficulty / resume / etc button.
-            // Wait for the NEXT pointerdown.
+            // That tap was on a wheel panel — re-arm for the NEXT tap.
             this._anyKeyAttached = false;
           }
         });
@@ -5630,13 +5643,18 @@ export class GameScene extends Phaser.Scene {
       return g;
     };
 
-    // Helper: paint every wheel panel based on the live Difficulty.mode().
-    // Active mode gets a thick yellow stroke + a left-edge ▶ marker.
+    // Wheel cursor — separate from Difficulty.mode() so arrows can scroll
+    // through Custom and Saved Game (which aren't difficulty modes per se).
+    // Defaults to the live difficulty so the first paint highlights the
+    // persisted choice.
+    this._wheelCursor = current;
+    // Helper: paint every wheel panel based on the cursor position.
+    // Active panel gets the thick yellow stroke + ◀ marker.
     const refreshWheel = () => {
-      const live = Difficulty.mode();
+      const cursor = this._wheelCursor;
       for (const id of Object.keys(this._titleWheelMap)) {
         const entry = this._titleWheelMap[id];
-        const isOn = id === live;
+        const isOn = id === cursor;
         entry.bg._roundedBtnDraw?.(isOn ? 1.0 : 0.78, entry.fill);
         entry.marker?.setVisible(isOn);
       }
@@ -5662,20 +5680,13 @@ export class GameScene extends Phaser.Scene {
         wheelX, cy, btnW, btnH,
         info.fill, strokeColor, strokeW, baseAlpha, info.fill,
         () => {
-          if (id === 'custom') {
-            this._buildDrugSliderModal({
-              mode: 'custom',
-              onConfirm: ({ drugLevels, noNpcDamage, noPolice }) => {
-                Difficulty.set('custom', this.registry);
-                this._customStartLevels = drugLevels;
-                this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
-                this._startGameplay();
-              },
-            });
-          } else {
-            Difficulty.set(id, this.registry);
-            refreshWheel();
-          }
+          // Tap moves the cursor (visual selection) to this panel.
+          // For Easy/Normal/Hard also persist the difficulty so the
+          // setting follows the highlight.  Custom + Saved Game are
+          // launched only when the player triggers START.
+          this._wheelCursor = id;
+          if (id !== 'custom') Difficulty.set(id, this.registry);
+          refreshWheel();
         },
       );
       bg.removeAllListeners('pointerout');
@@ -5700,16 +5711,21 @@ export class GameScene extends Phaser.Scene {
       this._titleWheelMap[id] = { bg, marker, fill: info.fill };
     });
 
-    // Up/Down arrow keys cycle the wheel selection.
+    // Up/Down arrow keys cycle the wheel cursor through all 5 panels
+    // (Easy / Normal / Hard / Custom / Saved Game).  The cursor just
+    // moves the highlight — actually launching the run is still done by
+    // pressing Right / Space / Enter, or tapping off-menu.
+    const allCursorIds = [...allModeIds, 'saved'];
     if (!this._titleWheelKeysAttached) {
       this._titleWheelKeysAttached = true;
       const cycleWheel = (dir) => {
         if (!this._awaitingStart) return;
-        const live = Difficulty.mode();
-        const idx  = Math.max(0, allModeIds.indexOf(live));
-        const next = allModeIds[(idx + dir + allModeIds.length) % allModeIds.length];
-        if (next === 'custom') return;          // custom requires the slider modal
-        Difficulty.set(next, this.registry);
+        const idx  = Math.max(0, allCursorIds.indexOf(this._wheelCursor));
+        const next = allCursorIds[(idx + dir + allCursorIds.length) % allCursorIds.length];
+        this._wheelCursor = next;
+        if (next !== 'custom' && next !== 'saved') {
+          Difficulty.set(next, this.registry);
+        }
         refreshWheel();
       };
       this.input.keyboard?.on('keydown-UP',   () => cycleWheel(-1));
@@ -5717,23 +5733,40 @@ export class GameScene extends Phaser.Scene {
     }
 
     // SAVED GAME chip — sits directly below the wheel on the left.
+    // Registered in the wheel map so the arrow-cycle and ◀ marker
+    // include it.  Tap → opens code prompt directly; cursor-then-START
+    // also opens the prompt.
     {
       const rW = btnW;                       // align with wheel width
       const rH = resumeH;
       const rX = wheelX;
       const rY = resumeY;
+      const savedFill = 0x222222;
+      const isActive  = this._wheelCursor === 'saved';
       const bg = makeRoundedBtn(
         rX, rY, rW, rH,
-        0x222222, 0xAAAAAA, 2, 1.0, 0x333333,
-        () => this._promptForCode(last?.code ?? ''),
+        savedFill, isActive ? 0xFFEE00 : 0xAAAAAA, isActive ? 5 : 2,
+        isActive ? 1.0 : 0.78, 0x333333,
+        () => {
+          this._wheelCursor = 'saved';
+          refreshWheel();
+          this._promptForCode(last?.code ?? '');
+        },
       );
+      bg.removeAllListeners('pointerout');
+      bg.on('pointerout', () => refreshWheel());
+      const marker = this.add.text(rX + rW + 14, rY + rH / 2, '◀', {
+        fontSize: '22px', fontFamily: 'Arial, sans-serif',
+        color: '#FFEE00', stroke: '#000', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(d + 11).setVisible(isActive);
       const lbl = this.add.text(rX + rW / 2, rY + rH / 2, '🔑 SAVED GAME', {
         fontSize: '16px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(d + 11);
       this._titleResume    = bg;
       this._titleResumeTxt = lbl;
-      this._titleDifficultyBtns.push(bg, lbl);
+      this._titleDifficultyBtns.push(bg, marker, lbl);
+      this._titleWheelMap['saved'] = { bg, marker, fill: savedFill };
     }
 
     // Stub _titleTap so the existing fade-out / hud-list code that
