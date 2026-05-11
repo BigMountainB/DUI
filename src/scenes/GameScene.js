@@ -1446,9 +1446,13 @@ export class GameScene extends Phaser.Scene {
       this.effects.triggerShake(60, phys.cameraTremor * 0.0008);
     }
 
-    this.gameTime += rawDt;
-    // Party clock — counts down until 0 regardless of pause-elsewhere.
-    if (this._partyClockSec > 0) this._partyClockSec = Math.max(0, this._partyClockSec - rawDt);
+    // Game time + party clock are paused while the run is in the
+    // pre-first-tap "ready" freeze — time starts ticking with the
+    // player's first input.
+    if (!this._awaitingFirstGameTap) {
+      this.gameTime += rawDt;
+      if (this._partyClockSec > 0) this._partyClockSec = Math.max(0, this._partyClockSec - rawDt);
+    }
 
     // ── One-shot key actions ──────────────────────────────────────────
     if ((this.keyF?.isDown && !this._f12KeyPressed) || this._touchF12) {
@@ -2214,10 +2218,11 @@ export class GameScene extends Phaser.Scene {
     // Combined effect: read 60 mph, cover ground as if at 150 mph.
     const lsdLvl = this.drugs?.get?.(DRUGS.LSD) ?? 0;
     const distMul = lsdLvl >= 0.90 ? 1.25 : 1.0;
-    // Crash i-frame freezes the world — speed pinned to zero so the
-    // road doesn't scroll while the player car blinks.  Position is
-    // not advanced; player resumes moving once the window expires.
-    if (_iframeActive) {
+    // Crash i-frame OR pre-first-tap "ready" state freezes the world
+    // — speed pinned to zero so the road doesn't scroll.  i-frame
+    // states also blink the sprite; the first-tap state does not.
+    const _frozen = _iframeActive || this._awaitingFirstGameTap;
+    if (_frozen) {
       p.speed = 0;
     } else {
       p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
@@ -7337,10 +7342,17 @@ export class GameScene extends Phaser.Scene {
 
   _startGameplay() {
     this._awaitingStart = false;
-    // Every run kicks off with the same 2.5-second i-frame as a
-    // respawn — sprite blinks, damage is absorbed, road is frozen —
-    // so the player has time to register that gameplay started.
-    this._invincibleUntil = (this.time?.now ?? 0) + 2500;
+    // Fresh runs begin in a "ready" state — the road is frozen, time
+    // and the party clock don't advance, and the player car sits at
+    // idle without any blink.  The NEXT user input (tap / Right /
+    // Space) flips the flag, the world starts scrolling, and gameTime
+    // begins counting from that moment.
+    this._awaitingFirstGameTap = true;
+    const fireFirstTap = () => { this._awaitingFirstGameTap = false; };
+    this.input.once('pointerdown', fireFirstTap);
+    this.input.keyboard?.once('keydown-RIGHT', fireFirstTap);
+    this.input.keyboard?.once('keydown-SPACE', fireFirstTap);
+    this.input.keyboard?.once('keydown-ENTER', fireFirstTap);
     // Custom mode — apply the slider levels chosen on the title screen.
     // Also unlock every drug at level > 0 so the bar renders properly.
     if (this._customStartLevels && this.drugs?.levels) {
