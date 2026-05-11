@@ -1862,9 +1862,13 @@ export class GameScene extends Phaser.Scene {
     if (region !== this._prevRegion) {
       this._prevRegion = region;
       this.cops.clearStarsAtStateLine();
+      const dropped  = this.cops._lastStateLineReduction ?? 2;
       const key      = REGION_ORDER[region]?.key ?? '';
       const display  = REGION_PALETTES[key]?.name ?? key.replace(/_/g, ' ');
-      this._showPopup(`NOW ENTERING\n${display.toUpperCase()}!\nStars −2`, '#44FF88');
+      const subtitle = dropped > 0
+        ? `Stars −${dropped}`
+        : '🚁 Chopper still on you — buy a paint job!';
+      this._showPopup(`NOW ENTERING\n${display.toUpperCase()}!\n${subtitle}`, '#44FF88');
     }
 
     // ── Explosions / wrecks / gunshot stars timer ─────────────────────

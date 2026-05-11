@@ -232,9 +232,19 @@ export class CopSystem {
   }
 
   clearStarsAtStateLine() {
-    this.stars         = Math.max(0, this.stars - 2);
+    // Graduated reduction based on current heat:
+    //   5★ → 0 (helicopter overhead keeps the pursuit live — town-
+    //          crossings don't help, only a paint job clears stars)
+    //   4★ → 1
+    //   3★ or less → 2 (legacy default)
+    const cur = this.stars;
+    const reduction = cur >= 4.5 ? 0
+                    : cur >= 3.5 ? 1
+                    :              2;
+    this._lastStateLineReduction = reduction;
+    this.stars         = Math.max(0, cur - reduction);
     this.starTimer     = 0;
-    this.cops          = [];
+    this.cops          = reduction > 0 ? [] : this.cops;   // keep chopper-era cops alive
     this.bumpCount     = 0;
     this.rearBumpCount = 0;
     this.headOnCount   = 0;
