@@ -961,8 +961,12 @@ export class RestStopScene extends Phaser.Scene {
       this._purchases.partyClockPenalty = (this._purchases.partyClockPenalty ?? 0) + 30;
     }
     if (p.campRepair) {
-      // Repair to 65% (rounded), but never DECREASE current durability.
-      const target = 65;
+      // Repair to 65 % of the CURRENT vehicle's max HP, not a flat 65
+      // points — otherwise low-HP cars (Beater = 50 max) get clamped to
+      // full when setDurability(65) caps against _max.  Never DECREASE
+      // current durability.
+      const vehMax = VEHICLES[this._vehicleId]?.hp ?? 100;
+      const target = Math.round(vehMax * 0.65);
       this._purchases.durabilityOnResume = Math.max(this._purchases.durabilityOnResume ?? 0, target);
     }
     if (p.oil710) {
