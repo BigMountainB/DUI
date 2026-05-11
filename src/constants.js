@@ -271,6 +271,11 @@ export const VEHICLES = {
     drive: '4x4', fuel: 'gas', heat: 0.95, priceUsd: 4500,
     sprite: 'car_player', tint: 0x4A6E3F,         // muted forest green
   },
+  usedTruck: {
+    id: 'usedTruck', label: 'Used Truck', hp: 90, rangeMi: 350, topMph: 117, boostMph: 0,
+    drive: '4x4', fuel: 'gas', heat: 1.00, priceUsd: 8000,
+    sprite: 'car_player', tint: 0x7A5236,         // weathered brown
+  },
   newTruck: {
     id: 'newTruck', label: 'New Truck', hp: 100, rangeMi: 400, topMph: 120, boostMph: 0,
     drive: '4x4', fuel: 'gas', heat: 1.10, priceUsd: 12000,

@@ -559,21 +559,26 @@ export class GameScene extends Phaser.Scene {
     );
     this._pauseObjects.push(checkpointBtn.bg, checkpointBtn.txt);
 
-    // Music volume slider — moved to the VERY TOP of the pause overlay,
-    // just below the always-visible HUD music row (y=8-52).  Centered
-    // horizontally, with the tilt switch right-aligned beside it.
-    const sliderY = 80;
-    this._pauseVolLabel = this.add.text(SCREEN_W / 2, sliderY - 22,
+    // Pause-only secondary controls — anchored to the score-multiplier
+    // slot (hudMult lives at x=120, y=14) so they reuse that real estate
+    // while the run is paused.  hudMult is hidden in _togglePause so
+    // there's no overlap.
+    const PAUSE_COL_X    = 120;
+    const PAUSE_STEER_Y  = 14;
+    const PAUSE_VOL_Y    = 50;
+    const PAUSE_SLIDER_Y = 70;
+    const sliderY = PAUSE_SLIDER_Y;
+    this._pauseVolLabel = this.add.text(PAUSE_COL_X, PAUSE_VOL_Y,
       `MUSIC VOLUME  ${Math.round((this.audio?.volume ?? 0.32) * 100)}%`, {
       fontSize: '12px', fontFamily: 'Impact, Arial Black, sans-serif',
       color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(62).setVisible(false);
+    }).setOrigin(0, 0.5).setDepth(62).setVisible(false);
     this._pauseObjects.push(this._pauseVolLabel);
 
     const sliderW = 220, sliderH = 14;
-    const sliderL = SCREEN_W / 2 - sliderW / 2;
-    const sliderTrack = this.add.rectangle(SCREEN_W / 2, sliderY, sliderW, sliderH, 0x222222, 1)
-      .setOrigin(0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
+    const sliderL = PAUSE_COL_X;
+    const sliderTrack = this.add.rectangle(sliderL, sliderY, sliderW, sliderH, 0x222222, 1)
+      .setOrigin(0, 0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
       .setInteractive({ useHandCursor: true });
     const sliderFill = this.add.rectangle(sliderL, sliderY, sliderW * (this.audio?.volume ?? 0.32), sliderH, 0x44CC88, 1)
       .setOrigin(0, 0.5).setDepth(63).setVisible(false);
@@ -590,30 +595,25 @@ export class GameScene extends Phaser.Scene {
     sliderTrack.on('pointermove', (ptr) => { if (ptr.isDown) setVolFromX(ptr.x); });
     this._pauseObjects.push(sliderTrack, sliderFill);
 
-    // ── Tilt steer toggle — sits JUST BELOW the mute button ─────────
-    // Mute button is right-aligned at SCREEN_W-123 (right edge), runs
-    // from y=8 to y=52 (44 px tall).  Tilt sits at y=72, right-aligned
-    // to the mute's right edge so the column reads cleanly.
-    // ── Steering mode picker (cycle Classic → Tilt → Flappy) ───────────
-    const steerY      = 72;
-    const steerAnchor = SCREEN_W - 123;   // mute button's right edge
+    // ── Steering mode picker — sits in the slot vacated by hudMult ─────
+    const steerY      = PAUSE_STEER_Y;
     const steerSwW    = 120;
     const steerSwH    = 28;
-    const steerLbl = this.add.text(steerAnchor - steerSwW - 10, steerY, 'STEERING', {
+    const steerLbl = this.add.text(PAUSE_COL_X + steerSwW + 8, steerY, 'STEERING', {
       fontSize: '15px', fontFamily: 'Impact, Arial Black, sans-serif',
       color: '#FFFFFF', stroke: '#000000', strokeThickness: 4,
-    }).setOrigin(1, 0.5).setDepth(62).setVisible(false);
+    }).setOrigin(0, 0.5).setDepth(62).setVisible(false);
     // 'flappy' shows as "TAP" in the picker — same internal key for save
     // compatibility, but more descriptive in the UI.
     const MODE_ORDER = ['flappy', 'classic', 'tilt'];
     const MODE_LABELS = { classic: 'CLASSIC', tilt: 'TILT', flappy: 'TAP' };
     const MODE_COLORS = { classic: 0x6688CC, tilt: 0x44CC88, flappy: 0xCC8844 };
     const initMode = this._steeringMode();
-    const steerSwBg = this.add.rectangle(steerAnchor, steerY, steerSwW, steerSwH,
+    const steerSwBg = this.add.rectangle(PAUSE_COL_X, steerY, steerSwW, steerSwH,
       MODE_COLORS[initMode], 1)
-      .setOrigin(1, 0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
+      .setOrigin(0, 0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
       .setInteractive({ useHandCursor: true });
-    const steerSwTxt = this.add.text(steerAnchor - steerSwW / 2, steerY,
+    const steerSwTxt = this.add.text(PAUSE_COL_X + steerSwW / 2, steerY,
       MODE_LABELS[initMode], {
         fontSize: '16px', fontFamily: 'Impact, Arial Black, sans-serif',
         color: '#000000',
@@ -3885,6 +3885,9 @@ export class GameScene extends Phaser.Scene {
     } else {
       this._pauseText?.setVisible?.(this._paused);
     }
+    // Score-multiplier ("combination") is hidden while paused so the
+    // pause controls sitting in its slot aren't crowded.
+    this.hudMult?.setVisible?.(!this._paused);
     // When un-pausing, also tear down any open map modal so its rest-stop
     // text labels (which sit at depth 63 above the HUD) don't linger over
     // gameplay.
