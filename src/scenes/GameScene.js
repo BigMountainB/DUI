@@ -5649,7 +5649,8 @@ export class GameScene extends Phaser.Scene {
     // persisted choice.
     this._wheelCursor = current;
     // Helper: paint every wheel panel based on the cursor position.
-    // Active panel gets the thick yellow stroke + ◀ marker.
+    // Active panel gets the thick yellow stroke + ◀ marker.  Also pushes
+    // the cursor's blurb into the description line below the car.
     const refreshWheel = () => {
       const cursor = this._wheelCursor;
       for (const id of Object.keys(this._titleWheelMap)) {
@@ -5658,16 +5659,33 @@ export class GameScene extends Phaser.Scene {
         entry.bg._roundedBtnDraw?.(isOn ? 1.0 : 0.78, entry.fill);
         entry.marker?.setVisible(isOn);
       }
+      const blurb = this._titlePanelInfo?.[cursor]?.blurb
+                 ?? (cursor === 'saved' ? 'Resume from save code' : '');
+      this._titleBlurbTxt?.setText(blurb);
     };
     this._refreshDifficultyHighlights = refreshWheel;
 
-    // Bright Price-Is-Right colors per panel.
+    // Bright Price-Is-Right colors per panel.  Blurb is shown in the
+    // difficulty-description line below the player car when the panel
+    // is the cursor selection.
     const PANEL_INFO = {
-      easy:   { fill: 0x33AA55, label: 'EASY',   blurb: 'No weather. Gentle cops.' },
-      normal: { fill: 0xDDAA22, label: 'NORMAL', blurb: 'Day/night + rain + snow.' },
-      hard:   { fill: 0xCC2244, label: 'HARD',   blurb: '×1.5 damage. +10% traffic.' },
+      easy:   { fill: 0x33AA55, label: 'EASY',   blurb: 'Less damage, cars, and cops.' },
+      normal: { fill: 0xDDAA22, label: 'NORMAL', blurb: 'Regular ass gameplay' },
+      hard:   { fill: 0xCC2244, label: 'HARD',   blurb: 'More damage, cars, and cops' },
       custom: { fill: 0x2299CC, label: 'CUSTOM', blurb: 'Drag your own drug levels.' },
     };
+
+    // Difficulty description line — sits below the player car (which is
+    // at SCREEN_H - 130) on the title screen.  Updates whenever the
+    // wheel cursor moves, via refreshWheel.
+    this._titleBlurbTxt = this.add.text(SCREEN_W / 2, SCREEN_H - 78,
+      PANEL_INFO[this._wheelCursor]?.blurb ?? '', {
+        fontSize: '15px', fontFamily: 'Arial, sans-serif',
+        color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
+        align: 'center',
+      }).setOrigin(0.5).setDepth(d + 11);
+    this._titleDifficultyBtns.push(this._titleBlurbTxt);
+    this._titlePanelInfo = PANEL_INFO;
 
     allModeIds.forEach((id, i) => {
       const cy   = wheelTopY + i * (btnH + gap);
@@ -5775,11 +5793,19 @@ export class GameScene extends Phaser.Scene {
       fontSize: '1px',
     }).setOrigin(0.5).setDepth(d + 10).setVisible(false);
 
-    // 🏆 Achievements button — top-right corner, opens the page modal.
+    // Title-screen icon row sits in the UPPER-LEFT corner — same slot
+    // as the in-game score multiplier (hudMult).  Order left→right:
+    // 🗺 MAP, 🚗 GARAGE, 🏆 TROPHY.  All three are 40×40 with 8px gap.
+    const ICON_BASE_X = 12;
+    const ICON_Y      = 12;
+    const ICON_SIZE   = 40;
+    const ICON_GAP    = 8;
+
+    // 🏆 Achievements button — last in the row.
     {
-      const aSize = 40;
-      const aX = SCREEN_W - 12 - aSize;
-      const aY = 12;
+      const aSize = ICON_SIZE;
+      const aX = ICON_BASE_X + 2 * (ICON_SIZE + ICON_GAP);
+      const aY = ICON_Y;
       const aBg = this.add.graphics().setDepth(d + 10);
       const drawA = (alpha = 1) => {
         aBg.clear();
@@ -5804,13 +5830,11 @@ export class GameScene extends Phaser.Scene {
       this._titleDifficultyBtns.push(aBg, aLbl);
     }
 
-    // 🚗 Garage button — sits LEFT of the trophy.  Opens the vehicle
-    // picker so the player can swap between owned cars before starting
-    // a new run.  Only meaningful when more than one car is owned.
+    // 🚗 Garage button — middle of the row.
     {
-      const gSize = 40;
-      const gX = SCREEN_W - 12 - 40 - 8 - gSize;
-      const gY = 12;
+      const gSize = ICON_SIZE;
+      const gX = ICON_BASE_X + 1 * (ICON_SIZE + ICON_GAP);
+      const gY = ICON_Y;
       const gBg = this.add.graphics().setDepth(d + 10);
       const drawG = (alpha = 1) => {
         gBg.clear();
@@ -5835,13 +5859,11 @@ export class GameScene extends Phaser.Scene {
       this._titleDifficultyBtns.push(gBg, gLbl);
     }
 
-    // 🗺 Map button — sits LEFT of the garage button.  Pops the route map
-    // modal centered on screen (rest-stop ticks + your current mile +
-    // the actual road shape integrated from routeGeo curves).
+    // 🗺 Map button — first (leftmost) icon in the row.
     {
-      const mSize = 40;
-      const mX = SCREEN_W - 12 - 40 - 8 - 40 - 8 - mSize;
-      const mY = 12;
+      const mSize = ICON_SIZE;
+      const mX = ICON_BASE_X;
+      const mY = ICON_Y;
       const mBg = this.add.graphics().setDepth(d + 10);
       const drawM = (alpha = 1) => {
         mBg.clear();
