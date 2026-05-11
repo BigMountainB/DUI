@@ -5595,7 +5595,7 @@ export class GameScene extends Phaser.Scene {
     // skipRight = SCREEN_W-219; midpoint of the two button columns is
     // ≈ SCREEN_W-217.  Tapping still cycles stations.
     this.hudRadio = this.add.text(SCREEN_W - 217, 56, 'CLASSIC ROCK', {
-      fontSize: '13px', fontFamily: IMPACT,
+      fontSize: '17px', fontFamily: IMPACT,
       color: '#5DD4FF', stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5, 0).setDepth(d).setInteractive({ useHandCursor: true });
     this.hudRadio.on('pointerdown', (ptr) => {
@@ -7439,11 +7439,17 @@ export class GameScene extends Phaser.Scene {
     // Space) flips the flag, the world starts scrolling, and gameTime
     // begins counting from that moment.
     this._awaitingFirstGameTap = true;
+    // Grace window — the START button's own pointerdown is currently
+    // mid-dispatch, so any once-listener attached now would fire for
+    // the same event and clear the flag immediately.  Delay listener
+    // attachment past the event tick so only the NEXT input clears it.
     const fireFirstTap = () => { this._awaitingFirstGameTap = false; };
-    this.input.once('pointerdown', fireFirstTap);
-    this.input.keyboard?.once('keydown-RIGHT', fireFirstTap);
-    this.input.keyboard?.once('keydown-SPACE', fireFirstTap);
-    this.input.keyboard?.once('keydown-ENTER', fireFirstTap);
+    this.time.delayedCall(180, () => {
+      this.input.once('pointerdown', fireFirstTap);
+      this.input.keyboard?.once('keydown-RIGHT', fireFirstTap);
+      this.input.keyboard?.once('keydown-SPACE', fireFirstTap);
+      this.input.keyboard?.once('keydown-ENTER', fireFirstTap);
+    });
     // Custom mode — apply the slider levels chosen on the title screen.
     // Also unlock every drug at level > 0 so the bar renders properly.
     if (this._customStartLevels && this.drugs?.levels) {
