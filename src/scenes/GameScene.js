@@ -3675,11 +3675,11 @@ export class GameScene extends Phaser.Scene {
   _onCollect(sprite) {
     const type = sprite.collectibleType;
 
-    // Difficulty-tiered HP top-up — every pickup tops the player off a
-    // bit on easier modes.  Easy +1 HP, Normal +0.5 HP, Hard/Custom 0.
-    // cop_roadblock is excluded because it's a hazard collision, not a
-    // reward pickup.
-    if (type !== 'cop_roadblock') {
+    // Difficulty-tiered HP top-up on DRUG pickups only — Easy +1,
+    // Normal +0.5, Hard/Custom 0.  Weapons (F12), hitchhikers, and
+    // cop-roadblocks are excluded so the heal stays tied to the
+    // "indulgence rewards" loop, not every roadside collectible.
+    if (type === 'drug') {
       const mode = Difficulty.mode?.();
       const hpBonus = mode === 'easy' ? 1 : mode === 'normal' ? 0.5 : 0;
       if (hpBonus > 0) this.damage?.repair?.(hpBonus);
