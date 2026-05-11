@@ -1037,6 +1037,10 @@ export class GameScene extends Phaser.Scene {
   _setSteeringMode(mode) {
     const prev = this._steeringMode();
     if (prev === mode) return;
+    // Push the new mode into SaveSystem so subsequent get/set hit the
+    // right per-mode profile (wallet, restStopSaves, etc).  Achievements
+    // stay cross-mode since SaveSystem flags them as global.
+    const save = this.registry?.get?.('save');
     if (mode === 'tilt') {
       // Synchronous — preserves iOS user-gesture context.  Falls back to
       // classic if permission is denied / unsupported.
@@ -1044,9 +1048,11 @@ export class GameScene extends Phaser.Scene {
         if (res === 'granted') {
           this.registry?.set?.('steeringMode', 'tilt');
           this.registry?.set?.('tiltSteerEnabled', true);
+          save?.setMode?.('tilt');
         } else {
           this.registry?.set?.('steeringMode', 'classic');
           this.registry?.set?.('tiltSteerEnabled', false);
+          save?.setMode?.('classic');
           this._showPopup?.(res === 'denied'
             ? 'TILT PERMISSION DENIED'
             : 'TILT NOT SUPPORTED', '#FF4444');
@@ -1060,6 +1066,7 @@ export class GameScene extends Phaser.Scene {
       this.registry?.set?.('tiltSteerEnabled', false);
     }
     this.registry?.set?.('steeringMode', mode);
+    save?.setMode?.(mode);
   }
 
   /** Steering input with optional drunk-delay buffer.  When alcohol is

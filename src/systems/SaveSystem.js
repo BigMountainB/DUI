@@ -1,64 +1,141 @@
-const STORAGE_KEY = 'dui.save.v1';
-const SCHEMA_VERSION = 1;
+const STORAGE_KEY    = 'dui.save.v2';
+const SCHEMA_VERSION = 2;
+
+// Keys whose first segment routes to the cross-mode GLOBAL section
+// instead of the active per-mode profile.  Per user direction:
+// achievements (incl. "beat the others" cross-mode badges) are global;
+// audio/mute settings travel with the user, not the mode.  Everything
+// else (money, restStopSaves, lastRestStop, missionProgress, drug
+// inventory, owned cars) lives in the per-mode profile.
+const GLOBAL_KEYS = new Set(['achievements', 'settings']);
+
+const VALID_MODES = ['tap', 'classic', 'tilt'];
 
 const DEFAULT_PROFILE = {
-  version: SCHEMA_VERSION,
-  money: 0,
-  ownedCars: ['beater'],
-  currentCar: 'beater',
-  drugInventory: {},
+  money:           0,
+  ownedCars:       ['beater'],
+  currentCar:      'beater',
+  drugInventory:   {},
   missionProgress: 0,
-  settings: {
-    muted: false,
-    radio: 0,
-  },
+  lastRestStop:    null,
+  restStopSaves:   {},
 };
+
+const DEFAULT_GLOBAL = {
+  achievements: {},
+  settings:     { muted: false, radio: 0 },
+};
+
+function emptyData() {
+  return {
+    version:  SCHEMA_VERSION,
+    global:   structuredClone(DEFAULT_GLOBAL),
+    profiles: Object.fromEntries(VALID_MODES.map(m => [m, structuredClone(DEFAULT_PROFILE)])),
+  };
+}
 
 export class SaveSystem {
   constructor() {
-    this.profile = this._load();
+    this._mode = 'tap';                  // default; GameScene re-sets after _steeringMode() loads
+    this.data  = this._load();
+  }
+
+  /** Switch the active profile.  Call this whenever the player's
+   *  steering mode changes.  Subsequent save/load operations read &
+   *  write that profile's slot. */
+  setMode(mode) {
+    if (!VALID_MODES.includes(mode)) return;
+    this._mode = mode;
+  }
+
+  /** The active per-mode profile.  Wallet reads/writes `.money` on
+   *  this object directly, so it has to stay a live reference, not a
+   *  copy. */
+  get profile() {
+    if (!this.data.profiles[this._mode]) {
+      this.data.profiles[this._mode] = structuredClone(DEFAULT_PROFILE);
+    }
+    return this.data.profiles[this._mode];
   }
 
   _load() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return structuredClone(DEFAULT_PROFILE);
-      const data = JSON.parse(raw);
-      return this._migrate(data);
+      const rawV2 = localStorage.getItem(STORAGE_KEY);
+      if (rawV2) return this._migrate(JSON.parse(rawV2));
+      // v1 single-profile save (pre-mode-split) — promote it to the
+      // 'tap' profile and keep achievements/settings global.
+      const rawV1 = localStorage.getItem('dui.save.v1');
+      if (rawV1) return this._migrateV1(JSON.parse(rawV1));
+      return emptyData();
     } catch (e) {
       console.warn('[SaveSystem] load failed, using defaults:', e);
-      return structuredClone(DEFAULT_PROFILE);
+      return emptyData();
     }
   }
 
   _migrate(data) {
-    if (!data || typeof data !== 'object') return structuredClone(DEFAULT_PROFILE);
-    if (data.version === SCHEMA_VERSION) {
-      return { ...structuredClone(DEFAULT_PROFILE), ...data };
+    if (!data || typeof data !== 'object') return emptyData();
+    if (data.version !== SCHEMA_VERSION) return emptyData();
+    // Backfill any missing profile slots / global keys against the
+    // current defaults so additive future changes don't crash on load.
+    const out = emptyData();
+    out.global = { ...out.global, ...(data.global ?? {}) };
+    for (const m of VALID_MODES) {
+      out.profiles[m] = { ...out.profiles[m], ...(data.profiles?.[m] ?? {}) };
     }
-    return structuredClone(DEFAULT_PROFILE);
+    return out;
+  }
+
+  _migrateV1(v1) {
+    const out = emptyData();
+    if (v1?.achievements) out.global.achievements = v1.achievements;
+    if (v1?.settings)     out.global.settings     = { ...out.global.settings, ...v1.settings };
+    out.profiles.tap = {
+      ...out.profiles.tap,
+      money:           v1?.money ?? 0,
+      ownedCars:       v1?.ownedCars ?? ['beater'],
+      currentCar:      v1?.currentCar ?? 'beater',
+      drugInventory:   v1?.drugInventory ?? {},
+      missionProgress: v1?.missionProgress ?? 0,
+      lastRestStop:    v1?.lastRestStop ?? null,
+      restStopSaves:   v1?.restStopSaves ?? {},
+    };
+    return out;
   }
 
   save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.profile));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
     } catch (e) {
       console.warn('[SaveSystem] save failed:', e);
     }
   }
 
+  /** Clear ALL profiles + global state.  Used by debug "wipe save". */
   reset() {
-    this.profile = structuredClone(DEFAULT_PROFILE);
+    this.data = emptyData();
+    this.save();
+  }
+
+  /** Clear ONLY the active profile (keep global achievements/settings
+   *  and the other modes' progress).  Used by per-mode "start over". */
+  resetProfile() {
+    this.data.profiles[this._mode] = structuredClone(DEFAULT_PROFILE);
     this.save();
   }
 
   hasSave() {
-    return localStorage.getItem(STORAGE_KEY) !== null;
+    return localStorage.getItem(STORAGE_KEY) !== null
+        || localStorage.getItem('dui.save.v1') !== null;
+  }
+
+  _rootFor(firstSeg) {
+    return GLOBAL_KEYS.has(firstSeg) ? this.data.global : this.profile;
   }
 
   get(path, fallback = undefined) {
     const parts = path.split('.');
-    let cur = this.profile;
+    let cur = this._rootFor(parts[0]);
     for (const p of parts) {
       if (cur == null) return fallback;
       cur = cur[p];
@@ -68,7 +145,7 @@ export class SaveSystem {
 
   set(path, value) {
     const parts = path.split('.');
-    let cur = this.profile;
+    let cur = this._rootFor(parts[0]);
     for (let i = 0; i < parts.length - 1; i++) {
       const p = parts[i];
       if (cur[p] == null || typeof cur[p] !== 'object') cur[p] = {};

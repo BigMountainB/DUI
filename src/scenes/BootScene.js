@@ -72,7 +72,14 @@ export class BootScene extends Phaser.Scene {
     // BodyShop / TimeOfDay / MissionManager were here previously but
     // never read by any scene — vestigial from the abandoned hub-mode
     // design.  Removed in cleanup pass.)
-    const save   = new SaveSystem();
+    const save = new SaveSystem();
+    // Align save profile with the user's current steering-mode pick BEFORE
+    // Wallet reads `save.profile.money` — otherwise Wallet binds to the
+    // default 'tap' profile, then any mode change leaves Wallet pointing
+    // at the wrong slot.
+    const mode = this.registry?.get?.('steeringMode')
+              ?? (this.registry?.get?.('tiltSteerEnabled') ? 'tilt' : 'tap');
+    save.setMode(mode);
     const wallet = new Wallet(save);
 
     this.registry.set('audio',        new AudioSystem());
