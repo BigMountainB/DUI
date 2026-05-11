@@ -924,16 +924,18 @@ export class GameScene extends Phaser.Scene {
       // HUD drug bars (custom mode) — let the bar drag handler own
       // this pointer without also veering the car.
       if (overDrugBar(p)) return;
-      // Top-right UI cluster (note/mute/pause/speed) + right-edge
-      // weapon stack — never steer when tapping those zones.
+      // Top-right UI cluster + right-edge weapon stack — initial tap
+      // must NOT start on these zones (so buttons work), but once a
+      // valid steer-tap has started, the player can drag across them.
       const overTopButtons = p.y < 60 && p.x > SCREEN_W - 230;
       const overWeaponCol  = p.x > SCREEN_W - 70 && p.y > 50;
       if (overTopButtons || overWeaponCol) return;
-      // Tap mode: one direction of action.  ANY tap that wasn't on a
-      // UI element counts as "go right" — no need to aim for the right
-      // half on a phone screen.
+      // Tap mode: ANY tap in the play area = action.  Latch sticky —
+      // once on, stays on until pointerup, regardless of where the
+      // finger drags afterward.
       if (this._steeringMode() === 'flappy') {
         this._touchRight = true;
+        this._tapLatchValid = true;
         return;
       }
       // Classic mode keeps the explicit left/right halves + center-tap
@@ -941,11 +943,13 @@ export class GameScene extends Phaser.Scene {
       if (p.x < SCREEN_W * 0.30)      { this._touchLeft  = true; }
       else if (p.x > SCREEN_W * 0.70) { this._touchRight = true; }
       else if (p.y < SCREEN_H * 0.35) { this._touchF12   = true; }
+      this._tapLatchValid = (this._touchLeft || this._touchRight);
     });
     this.input.on('pointerup', () => {
       this._touchLeft  = false;
       this._touchRight = false;
       this._touchF12   = false;
+      this._tapLatchValid = false;
     });
     this.input.on('pointermove', (p) => {
       if (this._modalOpen) return;
@@ -955,22 +959,16 @@ export class GameScene extends Phaser.Scene {
         this._touchLeft = this._touchRight = false;
         return;
       }
-      if (p.y > PEDAL_BAND_TOP) {
-        // Drag entered pedal area — release any active steer latch so
-        // the car doesn't keep turning when the finger crosses down.
-        this._touchLeft = this._touchRight = false;
-        return;
-      }
-      const overTopButtons = p.y < 60 && p.x > SCREEN_W - 230;
-      const overWeaponCol  = p.x > SCREEN_W - 70 && p.y > 50;
-      if (overTopButtons || overWeaponCol) {
-        this._touchLeft = this._touchRight = false;
-        return;
-      }
-      // Tap mode: hold = action; move within the play area stays held.
+      // Tap mode: if the touch started in a valid area, KEEP the
+      // steer engaged no matter where the finger moves now — including
+      // over UI clusters, pedals, edges.  Released only on pointerup.
       if (this._steeringMode() === 'flappy') {
-        this._touchRight = true;
-        this._touchLeft  = false;
+        if (this._tapLatchValid) this._touchRight = true;
+        return;
+      }
+      // Classic mode — position-tracked left/right zones during drag.
+      if (p.y > PEDAL_BAND_TOP) {
+        this._touchLeft = this._touchRight = false;
         return;
       }
       this._touchLeft  = p.x < SCREEN_W * 0.30;
