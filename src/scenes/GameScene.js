@@ -419,6 +419,10 @@ export class GameScene extends Phaser.Scene {
     this.lastSegIdx      = 0;
     this.popupTimer      = 0;
     this.explosions      = [];
+    // ms-timestamp until which the player is invulnerable after a
+    // scenery crash (tree / building / barrier).  During this window the
+    // sprite blinks and _applyDamage is no-op.
+    this._invincibleUntil = 0;
     this.traffic         = [];
     this._trafficTimer   = 0;
     this._prevRegion     = 0;
@@ -2128,6 +2132,15 @@ export class GameScene extends Phaser.Scene {
       this.playerSprite.setDisplaySize(DEFAULT_W, DEFAULT_H);
       this.playerSprite.x = p.screenX;
       this.playerSprite.angle = leanDir * 6;
+      // Crash i-frame blink — 7 Hz alpha toggle so the player can see
+      // they're temporarily invulnerable.  Outside the window keep the
+      // sprite fully opaque (other systems don't touch alpha).
+      const _now = this.time?.now ?? 0;
+      if (_now < this._invincibleUntil) {
+        this.playerSprite.alpha = (Math.floor(_now / 140) & 1) ? 0.25 : 1.0;
+      } else if (this.playerSprite.alpha !== 1) {
+        this.playerSprite.alpha = 1;
+      }
     }
   }
 
@@ -2358,6 +2371,39 @@ export class GameScene extends Phaser.Scene {
         if (proj.sy > carBot + 24) continue;  // pickup already past below
         sp.collected = true;
         this._onCollect(sp);
+      }
+    }
+
+    // ── Scenery collisions (trees, buildings, houses) ────────────────
+    // When the player drifts off-road and bumps into a roadside fixture,
+    // it counts as a "structural" crash: explosion, big damage, reset to
+    // the road centre with 4-second i-frames so the player can recover.
+    // Only fires if NOT already in the invincibility window — so each
+    // crash spawns one explosion, not a chain reaction.
+    const _now = this.time?.now ?? 0;
+    if (_now >= this._invincibleUntil && Math.abs(p.x) > 0.95) {
+      const SCENERY_TYPES = new Set(['tree', 'building', 'house', 'shrub', 'landmark']);
+      let _scenicHit = false;
+      for (let di = 0; di <= 4 && !_scenicHit; di++) {
+        const idx = (segIdx + di) % this.road.segments.length;
+        const seg = this.road.segments[idx];
+        if (!seg?.sprites) continue;
+        for (const sp of seg.sprites) {
+          if (!SCENERY_TYPES.has(sp.type)) continue;
+          if (sp.collected) continue;
+          // Match sign: only check sprites on the side the player is on.
+          if ((sp.offset > 0) !== (p.x > 0)) continue;
+          const dX = Math.abs(sp.offset - p.x);
+          if (dX > 0.35) continue;            // ~1/3 lane wide hitbox
+          const relZ = di * SEG_LENGTH + SEG_LENGTH / 2;
+          const proj = this.road.getVehicleProjection(relZ, sp.offset);
+          if (!proj) continue;
+          if (proj.sy < carTop - 6)  continue;
+          if (proj.sy > carBot + 24) continue;
+          _scenicHit = true;
+          this._triggerSceneryRespawn(proj);
+          break;
+        }
       }
     }
 
@@ -3212,6 +3258,9 @@ export class GameScene extends Phaser.Scene {
 
   _applyDamage(amount, source) {
     if (!this.damage) return;
+    // Crash i-frames — silently absorb any incoming damage (collision or
+    // offroad bleed alike) until the invincibility window expires.
+    if ((this.time?.now ?? 0) < this._invincibleUntil) return;
     const drugs = this.drugs;
     const isCollision = source && source !== 'offroad_bleed';
 
@@ -3524,6 +3573,30 @@ export class GameScene extends Phaser.Scene {
 
   _spawnExplosion(sx, sy, sw) {
     this.explosions.push({ sx, sy, sw: Math.max(sw, 18), timer: 0, maxTimer: 0.55 });
+  }
+
+  /** Scenery crash response: explosion at impact point, big HP hit,
+   *  car snapped back to road centre, then 4-second i-frames so the
+   *  player can recover.  During the i-frame window the playerSprite
+   *  blinks (see _renderVehicles) and _applyDamage is no-op, so
+   *  Tap-mode players who let the car drift into a tree can survive a
+   *  few impacts before HP runs out instead of being instantly stuck
+   *  in a collide-loop. */
+  _triggerSceneryRespawn(proj) {
+    const sx = proj?.sx ?? (this.playerSprite?.x ?? SCREEN_W / 2);
+    const sy = proj?.sy ?? (this.playerSprite?.y ?? SCREEN_H - 130);
+    const sw = proj?.sw ?? 80;
+    this._spawnExplosion(sx, sy, sw);
+    // Damage BEFORE setting the invincibility window so this hit still
+    // counts (otherwise the new gate in _applyDamage would absorb it).
+    this._applyDamage(20, 'scenery_crash');
+    // Snap back to road centre + halve speed so the player isn't
+    // immediately re-clipping the same tree at full velocity.
+    this.player.x        = 0;
+    this.player.speed   *= 0.5;
+    this.player.steerVelocity = 0;
+    this._invincibleUntil = (this.time?.now ?? 0) + 4000;
+    this._showPopup?.('💥 CRASH — recover!', '#FF4444');
   }
 
   _onCollect(sprite) {
