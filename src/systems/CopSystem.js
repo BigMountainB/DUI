@@ -244,7 +244,14 @@ export class CopSystem {
     this._lastStateLineReduction = reduction;
     this.stars         = Math.max(0, cur - reduction);
     this.starTimer     = 0;
-    this.cops          = reduction > 0 ? [] : this.cops;   // keep chopper-era cops alive
+    // Active cop chases are NOT wiped on a town crossing — the chase
+    // persists.  The only exception: SWAT vans require 4★+ to spawn,
+    // so if the post-reduction heat dropped below that threshold, any
+    // SWAT vans currently in play disappear (they wouldn't be on the
+    // road at this lower wanted level).  Regular police keep chasing.
+    if (this.stars < 3.5) {
+      this.cops = this.cops.filter(c => c.colorSet !== 'swat');
+    }
     this.bumpCount     = 0;
     this.rearBumpCount = 0;
     this.headOnCount   = 0;
