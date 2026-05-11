@@ -5502,16 +5502,13 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(d + 10);
     }
 
-    // Plot blurb — set the stakes for the run.
-    this._titleSub = this.add.text(SCREEN_W / 2, SCREEN_H * 0.50,
-      "Hottie invited you to a party.\nRe-up and speed up.\nDon't get arrested, don't O.D., and\nDON'T BE LATE!", {
-      fontSize: '13px', fontFamily: 'Arial, sans-serif', align: 'center',
-      color: '#FFCC44', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(d + 10);
+    // (Plot blurb intentionally absent — the previous "Hottie" version is
+    //  retired, replaced by a court-date angle to be authored separately.)
+    this._titleSub = null;
 
-    this._titleRoute = this.add.text(SCREEN_W / 2, SCREEN_H * 0.62, 'Seattle  →  Pullman', {
-      fontSize: '14px', fontFamily: 'Arial Black, Arial, sans-serif',
-      color: '#88CCFF', stroke: '#FFFFFF', strokeThickness: 3,
+    this._titleRoute = this.add.text(SCREEN_W / 2, SCREEN_H * 0.55, 'Seattle  →  Pullman', {
+      fontSize: '17px', fontFamily: 'Arial, sans-serif', align: 'center',
+      color: '#88CCFF', stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(d + 10);
 
     // Bottom-row buttons: [RESUME] [EASY] [NORMAL] [HARD] all sharing the
