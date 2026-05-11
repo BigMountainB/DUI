@@ -30,9 +30,12 @@ export const ASSET_MANIFEST = {
     // Truck — only the blue variant has front/back so far.
     { key: 'car_back_truck_blue',  path: 'assets/cars/car_truck_back_blue.png' },
     { key: 'car_front_truck_blue', path: 'assets/cars/car_truck_front_blue.png' },
-    // Police — front/back pair used by all cop kinds.
+    // Police — front/back pair used by all police cop kinds.
     { key: 'car_back_police',  path: 'assets/cars/car_back_police.png' },
     { key: 'car_front_police', path: 'assets/cars/car_front_police.png' },
+    // SWAT — front/back pair used by 4★+ heavy units (do 2× damage).
+    { key: 'car_back_swat',    path: 'assets/cars/car_back_swat.png' },
+    { key: 'car_front_swat',   path: 'assets/cars/car_front_swat.png' },
     // Side-view police images for cars parked on the shoulder.  Random
     // roadside cop encounters use these — left-shoulder cops face right
     // (toward the road) and vice versa.
@@ -139,15 +142,13 @@ export const ASSET_MANIFEST = {
     { key: 'weapon_rocket',      path: 'assets/weapons/rocket.png' },
   ],
   cops: [
+    // Police cop sprites are sourced from the car_back_police /
+    // car_front_police pair in `cars` above.  The single cop_police
+    // texture is kept as a legacy fallback only.
     { key: 'cop_police',  path: 'assets/cops/police.png' },
-    { key: 'cop_cruiser', path: 'assets/cops/cruiser.png' },
-    { key: 'cop_swat',    path: 'assets/cops/swat_van.png' },
-    { key: 'cop_heli',    path: 'assets/cops/helicopter.png' },
   ],
-  props: [
-    { key: 'prop_marker',  path: 'assets/props/marker.png' },
-    { key: 'prop_blood',   path: 'assets/props/blood_pool.png' },
-  ],
+  // (props removed — prop_marker + prop_blood were vestigial manifest
+  //  entries with no gameplay code referencing them.)
   ui: [
     { key: 'ui_crash_collision', path: 'assets/ui/crash_collision.png' },
     { key: 'ui_crash_overdose',  path: 'assets/ui/crash_overdose.png' },

@@ -159,7 +159,7 @@ const SECTIONS = {
     label: '🔧  ACCESSORIES',
     items: [
       { id: 'repair',  label: '🔧  REPAIR CAR',         cost: 1000, desc: 'Restore full health',                              payload: { repair: true } },
-      { id: 'paint',   label: '🎨  PAINT JOB',          cost: 4500, desc: 'Cops drop ALL stars (single shot)',                payload: { clearStars: true } },
+      { id: 'paint',   label: '🎨  PAINT JOB',          cost: 4500, desc: 'Drops ALL stars — only way out from under a 5★ chopper.', payload: { clearStars: true } },
       { id: 'nos',     label: '⚡  NOS UPGRADE',        cost: 4500, desc: '+5 mph cruise + boost',                            payload: { upgrade: 'nos' } },
       { id: 'armor',   label: '🛡  REINFORCED BUMPER',  cost: 3500, desc: 'Take 25% less crash damage',                       payload: { upgrade: 'armor' } },
       { id: 'traction',label: '❄️  TRACTION TIRES',     cost: 2500, desc: 'Negate snow / rain grip penalty (4x4 only)',       payload: { tractionTires: true } },

@@ -134,7 +134,6 @@ export class BootScene extends Phaser.Scene {
     if (key.startsWith('hooker_')) return this._makeHookerPlaceholder(key);
     if (key.startsWith('drug_'))   return this._makeDrugPlaceholder(key);
     if (key.startsWith('cop_'))    return this._makeCopPlaceholder(key);
-    if (key.startsWith('prop_'))   return this._makePropPlaceholder(key);
     if (key.startsWith('ui_'))     return this._makeUIPlaceholder(key);
     this._makeBlank(key, 32, 32, 0xFF00FF);
   }
@@ -268,41 +267,9 @@ export class BootScene extends Phaser.Scene {
   }
 
   _makeCopPlaceholder(key) {
-    if (key === 'cop_cruiser') return this._makeCarTexture(key, 0x000000, 0xFFFFFF);
-    if (key === 'cop_swat')    return this._makeCarTexture(key, 0x222222, 0x111111);
-    if (key === 'cop_heli') {
-      const w = 80, h = 56;
-      const g = this.make.graphics({ x: 0, y: 0, add: false });
-      g.fillStyle(0x222222); g.fillRect(20, 18, 40, 22);
-      g.fillStyle(0x88BBFF); g.fillRect(24, 22, 12, 14);
-      g.fillStyle(0x111111); g.fillRect(0, 27, w, 4);
-      g.generateTexture(key, w, h);
-      g.destroy();
-      return;
-    }
+    // Only cop_police is shipped as a real PNG now; everything else
+    // falls back to the generic black blank.
     this._makeBlank(key, 64, 40, 0x000000);
-  }
-
-  _makePropPlaceholder(key) {
-    if (key === 'prop_marker') {
-      const w = 64, h = 96;
-      const g = this.make.graphics({ x: 0, y: 0, add: false });
-      g.fillStyle(0xFFCC00, 0.3); g.fillRect(8, 0, w - 16, h);
-      g.fillStyle(0xFFCC00, 1);   g.fillRect(20, 0, w - 40, h);
-      g.generateTexture(key, w, h);
-      g.destroy();
-      return;
-    }
-    if (key === 'prop_blood') {
-      const size = 96;
-      const g = this.make.graphics({ x: 0, y: 0, add: false });
-      g.fillStyle(0x880000, 0.7); g.fillEllipse(size / 2, size / 2, size, size * 0.5);
-      g.fillStyle(0x440000, 0.5); g.fillEllipse(size / 2, size / 2, size * 0.6, size * 0.3);
-      g.generateTexture(key, size, size);
-      g.destroy();
-      return;
-    }
-    this._makeBlank(key, 32, 32, 0xFFCC00);
   }
 
   _makeUIPlaceholder(key) {

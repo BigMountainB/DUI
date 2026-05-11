@@ -153,14 +153,24 @@ export class CopSystem {
     if (s < 4) {
       return r < 0.55 ? 'rear' : 'oncoming-left';
     }
-    if (r < 0.50) return 'rear';
+    // 4★+: SWAT vans join the mix (~30 % of spawns), they hit harder
+    // and use a heavier sprite.  Rest splits between rear pursuit and
+    // anywhere-oncoming standard cops.
+    if (r < 0.30) return 'swat';
+    if (r < 0.65) return 'rear';
     return 'oncoming-any';
   }
 
   _spawnCop(playerPos) {
     const kindRaw = this._pickKind();
     if (!kindRaw) return;                            // no proactive spawn at 1★
-    const kind    = kindRaw.startsWith('oncoming') ? 'oncoming' : kindRaw;
+    const isSwat  = kindRaw === 'swat';
+    // SWAT vans behave like rear pursuit (chase from behind) but use
+    // the heavier 'swat' colorSet so _carTexKey resolves to the
+    // car_back_swat / car_front_swat assets and so the damage path
+    // can apply the ×2 multiplier.
+    const kind    = (kindRaw.startsWith('oncoming')) ? 'oncoming'
+                  : (isSwat ? 'rear' : kindRaw);
     let position, laneOffset, speed;
 
     if (kind === 'rear') {
@@ -172,13 +182,12 @@ export class CopSystem {
     } else {
       // Oncoming — far ahead, will rocket toward the player.
       position   = playerPos + (16000 + Math.random() * 14000);
-      // 3★ spec: left lanes only.  4★+ spec: any lane.
       if (kindRaw === 'oncoming-left') {
-        laneOffset = -(0.30 + Math.random() * 0.50);  // -0.30 to -0.80
+        laneOffset = -(0.30 + Math.random() * 0.50);
       } else {
-        laneOffset = -0.80 + Math.random() * 1.50;     // -0.80 to +0.70
+        laneOffset = -0.80 + Math.random() * 1.50;
       }
-      speed = -ONCOMING_UNITS;                          // negative = head-on
+      speed = -ONCOMING_UNITS;
     }
 
     this.cops.push({
@@ -188,15 +197,15 @@ export class CopSystem {
       speed,
       baseSpeed:   speed,
       side:        kind === 'rear' ? 'rear' : 'front',
-      kind,                                            // 'pursuit-front' | 'rear' | 'oncoming'
-      colorSet:    'police',                           // drives front/back texture pick
+      kind,
+      colorSet:    isSwat ? 'swat' : 'police',         // drives texture + damage tier
+      damageMul:   isSwat ? 2.0 : 1.0,                 // SWAT hits do 2× damage
       color:       0xFFFFFF,
       alive:       true,
       spiked:      false,
       painted:     false,
-      // Per-cop random sub-tuning so they don't all behave identically.
       _closeFactor: 0.06 + Math.random() * 0.06,
-      _laneDrift:   0.4  + Math.random() * 0.4,        // PIT-magnet rate
+      _laneDrift:   0.4  + Math.random() * 0.4,
     });
   }
 
@@ -478,7 +487,12 @@ export class CopSystem {
 
     if (this.stars > 0) {
       this.starTimer -= dt;
-      if (this.starTimer <= 0) {
+      // Helicopter star-lock — at 5★ the chopper is overhead and the
+      // stars STOP decaying naturally.  The only way out is to pull
+      // into a rest stop and buy the PAINT JOB ($4500, dealer
+      // accessories) — `clearStars` zeros the wanted level on resume,
+      // the chopper leaves, and decay resumes.
+      if (this.starTimer <= 0 && !this.helicopterActive) {
         this.stars = Math.max(0, this.stars - STAR_DECAY * dt * 60);
         if (this.stars < 0.5) {
           this.bumpCount = this.rearBumpCount = this.headOnCount = this.pitCount = 0;

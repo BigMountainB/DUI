@@ -3507,6 +3507,10 @@ export class GameScene extends Phaser.Scene {
     const type    = hit?.type ?? 'rear-end';
     const sideDir = hit?.side === 'right' ? -1 : 1;
     const kind    = cop.kind ?? 'pursuit-front';
+    // SWAT vans hit 2× harder than regular police.  Multiplier baked
+    // onto the cop at spawn (CopSystem._spawnCop); default 1 for any
+    // legacy cop missing the field.
+    const damageMul = cop.damageMul ?? 1;
 
     // Generic bump tally (legacy, still drives `BUMPS x/8` HUD).
     if (type !== 'side-swipe') this.cops.registerBump();
@@ -3519,7 +3523,7 @@ export class GameScene extends Phaser.Scene {
       p.speed    = Math.max(400, p.speed * clamp(0.26 - impact.severity * 0.10, 0.10, 0.20));
       this.cops.addStar(0.5);                  // head-on with oncoming cop
       this.effects.triggerShake(440 + impact.severity * 360, 0.015 + impact.severity * 0.012);
-      this._applyDamage(3 + impact.severity * 3, 'cop_head_on');
+      this._applyDamage((3 + impact.severity * 3) * damageMul, 'cop_head_on');
       const headons = this.cops.registerHeadOn();
       const left = 3 - headons;
       this._showPopup(
@@ -3539,7 +3543,7 @@ export class GameScene extends Phaser.Scene {
       p.speed    = Math.max(800, p.speed * clamp(0.98 - impact.severity * 0.12, 0.86, 0.96));
       this.cops.addStar(0.2);                  // side-swipe oncoming cop
       this.effects.triggerShake(100 + impact.severity * 160, 0.004 + impact.severity * 0.006);
-      this._applyDamage(0.5 + impact.severity * 1.1, 'cop_sideswipe_oncoming');
+      this._applyDamage((0.5 + impact.severity * 1.1) * damageMul, 'cop_sideswipe_oncoming');
       this._showPopup('SIDESWIPED ONCOMING COP!', '#FFCC44');
       cop.alive = false;
       this.cops.cops.splice(idx, 1);
@@ -3555,7 +3559,7 @@ export class GameScene extends Phaser.Scene {
       p.speed    = Math.max(400, p.speed * clamp(0.78 - impact.severity * 0.20, 0.50, 0.70));
       this.cops.addStar(0.2);                  // player rear-ends a cop
       this.effects.triggerShake(180 + impact.severity * 220, 0.007 + impact.severity * 0.009);
-      this._applyDamage(1 + impact.severity * 1.8, 'cop_ram_rear');
+      this._applyDamage((1 + impact.severity * 1.8) * damageMul, 'cop_ram_rear');
       const rearBumps = this.cops.registerRearBump();
       const left = 5 - rearBumps;
       this._showPopup(
@@ -3577,7 +3581,7 @@ export class GameScene extends Phaser.Scene {
       p.xImpulse = sideDir * (1.0 + impact.severity * 1.1);
       p.speed    = Math.max(600, p.speed * clamp(0.86 - impact.severity * 0.18, 0.68, 0.82));
       this.effects.triggerShake(160 + impact.severity * 190, 0.007 + impact.severity * 0.008);
-      this._applyDamage(1 + impact.severity * 1.5, 'cop_pit');
+      this._applyDamage((1 + impact.severity * 1.5) * damageMul, 'cop_pit');
       this.cops.registerPit();
       this._showPopup('PIT MANEUVER!\nBUSTED!', '#FF2222');
       cop.alive = false;
