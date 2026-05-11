@@ -5393,17 +5393,17 @@ export class GameScene extends Phaser.Scene {
     // Car HP readout — sits LEFT of the gun weapon icon (top-right
     // weapon column).  Starts green at 100, fades to red as it drops.
     this.hudHP = this.add.text(SCREEN_W - 78, 76, '100 HP', {
-      fontSize: '14px', fontFamily: IMPACT,
-      color: '#44FF44', stroke: '#000000', strokeThickness: 3,
+      fontSize: '28px', fontFamily: IMPACT,
+      color: '#44FF44', stroke: '#000000', strokeThickness: 4,
     }).setOrigin(1, 0.5).setDepth(d);
 
     // ── Gas gauge (below HP, right edge) ─────────────────────────────
     // Shows remaining range in miles + the ⛽ icon.  Green > 30 mi,
     // amber 30→10, red ≤ 10 with a slow blink.  Updated each frame in
     // _renderHUD via this.hudGas.setText / setColor.
-    this.hudGas = this.add.text(SCREEN_W - 78, 96, '⛽ --- mi', {
-      fontSize: '14px', fontFamily: IMPACT,
-      color: '#44FF44', stroke: '#000000', strokeThickness: 3,
+    this.hudGas = this.add.text(SCREEN_W - 78, 108, '⛽ --- mi', {
+      fontSize: '28px', fontFamily: IMPACT,
+      color: '#44FF44', stroke: '#000000', strokeThickness: 4,
     }).setOrigin(1, 0.5).setDepth(d);
 
     // ── TOP-RIGHT: Speed (big) + radio ─────────────────────────────────
@@ -6052,17 +6052,17 @@ export class GameScene extends Phaser.Scene {
       this._startGameplay();
     };
 
-    // ── Big green START button — right side of title screen ─────────
-    // Sized 220 × 90, vertically centered on the right edge so it
-    // mirrors the wheel column on the left.  Tap = same as the
-    // off-menu tap or pressing Right / Space / Enter.  Visible only
-    // during awaitingStart and pushed into _titleDifficultyBtns so the
-    // existing show/hide flow handles it on gameplay start.
+    // ── Big green START button ───────────────────────────────────────
+    // Sized 180 × 64, slotted vertically between the "Seattle → Pullman"
+    // route text (y≈SCREEN_H*0.55 = 248) and the difficulty blurb under
+    // the car (y≈SCREEN_H-78 = 372) — centered at y≈310.  Right edge
+    // sits ~80 px from the screen edge so the button stops just left
+    // of where in-game weapon icons (right-edge stack) will render.
     {
-      const startBtnW = 220;
-      const startBtnH = 90;
-      const startBtnX = SCREEN_W - startBtnW - 24;
-      const startBtnY = (SCREEN_H - startBtnH) / 2;
+      const startBtnW = 180;
+      const startBtnH = 64;
+      const startBtnX = SCREEN_W - 80 - startBtnW;
+      const startBtnY = Math.round(SCREEN_H * 0.55 + (SCREEN_H - 78 - SCREEN_H * 0.55) / 2 - startBtnH / 2);
       const startBg = makeRoundedBtn(
         startBtnX, startBtnY, startBtnW, startBtnH,
         0x2E9D4E, 0xFFFFFF, 4, 1.0, 0x44B560,
@@ -6070,8 +6070,8 @@ export class GameScene extends Phaser.Scene {
       );
       const startLbl = this.add.text(startBtnX + startBtnW / 2, startBtnY + startBtnH / 2,
         '▶ START', {
-          fontSize: '38px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
-          color: '#FFFFFF', stroke: '#000', strokeThickness: 5,
+          fontSize: '28px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
+          color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
         }).setOrigin(0.5).setDepth(d + 11);
       this._titleDifficultyBtns.push(startBg, startLbl);
     }
