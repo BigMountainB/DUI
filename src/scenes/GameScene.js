@@ -1885,10 +1885,13 @@ export class GameScene extends Phaser.Scene {
         this._slipTimer = (this._slipTimer ?? 0) + dt;
       } else if (steerDir !== 0) {
         // Fresh commitment (slip expired or no prior direction) —
-        // capture this direction and roll a new slip duration.
+        // capture this direction and roll a new slip duration.  Halved
+        // from 0.05–0.35s → 0.025–0.175s so Flappy mode (which never
+        // releases — always pulling one way or the other) doesn't feel
+        // like driving on ice for full minute stretches.
         this._slipDir   = steerDir;
         this._slipTimer = 0;
-        this._slipMax   = 0.05 + Math.random() * 0.30;
+        this._slipMax   = 0.025 + Math.random() * 0.15;
       } else {
         // Idle on snow with slip expired.
         this._slipDir   = 0;
