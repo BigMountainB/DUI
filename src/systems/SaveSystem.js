@@ -4,10 +4,12 @@ const SCHEMA_VERSION = 2;
 // Keys whose first segment routes to the cross-mode GLOBAL section
 // instead of the active per-mode profile.  Per user direction:
 // achievements (incl. "beat the others" cross-mode badges) are global;
-// audio/mute settings travel with the user, not the mode.  Everything
-// else (money, restStopSaves, lastRestStop, missionProgress, drug
-// inventory, owned cars) lives in the per-mode profile.
-const GLOBAL_KEYS = new Set(['achievements', 'settings']);
+// audio/mute settings travel with the user, not the mode.  Checkpoint
+// tiers (highest-difficulty reached per rest stop, for the route-map
+// tier colors) are also global so the map shows lifetime progress.
+// Everything else (money, restStopSaves, lastRestStop, missionProgress,
+// drug inventory, owned cars) lives in the per-mode profile.
+const GLOBAL_KEYS = new Set(['achievements', 'settings', 'checkpointTiers']);
 
 const VALID_MODES = ['tap', 'classic', 'tilt'];
 
@@ -22,8 +24,9 @@ const DEFAULT_PROFILE = {
 };
 
 const DEFAULT_GLOBAL = {
-  achievements: {},
-  settings:     { muted: false, radio: 0 },
+  achievements:    {},
+  checkpointTiers: {},          // { [stopId]: 'bronze' | 'silver' | 'gold' }
+  settings:        { muted: false, radio: 0 },
 };
 
 function emptyData() {

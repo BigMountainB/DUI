@@ -4106,11 +4106,25 @@ export class GameScene extends Phaser.Scene {
       return project(pathPts[idx][0], pathPts[idx][1]);
     };
 
-    // Rest-stop ticks + town labels.  4-tier vertical stagger
-    // (above-far / above-near / below-near / below-far) keeps the dense
-    // Seattle cluster (Mercer Island / Bellevue / Issaquah / Snoqualmie)
-    // from overlapping.  Each label gets a thin leader line from the dot.
-    const LANE_OFFSETS = [-26, -12, 12, 26];   // px, +y is downward
+    // Rest-stop ticks + town labels.  Labels are bigger + tier-colored
+    // (bronze/silver/gold) when the stop has been reached on Easy/
+    // Normal/Hard.  Unreached stops render in a dim grey.  When a save
+    // snapshot exists for the stop in the current mode, the label is
+    // interactive — tap to warp to that checkpoint.
+    const TIER_HEX = { bronze: '#CD7F32', silver: '#C0C0C0', gold: '#FFD700' };
+    const save      = this.registry.get('save');
+    const tiers     = save?.get?.('checkpointTiers') ?? {};
+    const allSaves  = save?.get?.('restStopSaves') ?? {};
+    // Pre-index saves by stopId — newest-first — so each label can find
+    // its target snapshot in O(1).
+    const savesByStop = {};
+    for (const code of Object.keys(allSaves)) {
+      const snap = allSaves[code];
+      if (!snap?.id) continue;
+      const cur = savesByStop[snap.id];
+      if (!cur || (snap.ts ?? 0) > (cur.ts ?? 0)) savesByStop[snap.id] = snap;
+    }
+    const LANE_OFFSETS = [-32, -16, 16, 32];   // px, +y is downward
     REST_STOPS.forEach((rs, i) => {
       const [px, py] = ptAtMile(rs.mileage);
       g.fillStyle(0xFFFFFF, 1);
@@ -4125,11 +4139,27 @@ export class GameScene extends Phaser.Scene {
       g.moveTo(px, py);
       g.lineTo(px, ly);
       g.strokePath();
+      const tier      = tiers[rs.id];
+      const snapHere  = savesByStop[rs.id];
+      const tappable  = !!snapHere;
+      const labelCol  = TIER_HEX[tier] ?? (tappable ? '#DDEEFF' : '#778899');
       const lbl = this.add.text(px, ly,
         rs.name.split(',')[0], {
-        fontSize: '10px', fontFamily: IMPACT,
-        color: '#DDEEFF', stroke: '#000', strokeThickness: 2,
+        fontSize: '14px', fontFamily: IMPACT,
+        color: labelCol, stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5, dy < 0 ? 1 : 0).setDepth(D + 3);
+      if (tappable) {
+        lbl.setInteractive({ useHandCursor: true });
+        lbl.on('pointerdown', (ptr) => {
+          ptr.event?.stopPropagation?.();
+          // Restore difficulty the snapshot was saved under, then
+          // resume.  Close the modal first so the load doesn't fight
+          // the modal's input handlers.
+          this._closeMapModal?.();
+          if (snapHere.difficulty) Difficulty.set(snapHere.difficulty, this.registry);
+          this._resumeFromSavedSnapshot?.(snapHere);
+        });
+      }
       this.cameras.main?.ignore?.(lbl);
       objs.push(lbl);
     });
@@ -6890,6 +6920,21 @@ export class GameScene extends Phaser.Scene {
       const all = save.get('restStopSaves') ?? {};
       all[code] = snapshot;
       save.set('restStopSaves', all);
+      // Bump the cross-mode tier for this checkpoint: Easy→bronze,
+      // Normal→silver, Hard→gold.  Keeps the highest-ever reached so
+      // dropping to easier modes never downgrades a stop.  Drives the
+      // tier-coloring + tap-to-warp on the route-map modal.
+      const TIER_BY_MODE = { easy: 'bronze', normal: 'silver', hard: 'gold' };
+      const TIER_RANK    = { bronze: 1, silver: 2, gold: 3 };
+      const tier = TIER_BY_MODE[Difficulty.mode()];
+      if (tier) {
+        const tiers = save.get('checkpointTiers') ?? {};
+        const prev  = tiers[stopId];
+        if (!prev || TIER_RANK[tier] > TIER_RANK[prev]) {
+          tiers[stopId] = tier;
+          save.set('checkpointTiers', tiers);
+        }
+      }
     } catch (e) { console.warn('[saveRestStop]', e); }
   }
 
