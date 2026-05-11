@@ -131,8 +131,6 @@ export class GameScene extends Phaser.Scene {
     this._tiltLeftActive  = false;
     this._tiltRightActive = false;
     this._tiltGamma       = 0;
-    // Flappy-mode edge-trigger for left = fire-weapon.
-    this._prevLeftRawForFire = false;
   }
 
   create() {
@@ -1067,12 +1065,8 @@ export class GameScene extends Phaser.Scene {
    *  input passes through unchanged.  Below 75 % alcohol there's no
    *  effect at all.
    *
-   *  Flappy mode: LEFT input is repurposed as "fire weapon", so the
-   *  steering path always sees left=false.  Right input is unchanged. */
-  _isLeft()  {
-    if (this._steeringMode() === 'flappy') return false;
-    return this._delayedSteer().left;
-  }
+   */
+  _isLeft()  { return this._delayedSteer().left; }
   _isRight() { return this._delayedSteer().right; }
 
   _delayedSteer() {
@@ -1361,15 +1355,6 @@ export class GameScene extends Phaser.Scene {
     if (this._touchCycleArmed) {
       this._touchCycleArmed = false;
       this._cycleWeapon();
-    }
-
-    // ── Flappy mode: LEFT input → fire selected weapon (edge-trigger) ──
-    if (this._steeringMode() === 'flappy') {
-      const leftNow = this._isLeftRaw();
-      if (leftNow && !this._prevLeftRawForFire) this._useTopF12?.();
-      this._prevLeftRawForFire = leftNow;
-    } else {
-      this._prevLeftRawForFire = false;
     }
 
     // ── Physics ───────────────────────────────────────────────────────
@@ -4357,8 +4342,17 @@ export class GameScene extends Phaser.Scene {
       const shH = Math.max(2, PH * 0.18);
       const phys2 = this.effects?.getPhysics?.(this.drugs);
       const drift = phys2?.kRetinalDrift ?? 0;
+      // Shadow tilts subtly OPPOSITE the car's lean — "body leans into
+      // the turn, wheels stay planted" cue.  Applies in all steering
+      // modes (classic / tilt / flappy).
+      const leanDir = (this.player?.steerVelocity ?? 0) / (TURN_SPEED || 1);
+      const shadowAngle = -leanDir * Phaser.Math.DegToRad(4);
+      shadowG.save();
+      shadowG.translateCanvas(this.playerSprite.x + drift, this.playerSprite.y);
+      shadowG.rotateCanvas(shadowAngle);
       shadowG.fillStyle(0x000000, 0.40);
-      shadowG.fillEllipse(this.playerSprite.x + drift, this.playerSprite.y, shW, shH);
+      shadowG.fillEllipse(0, 0, shW, shH);
+      shadowG.restore();
     }
 
     // Hide any sprites in the pool we didn't use this frame.
