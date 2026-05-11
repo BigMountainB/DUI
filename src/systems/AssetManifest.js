@@ -146,6 +146,14 @@ export const ASSET_MANIFEST = {
     // car_front_police pair in `cars` above.  The single cop_police
     // texture is kept as a legacy fallback only.
     { key: 'cop_police',  path: 'assets/cops/police.png' },
+    // 5★ chase helicopter — two rotor frames per facing direction.
+    // The renderer alternates 1 ↔ 2 at ~10 Hz for the rotor-spin
+    // illusion and uses the _flip variants when the chopper is shown
+    // banking the opposite way.
+    { key: 'cop_heli_1',      path: 'assets/cops/heli_1.png' },
+    { key: 'cop_heli_2',      path: 'assets/cops/heli_2.png' },
+    { key: 'cop_heli_1_flip', path: 'assets/cops/heli_1_flip.png' },
+    { key: 'cop_heli_2_flip', path: 'assets/cops/heli_2_flip.png' },
   ],
   // (props removed — prop_marker + prop_blood were vestigial manifest
   //  entries with no gameplay code referencing them.)

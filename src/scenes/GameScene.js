@@ -1065,6 +1065,25 @@ export class GameScene extends Phaser.Scene {
     }
     return m;
   }
+  /** Reset all wanted-level state (stars, active cops, bump counters,
+   *  helicopter).  Called when the player starts/restarts/changes mode
+   *  so a chase doesn't carry over into a fresh control scheme.
+   *  Scene-init paths already zero this state via fresh CopSystem
+   *  construction; this helper is for mid-run resets that don't restart
+   *  the scene (e.g. steering picker). */
+  _wipeWantedState() {
+    if (!this.cops) return;
+    this.cops.stars         = 0;
+    this.cops.starTimer     = 0;
+    this.cops.cops          = [];
+    this.cops.bumpCount     = 0;
+    this.cops.rearBumpCount = 0;
+    this.cops.headOnCount   = 0;
+    this.cops.pitCount      = 0;
+    this.cops.arrestPending = false;
+    this.cops.helicopterActive = false;
+  }
+
   _setSteeringMode(mode) {
     const prev = this._steeringMode();
     if (prev === mode) return;
@@ -1089,6 +1108,7 @@ export class GameScene extends Phaser.Scene {
             : 'TILT NOT SUPPORTED', '#FF4444');
         }
         this._refreshSteeringBtn?.();
+        this._wipeWantedState?.();
       });
       return;
     }
@@ -1098,6 +1118,9 @@ export class GameScene extends Phaser.Scene {
     }
     this.registry?.set?.('steeringMode', mode);
     save?.setMode?.(mode);
+    // Switching control schemes resets wanted level — you can't use a
+    // steering swap to skip out of a chase / under a 5★ helicopter.
+    this._wipeWantedState?.();
   }
 
   /** Steering input with optional drunk-delay buffer.  When alcohol is
@@ -5543,6 +5566,19 @@ export class GameScene extends Phaser.Scene {
       align: 'center',
     }).setOrigin(0.5, 0.5).setDepth(d - 2).setVisible(false);
 
+    // Sprite version of the 5★ chopper — built from the cop_heli_1 /
+    // cop_heli_2 PNG pair (plus _flip variants for the opposite banking
+    // direction).  The renderer alternates the two rotor frames at
+    // ~10 Hz and flips when the sway sends the chopper to the left.
+    // Falls back to the emoji text above if the textures are missing.
+    if (this.textures.exists('cop_heli_1')) {
+      this.hudHelicopterImg = this.add.image(SCREEN_W / 2, 96, 'cop_heli_1')
+        .setOrigin(0.5).setDepth(d - 2).setVisible(false)
+        .setDisplaySize(140, 80);
+    } else {
+      this.hudHelicopterImg = null;
+    }
+
     // (Yellow "TAKE EXIT → REST STOP" prompt removed — too many rest
     //  stops on the route for that visual to be useful, and the in-world
     //  exit signage already tells the player when one's coming up.
@@ -5973,7 +6009,7 @@ export class GameScene extends Phaser.Scene {
         ...[
           this.hudScore, this.hudMult, this.hudDist, this.hudRegion, this.hudStars, this.hudHP, this.hudGas,
           this.hudSpeed, this.hudRadio, this.hudPopup,
-          this.hudRearCop, this.hudRestStop, this.hudHelicopter,
+          this.hudRearCop, this.hudRestStop, this.hudHelicopter, this.hudHelicopterImg,
           this._titleScrim, this._titleMain, this._titleSub, this._titleRoute, this._titleTap,
           this._titleResume,    this._titleResumeTxt,
           this._titleEnterCode, this._titleEnterCodeTxt,
@@ -6468,19 +6504,40 @@ export class GameScene extends Phaser.Scene {
       .setVisible(this.popupTimer > 0)
       .setAlpha(Math.min(1, this.popupTimer * 2));
 
-// 5★ helicopter overlay — hovers above the road, flashing red/blue.
+// 5★ helicopter overlay — hovers above the road, sway + bob + rotor.
     if (this.cops.helicopterActive) {
       const phase = (this.cops.helicopterPhase ?? 0);
       const sway  = Math.sin(phase * 2.4) * 60;
-      const rotor = (Math.sin(phase * 28) > 0) ? '— —' : ' = ';
-      const tint  = ((phase * 5) | 0) % 2 === 0 ? '#FF3333' : '#3366FF';
-      this.hudHelicopter
-        .setPosition(SCREEN_W / 2 + sway, 96 + Math.sin(phase * 1.6) * 6)
-        .setText(`${rotor}\n  🚁`)
-        .setStroke(tint, 3)
-        .setVisible(true);
+      const bobY  = 96 + Math.sin(phase * 1.6) * 6;
+      const x     = SCREEN_W / 2 + sway;
+      if (this.hudHelicopterImg) {
+        // Pick rotor frame + facing.  `sway < 0` = banking left → use the
+        // _flip variants so the chopper visually leans the right way.
+        const facingLeft = sway < 0;
+        const rotorFrame = (Math.sin(phase * 28) > 0) ? 1 : 2;
+        const key = facingLeft
+          ? (rotorFrame === 1 ? 'cop_heli_1_flip' : 'cop_heli_2_flip')
+          : (rotorFrame === 1 ? 'cop_heli_1'      : 'cop_heli_2');
+        this.hudHelicopterImg.setTexture(key);
+        this.hudHelicopterImg.setPosition(x, bobY);
+        this.hudHelicopterImg.setVisible(true);
+        // Red/blue rotor flash via tint alternating each ~0.2s.
+        const tint = ((phase * 5) | 0) % 2 === 0 ? 0xFFAAAA : 0xAACCFF;
+        this.hudHelicopterImg.setTint(tint);
+        this.hudHelicopter.setVisible(false);
+      } else {
+        // Emoji fallback when the heli textures didn't load.
+        const rotor = (Math.sin(phase * 28) > 0) ? '— —' : ' = ';
+        const tint  = ((phase * 5) | 0) % 2 === 0 ? '#FF3333' : '#3366FF';
+        this.hudHelicopter
+          .setPosition(x, bobY)
+          .setText(`${rotor}\n  🚁`)
+          .setStroke(tint, 3)
+          .setVisible(true);
+      }
     } else {
       this.hudHelicopter.setVisible(false);
+      this.hudHelicopterImg?.setVisible(false);
     }
 
     // (Selected-weapon banner removed — weapons are tap-to-fire on their
