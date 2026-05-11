@@ -65,7 +65,7 @@ export const DRUGS = {
 
 // Drug config — decay rates ~50% slower so bars last longer
 export const DRUG_CONFIG = {
-  alcohol:  { label: '🍺 Beer',    color: 0xF5A623, hexCss: '#F5A623', decayRate: 0.0083, odThreshold: 1.0,  canOD: false, unlocked: true  },
+  alcohol:  { label: '🍺 Beer',    color: 0xF5A623, hexCss: '#F5A623', decayRate: 0.0025, odThreshold: 1.0,  canOD: false, unlocked: true  },
   weed:     { label: '🌿 Weed',    color: 0x4CAF50, hexCss: '#4CAF50', decayRate: 0.0053, odThreshold: 1.0,  canOD: false, unlocked: true  },
   cocaine:  { label: '❄️ Coke',    color: 0xFFFFFF, hexCss: '#FFFFFF', decayRate: 0.0120, odThreshold: 1.00, canOD: true,  unlocked: false },
   shrooms:  { label: '🍄 Shrooms', color: 0xBB44FF, hexCss: '#BB44FF', decayRate: 0.0042, odThreshold: 1.0,  canOD: false, unlocked: false },
