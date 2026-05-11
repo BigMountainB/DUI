@@ -262,7 +262,7 @@ export const REST_STOPS = _REST_STOP_DEF.map(rs => ({
 //   sprite       — texture key; falls back to 'car_player' if absent
 export const VEHICLES = {
   beater: {
-    id: 'beater', label: 'Beater', hp: 50,  rangeMi: 250, topMph: 110, boostMph: 0,
+    id: 'beater', label: 'Beater', hp: 50,  rangeMi: 150, topMph: 110, boostMph: 0,
     drive: '2WD', fuel: 'gas', heat: 0.85, priceUsd: 0,
     sprite: 'car_player', tint: 0xB8A990,         // faded brown/tan
   },
@@ -277,12 +277,12 @@ export const VEHICLES = {
     sprite: 'car_player', tint: 0x7A5236,         // weathered brown
   },
   newTruck: {
-    id: 'newTruck', label: 'New Truck', hp: 100, rangeMi: 400, topMph: 120, boostMph: 0,
+    id: 'newTruck', label: 'New Truck', hp: 100, rangeMi: 100, topMph: 120, boostMph: 0,
     drive: '4x4', fuel: 'gas', heat: 1.10, priceUsd: 12000,
     sprite: 'car_player', tint: 0x1F1F1F,         // shiny black
   },
   evTruck: {
-    id: 'evTruck', label: 'Electric Truck', hp: 85, rangeMi: 300, topMph: 118, boostMph: 0,
+    id: 'evTruck', label: 'Electric Truck', hp: 85, rangeMi: 120, topMph: 118, boostMph: 0,
     drive: '4x4', fuel: 'electric', heat: 1.05, priceUsd: 14000,
     sprite: 'car_player', tint: 0xC9CDD2,         // brushed silver
   },
@@ -292,12 +292,12 @@ export const VEHICLES = {
     sprite: 'car_player', tint: 0xFFC107,         // canary yellow
   },
   bestlaRoadster: {
-    id: 'bestlaRoadster', label: 'Bestla Roadster', hp: 85, rangeMi: 500, topMph: 200, boostMph: 50,
+    id: 'bestlaRoadster', label: 'Bestla Roadster', hp: 85, rangeMi: 250, topMph: 200, boostMph: 50,
     drive: '2WD', fuel: 'electric', heat: 1.30, priceUsd: 65000,
     sprite: 'car_player', tint: 0xCC1122,         // candy red
   },
   playdoutS3X: {
-    id: 'playdoutS3X', label: 'Play\'dOut S3X', hp: 125, rangeMi: 400, topMph: 190, boostMph: 0,
+    id: 'playdoutS3X', label: 'Play\'dOut S3X', hp: 125, rangeMi: 250, topMph: 190, boostMph: 0,
     drive: '4x4', fuel: 'gas', heat: 1.40, priceUsd: 90000,
     sprite: 'car_player', tint: 0x6F2DA8,         // deep purple
   },
