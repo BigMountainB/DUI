@@ -599,8 +599,10 @@ export class GameScene extends Phaser.Scene {
       fontSize: '15px', fontFamily: 'Impact, Arial Black, sans-serif',
       color: '#FFFFFF', stroke: '#000000', strokeThickness: 4,
     }).setOrigin(1, 0.5).setDepth(62).setVisible(false);
-    const MODE_ORDER = ['classic', 'tilt', 'flappy'];
-    const MODE_LABELS = { classic: 'CLASSIC', tilt: 'TILT', flappy: 'FLAPPY' };
+    // 'flappy' shows as "TAP" in the picker — same internal key for save
+    // compatibility, but more descriptive in the UI.
+    const MODE_ORDER = ['flappy', 'classic', 'tilt'];
+    const MODE_LABELS = { classic: 'CLASSIC', tilt: 'TILT', flappy: 'TAP' };
     const MODE_COLORS = { classic: 0x6688CC, tilt: 0x44CC88, flappy: 0xCC8844 };
     const initMode = this._steeringMode();
     const steerSwBg = this.add.rectangle(steerAnchor, steerY, steerSwW, steerSwH,
@@ -1025,7 +1027,9 @@ export class GameScene extends Phaser.Scene {
   _steeringMode() {
     let m = this.registry?.get?.('steeringMode');
     if (!m) {
-      m = this.registry?.get?.('tiltSteerEnabled') ? 'tilt' : 'classic';
+      // Default: 'flappy' (tap-to-steer) — the headline control scheme.
+      // Existing players with legacy `tiltSteerEnabled` keep tilt.
+      m = this.registry?.get?.('tiltSteerEnabled') ? 'tilt' : 'flappy';
       this.registry?.set?.('steeringMode', m);
     }
     return m;
