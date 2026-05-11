@@ -5588,12 +5588,19 @@ export class GameScene extends Phaser.Scene {
     const btnW   = 200;
     const btnH   = 52;
     const gap    = 6;
-    // Stack: Easy, Normal, Hard, Custom (4 panels).
+    // Stack: Easy, Normal, Hard, Custom (4 panels) on the LEFT side,
+    // with the SAVED GAME chip directly below.  Whole column anchors to
+    // the bottom of the screen so the chip sits ~24 px above the
+    // bottom edge.
     const allModeIds = [...modes.map(m => m.id), 'custom'];
-    const totalH = allModeIds.length * btnH + (allModeIds.length - 1) * gap;
-    const wheelX = SCREEN_W - btnW - 24;
-    const wheelTopY = (SCREEN_H - totalH) / 2 + 24;
-    const btnY   = SCREEN_H - 90;            // legacy ref — used by other code paths
+    const wheelHt    = allModeIds.length * btnH + (allModeIds.length - 1) * gap;
+    const resumeH    = 38;
+    const resumeGap  = 10;                   // space between wheel and SAVED GAME chip
+    const bottomPad  = 24;
+    const wheelX     = 24;
+    const resumeY    = SCREEN_H - resumeH - bottomPad;
+    const wheelTopY  = resumeY - resumeGap - wheelHt;
+    const btnY       = SCREEN_H - 90;        // legacy ref — used by other code paths
     this._titleDifficultyBtns = [];
     this._titleWheelMap = {};                // mode id → bg graphics, for repaints
 
@@ -5674,8 +5681,10 @@ export class GameScene extends Phaser.Scene {
       bg.removeAllListeners('pointerout');
       bg.on('pointerout', () => refreshWheel());
 
-      // ▶ left-edge selection marker — only visible on the active panel.
-      const marker = this.add.text(wheelX - 14, cy + btnH / 2, '▶', {
+      // ◀ right-edge selection marker — only visible on the active panel.
+      // Sits just past the panel's right edge so it points back into the
+      // active selection (wheel is on the left side of the screen).
+      const marker = this.add.text(wheelX + btnW + 14, cy + btnH / 2, '◀', {
         fontSize: '22px', fontFamily: 'Arial, sans-serif',
         color: '#FFEE00', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(d + 11).setVisible(isActive);
@@ -5708,17 +5717,18 @@ export class GameScene extends Phaser.Scene {
       this.input.keyboard?.on('keydown-DOWN', () => cycleWheel(+1));
     }
 
-    // RESUME chip — small, bottom-left, separate from the wheel.
+    // SAVED GAME chip — sits directly below the wheel on the left.
     {
-      const rW = 140, rH = 38;
-      const rX = 24;
-      const rY = SCREEN_H - rH - 24;
+      const rW = btnW;                       // align with wheel width
+      const rH = resumeH;
+      const rX = wheelX;
+      const rY = resumeY;
       const bg = makeRoundedBtn(
         rX, rY, rW, rH,
         0x222222, 0xAAAAAA, 2, 1.0, 0x333333,
         () => this._promptForCode(last?.code ?? ''),
       );
-      const lbl = this.add.text(rX + rW / 2, rY + rH / 2, '▶ RESUME', {
+      const lbl = this.add.text(rX + rW / 2, rY + rH / 2, '🔑 SAVED GAME', {
         fontSize: '16px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(d + 11);
