@@ -5689,15 +5689,14 @@ export class GameScene extends Phaser.Scene {
         color: '#FFEE00', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(d + 11).setVisible(isActive);
 
-      const lbl = this.add.text(wheelX + btnW / 2, cy + 10, info.label, {
-        fontSize: '24px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
+      // Big bold label, vertically centered on the panel.  Blurb removed
+      // — it was crashing into the label and the colored panel + name is
+      // enough to communicate the choice.
+      const lbl = this.add.text(wheelX + btnW / 2, cy + btnH / 2, info.label, {
+        fontSize: '26px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
         color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
-      }).setOrigin(0.5, 0).setDepth(d + 11);
-      const sub = this.add.text(wheelX + btnW / 2, cy + btnH - 14, info.blurb, {
-        fontSize: '10px', fontFamily: 'Arial, sans-serif', color: '#FFFFFF',
-        wordWrap: { width: btnW - 12 }, align: 'center',
-      }).setOrigin(0.5, 1).setDepth(d + 11);
-      this._titleDifficultyBtns.push(bg, marker, lbl, sub);
+      }).setOrigin(0.5).setDepth(d + 11);
+      this._titleDifficultyBtns.push(bg, marker, lbl);
       this._titleWheelMap[id] = { bg, marker, fill: info.fill };
     });
 
