@@ -1352,6 +1352,26 @@ export class GameScene extends Phaser.Scene {
         this.input.keyboard?.once('keydown-SPACE', () => {
           if (this._awaitingStart) this._startGameplay();
         });
+        // Right-arrow (the Tap-mode "action" key) also launches the run
+        // — matches the in-game control so the player doesn't have to
+        // learn two keys.
+        this.input.keyboard?.once('keydown-RIGHT', () => {
+          if (this._awaitingStart) this._startGameplay();
+        });
+        // Tap anywhere off-menu starts the run.  hitTestPointer returns
+        // all interactive game objects under the pointer; if it's empty
+        // the player tapped open road / sky / scenery, not a button.
+        this.input.once('pointerdown', (ptr) => {
+          if (!this._awaitingStart) return;
+          const hits = this.input.hitTestPointer?.(ptr) ?? [];
+          const onUI = hits.some(o => o?.input?.enabled);
+          if (!onUI) this._startGameplay();
+          else {
+            // Re-arm: that tap was on a difficulty / resume / etc button.
+            // Wait for the NEXT pointerdown.
+            this._anyKeyAttached = false;
+          }
+        });
       }
       return;
     }
@@ -3635,7 +3655,7 @@ export class GameScene extends Phaser.Scene {
     this.player.x        = 0;
     this.player.speed   *= 0.5;
     this.player.steerVelocity = 0;
-    this._invincibleUntil = (this.time?.now ?? 0) + 4000;
+    this._invincibleUntil = (this.time?.now ?? 0) + 2500;
     this._showPopup?.('💥 CRASH — recover!', '#FF4444');
   }
 
@@ -5640,8 +5660,11 @@ export class GameScene extends Phaser.Scene {
         cx, btnY, btnW, btnH,
         fill, 0xFFFFFF, strokeW, baseAlpha, fill,
         () => {
+          // Tapping a difficulty button now ONLY selects it (the
+          // pointerout handler below re-renders the highlight).  Player
+          // must tap somewhere off-menu OR press Right / Space / Enter
+          // to actually launch the run.
           Difficulty.set(m.id, this.registry);
-          this._startGameplay();
         },
         isActive,
       );
