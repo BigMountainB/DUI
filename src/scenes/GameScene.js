@@ -1379,10 +1379,11 @@ export class GameScene extends Phaser.Scene {
           if (cur === 'custom') {
             this._buildDrugSliderModal({
               mode: 'custom',
-              onConfirm: ({ drugLevels, noNpcDamage, noPolice }) => {
+              onConfirm: ({ drugLevels, noNpcDamage, noPolice, startStars }) => {
                 Difficulty.set('custom', this.registry);
                 this._customStartLevels = drugLevels;
                 this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
+                this._customStartStars = Math.max(0, Math.min(5, startStars ?? 0));
                 this._startGameplay();
               },
             });
@@ -2863,6 +2864,54 @@ export class GameScene extends Phaser.Scene {
       sliderRefs.push({ id, drawFill, onUp });
     }
 
+    // ── Custom-mode WANTED-LEVEL picker (0★ – 5★) ────────────────
+    // Sits just above the No-NPC-damage / No-police checkboxes.  Six
+    // buttons in a row, active one tinted yellow.  Resolved star count
+    // is passed through to onConfirm so _startGameplay can seed it.
+    let startStars = 0;
+    if (mode === 'custom') {
+      const starRowY  = panelY + panelH - 104;
+      const starBtnW  = 28;
+      const starBtnH  = 22;
+      const starGap   = 4;
+      this.add.text(panelX + 22, starRowY + starBtnH / 2, 'STARS', {
+        fontSize: '11px', fontFamily: 'Impact, "Arial Black", sans-serif',
+        color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
+      }).setOrigin(0, 0.5).setDepth(D + 3);
+      const starButtons = [];
+      const refreshStarBtns = () => {
+        starButtons.forEach((entry, i) => {
+          const isOn = i === startStars;
+          entry.bg.clear();
+          entry.bg.fillStyle(isOn ? 0xFFCC22 : 0x222222, 1);
+          entry.bg.fillRoundedRect(entry.x, starRowY, starBtnW, starBtnH, 4);
+          entry.bg.lineStyle(2, isOn ? 0xFFFFFF : 0x888888, 1);
+          entry.bg.strokeRoundedRect(entry.x + 0.5, starRowY + 0.5, starBtnW - 1, starBtnH - 1, 4);
+          entry.lbl.setColor(isOn ? '#000' : '#DDD');
+        });
+      };
+      const starXStart = panelX + 84;
+      for (let i = 0; i <= 5; i++) {
+        const sx = starXStart + i * (starBtnW + starGap);
+        const bg = this.add.graphics().setDepth(D + 2);
+        bg.setInteractive(new Phaser.Geom.Rectangle(sx, starRowY, starBtnW, starBtnH), Phaser.Geom.Rectangle.Contains);
+        bg.input.cursor = 'pointer';
+        const lbl = this.add.text(sx + starBtnW / 2, starRowY + starBtnH / 2,
+          i === 0 ? '0' : i + '★', {
+          fontSize: '12px', fontFamily: 'Impact, "Arial Black", sans-serif',
+          color: '#DDD', stroke: '#000', strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(D + 3);
+        starButtons.push({ x: sx, bg, lbl });
+        objs.push(bg, lbl);
+        bg.on('pointerdown', (ptr) => {
+          ptr.event?.stopPropagation?.();
+          startStars = i;
+          refreshStarBtns();
+        });
+      }
+      refreshStarBtns();
+    }
+
     // ── Custom-mode checkboxes (No NPC damage / No police) ───────
     if (mode === 'custom') {
       const cbY = panelY + panelH - 78;
@@ -2966,6 +3015,7 @@ export class GameScene extends Phaser.Scene {
         drugLevels: { ...drugLevels },
         checkpointPos, checkpointLabel,
         noNpcDamage, noPolice,
+        startStars,
       });
     });
 
@@ -7252,6 +7302,13 @@ export class GameScene extends Phaser.Scene {
         this.registry.set('drugUnlocks', this.drugs.snapshotUnlocks());
       }
       this._customStartLevels = null;
+    }
+    // Custom mode — seed the wanted level from the modal's star picker.
+    // Resets to 0 once consumed so a Start Over doesn't carry it.
+    if (typeof this._customStartStars === 'number' && this.cops) {
+      this.cops.stars     = this._customStartStars;
+      this.cops.starTimer = 4;            // matches addStar's reset
+      this._customStartStars = null;
     }
     // Initialize/play radio on first user interaction (browser audio gate).
     if (this.audio && !this.audio._inited) {
