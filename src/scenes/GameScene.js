@@ -1872,9 +1872,16 @@ export class GameScene extends Phaser.Scene {
     // (right key / tap / space) is held — in which case it swings full
     // right.  Left input is ignored.  Same magnitude both ways, same
     // activeTau ramp as classic, so the swing feels equally fast.
-    const steerIn = (this._steeringMode() === 'flappy')
-      ? (this._isRight() ? 1 : -1)
-      : (this._isLeft() ? -1 : this._isRight() ? 1 : 0);
+    //
+    // During the crash i-frame window: ALL steering input is ignored AND
+    // the Tap-mode left pull is suspended.  steerIn forced to 0 so the
+    // car coasts at center until the player regains control.
+    const _iframeActive = (this.time?.now ?? 0) < this._invincibleUntil;
+    const steerIn = _iframeActive
+      ? 0
+      : (this._steeringMode() === 'flappy')
+        ? (this._isRight() ? 1 : -1)
+        : (this._isLeft() ? -1 : this._isRight() ? 1 : 0);
     const steerDir = phys.invertSteering ? -steerIn : steerIn;
 
     // ── Snow slip: last commitment locks for 0.05-0.35s ───────────
@@ -2039,22 +2046,21 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (seg?.tunnel) {
-      // Clamp at 0.95 — keeps the entire car visibly INSIDE the fog
-      // line at lateral 1.0, even when alcohol-induced visual sway
-      // shifts the sprite ±0.05 lane-units.  Tighter than the original
-      // 1.10 because the previous values let drunk sway visually push
-      // the wheels into the wall.
+      // Tunnel-wall slams now trigger the structural-crash respawn
+      // (explosion + reset to center + 4-second i-frames) instead of
+      // the old soft bounce — matches the tree / building / parked-car
+      // behavior so the player can't grind along the concrete and
+      // bleed HP indefinitely.
       const TUNNEL_RAIL = 0.95;
-      if (p.x > TUNNEL_RAIL) {
+      const _nowTun = this.time?.now ?? 0;
+      if (Math.abs(p.x) > TUNNEL_RAIL && _nowTun >= this._invincibleUntil) {
+        this._triggerSceneryRespawn(null);
+      } else if (p.x > TUNNEL_RAIL) {
         p.x = TUNNEL_RAIL;
         p.steerVelocity = Math.min(0, p.steerVelocity) * 0.4;
-        p.xImpulse = (p.xImpulse > 0 ? -p.xImpulse * 0.5 : p.xImpulse);
-        p.speed    = Math.max(p.speed * 0.92, MAX_SPEED * 0.45);
       } else if (p.x < -TUNNEL_RAIL) {
         p.x = -TUNNEL_RAIL;
         p.steerVelocity = Math.max(0, p.steerVelocity) * 0.4;
-        p.xImpulse = (p.xImpulse < 0 ? -p.xImpulse * 0.5 : p.xImpulse);
-        p.speed    = Math.max(p.speed * 0.92, MAX_SPEED * 0.45);
       }
     }
     // Off-road: gradually cap speed rather than multiplying each frame.
@@ -2382,7 +2388,10 @@ export class GameScene extends Phaser.Scene {
     // crash spawns one explosion, not a chain reaction.
     const _now = this.time?.now ?? 0;
     if (_now >= this._invincibleUntil && Math.abs(p.x) > 0.95) {
-      const SCENERY_TYPES = new Set(['tree', 'building', 'house', 'shrub', 'landmark']);
+      const SCENERY_TYPES = new Set([
+        'tree', 'building', 'house', 'shrub', 'landmark',
+        'cop_random_parked',   // parked roadside cops count as structures
+      ]);
       let _scenicHit = false;
       for (let di = 0; di <= 4 && !_scenicHit; di++) {
         const idx = (segIdx + di) % this.road.segments.length;

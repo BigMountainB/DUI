@@ -836,19 +836,14 @@ export class Road {
     // segments past the last tunnel one) visible, while still hiding the
     // sky bleed in the seams between ceilings.
     //
-    // Lookahead is tight (50 units, ~1 seg) so the cover doesn't snap on
-    // while the player is still outside approaching the mouth.  Lookbehind
-    // is wide (1400, ~7 segs) so the cover stays on through the last few
-    // exit segments where lookahead has already cleared the tunnel.
-    const LOOKAHEAD_Z  = 50;
-    const LOOKBEHIND_Z = 1400;
+    // Cover ONLY when the camera is genuinely inside a tunnel segment —
+    // not approaching (the embankment hill already frames the mouth) and
+    // not just-exited (the open road should be fully visible).  This
+    // tighter trigger prevents the cover from bleeding over the road on
+    // either side of the actual tunnel run.
     const segLen = this.segments.length;
-    const _aheadIdx  = ((Math.floor((playerPos + LOOKAHEAD_Z)  / SEG_LENGTH)) % segLen + segLen) % segLen;
-    const _behindIdx = ((Math.floor((playerPos - LOOKBEHIND_Z) / SEG_LENGTH)) % segLen + segLen) % segLen;
-    const _camIdx    = ((Math.floor( playerPos                  / SEG_LENGTH)) % segLen + segLen) % segLen;
-    const inTunnel = !!this.segments[_camIdx]?.tunnel
-                  || !!this.segments[_aheadIdx]?.tunnel
-                  || !!this.segments[_behindIdx]?.tunnel;
+    const _camIdx = ((Math.floor(playerPos / SEG_LENGTH)) % segLen + segLen) % segLen;
+    const inTunnel = !!this.segments[_camIdx]?.tunnel;
     if (inTunnel) {
       // Find the FARTHEST visible tunnel segment.  Its ceiling line
       // marks the bottom of the sky-cover sheet — anything below that
@@ -883,7 +878,14 @@ export class Road {
     // rather than blinking in at full size when the tunnel road becomes
     // visible.
     let _embTunnelProj = null;
-    if (_firstTunnelDrawn && _firstTunnelIdx > 0) {
+    // Only render the embankment hill when the tunnel mouth is at least
+    // a few segments out — otherwise its base (anchored to the mouth's
+    // projected road-Y) ends up near the bottom of the screen and the
+    // hill polygon paints over the road in front of the player.  At a
+    // distance of ~30 segs the hill silhouette sits cleanly above the
+    // horizon and frames the approach.
+    const EMB_MIN_DIST = 30;
+    if (_firstTunnelDrawn && _firstTunnelIdx >= EMB_MIN_DIST) {
       _embTunnelProj = _firstTunnelDrawn;
     } else if (!_firstTunnelDrawn) {
       // Continue the curve accumulator past the draw loop so the
@@ -950,7 +952,10 @@ export class Road {
       const archThk  = Math.max(3, ceilDrop * 0.42);
       const lintelY  = archTopY - archThk;
       const crestY   = e.screenY - H_HILL * sH;
-      const groundY  = e.screenY;
+      // Clamp the hill base to never extend below the horizon midline —
+      // otherwise a too-close tunnel projection pulls the polygon base
+      // down into the road area and the hill paints over the asphalt.
+      const groundY  = Math.min(e.screenY, SCREEN_H * 0.55);
       const flankX   = W_FLANK * sW;
       const baseLeftX  = outerL - flankX;
       const baseRightX = outerR + flankX;
