@@ -21,6 +21,11 @@ const DEFAULT_PROFILE = {
   missionProgress: 0,
   lastRestStop:    null,
   restStopSaves:   {},
+  // Per-vehicle accessory state.  Shape:
+  //   accessories: { [vehicleId]: { bumper: bool, traction: bool, nos: 0|1|2|3 } }
+  // Bumper / traction are one-shot purchases (boolean).  NOS is a tier
+  // counter — 0 (none) → 3 (max).  Each tier adds +5 mph to cruise + boost.
+  accessories:     {},
 };
 
 const DEFAULT_GLOBAL = {

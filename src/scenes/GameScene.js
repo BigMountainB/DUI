@@ -1899,9 +1899,13 @@ export class GameScene extends Phaser.Scene {
 
     // Speed: cruise at 120 mph by default. Holding UP boosts toward 140; holding
     // DOWN slows toward 60. Cocaine pickups raise both top and cruise by 5 mph each.
+    // NOS tier (per-vehicle accessory) adds +5 mph per tier to BOTH cruise
+    // and boost (3 tiers max → +15 mph at full).
     const cokeBonus = this.drugs.getCocaineSpeedBonusMPH?.() ?? 0;
-    const cruiseMph = 120 + cokeBonus;
-    const boostMph  = 140 + cokeBonus;
+    const nosTier   = this._vehicleAccessories?.().nos ?? 0;
+    const nosBonus  = nosTier * 5;
+    const cruiseMph = 120 + cokeBonus + nosBonus;
+    const boostMph  = 140 + cokeBonus + nosBonus;
     const slowMph   = 60;
     const mphToUnits = (mph) => MAX_SPEED * (mph / 120);
 
@@ -2058,15 +2062,21 @@ export class GameScene extends Phaser.Scene {
 
     // Weather grip — wet pavement / snow reduce steering authority and
     // amplify centrifugal force, so curves push wider when traction is
-    // bad.  rain × 0.9, snow × 0.75 (per user spec).  Traction tires
-    // (purchasable at any dealership) negate the weather penalty —
-    // requires a 4x4 vehicle to apply.
+    // bad.  Two composable reductions of the slide penalty:
+    //   • 4x4 drivetrain          → -60 %
+    //   • Traction tires accessory → -40 % (per-vehicle, ANY car)
+    // Together: 4x4 + tires = -100 % (full grip in any weather).
+    //           Non-4x4 + tires = -40 % of the slide penalty.
+    //           4x4 alone = -60 % of the slide penalty.
+    //           Non-4x4 alone = full slide penalty (legacy behaviour).
     const _mileForGrip = (p.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
-    let gripMul = Weather.gripMul(_mileForGrip);
-    const _tractionOk = (this._tractionTires || this.registry.get('tractionTires'))
-                     && VEHICLES[this.player.vehicleId]?.drive === '4x4';
-    if (_tractionOk) gripMul = 1;
-    const slipMul = 1 + (1 - gripMul) * 1.5;   // 1.0 dry, ~1.15 rain, ~1.375 snow
+    const rawGrip = Weather.gripMul(_mileForGrip);
+    const slidePen = 1 - rawGrip;           // 0 dry, 0.25 rain, 0.40 snow (ish)
+    const _is4x4   = VEHICLES[this.player.vehicleId]?.drive === '4x4';
+    const _hasTrac = !!(this._vehicleAccessories?.().traction);
+    const penReduction = Math.min(1, (_is4x4 ? 0.60 : 0) + (_hasTrac ? 0.40 : 0));
+    const gripMul = 1 - slidePen * (1 - penReduction);
+    const slipMul = 1 + (1 - gripMul) * 1.5;   // 1.0 dry, scales with effective grip
 
     p.x += (
       p.steerVelocity  * dt * gripMul
@@ -3087,7 +3097,7 @@ export class GameScene extends Phaser.Scene {
     objs.push(sub);
 
     // Vehicle list — one row per owned car, current marked.
-    const rowH = 56, rowGap = 8;
+    const rowH = 68, rowGap = 8;
     const listX = panelX + 16;
     const listY = panelY + 78;
     const listW = panelW - 32;
@@ -3112,6 +3122,21 @@ export class GameScene extends Phaser.Scene {
       const stats = this.add.text(listX + 60, ry + 30,
         `${v.hp} HP · ${v.rangeMi} mi · ${v.topMph} mph · ${v.drive} · ${v.fuel}`, {
         fontSize: '11px', fontFamily: 'Arial', color: '#AAD0FF',
+      }).setOrigin(0, 0).setDepth(D + 3);
+      // Accessory row — installed bumper / NOS tier / traction tires
+      // for this specific vehicle.  Pulled from the per-mode save
+      // profile (accessories[vid]).  Hidden if none are installed.
+      const save = this.registry?.get?.('save');
+      const accAll = save?.get?.('accessories') ?? {};
+      const vAcc   = accAll[vid] ?? {};
+      const tags   = [];
+      if (vAcc.bumper)            tags.push('🛡 Bumper');
+      if (vAcc.nos > 0)           tags.push(`⚡ NOS L${vAcc.nos}`);
+      if (vAcc.traction)          tags.push('❄️ Traction');
+      const accLine = tags.length ? tags.join('  ·  ') : '— no accessories —';
+      const accTxt = this.add.text(listX + 60, ry + 46, accLine, {
+        fontSize: '10px', fontFamily: 'Arial',
+        color: tags.length ? '#FFEEAA' : '#667788',
       }).setOrigin(0, 0).setDepth(D + 3);
       const tag = this.add.text(listX + listW - 10, ry + rowH / 2,
         isCurrent ? '✓ DRIVING' : 'TAP TO DRIVE', {
@@ -3142,7 +3167,7 @@ export class GameScene extends Phaser.Scene {
         this._closeGarageModal(objs);
         this._buildGarageModal();
       });
-      objs.push(bg, swatch, lbl, stats, tag);
+      objs.push(bg, swatch, lbl, stats, accTxt, tag);
     });
 
     // Close button.
@@ -3459,12 +3484,45 @@ export class GameScene extends Phaser.Scene {
       if (hero >= 0.15 && adj >= 1) adj = Math.max(0, adj - 2);
     }
 
+    // Reinforced bumper — -20 % to ANY damage on the current vehicle.
+    // Bumper-on-this-vehicle is stored in the per-mode profile under
+    // accessories[vehicleId].bumper.  Damage rounded to one decimal so
+    // the HP readout stays clean (no "lost 0.43 HP" oddities).
+    const acc = this._vehicleAccessories?.();
+    if (acc?.bumper) adj *= 0.80;
+    adj = Math.round(adj * 10) / 10;
+
     if (adj > 0) {
       this.damage.takeDamage(adj, source);
       // Untouchable streak broken — reset the per-run no-damage timer.
       this._noDamageTimer = 0;
       this._noDamageFlags = { '1m': false, '2m': false, '3m': false, '5m': false };
     }
+  }
+
+  /** Read the accessory map for the currently-driven vehicle.  Returns
+   *  `{ bumper, traction, nos }` with safe defaults so call sites can
+   *  read fields directly without optional-chain noise. */
+  _vehicleAccessories() {
+    const save = this.registry?.get?.('save');
+    const all  = save?.get?.('accessories') ?? {};
+    const cur  = all[this.player?.vehicleId] ?? {};
+    return {
+      bumper:   !!cur.bumper,
+      traction: !!cur.traction,
+      nos:      Math.max(0, Math.min(3, cur.nos ?? 0)),
+    };
+  }
+
+  /** Set / merge accessory state for the currently-driven vehicle. */
+  _setVehicleAccessories(patch) {
+    const save = this.registry?.get?.('save');
+    if (!save) return;
+    const vid  = this.player?.vehicleId;
+    if (!vid) return;
+    const all  = save.get('accessories') ?? {};
+    all[vid]   = { ...(all[vid] ?? {}), ...patch };
+    save.set('accessories', all);
   }
 
   _impactModel(otherSpeed = 0, hit = {}, opts = {}) {
@@ -7444,19 +7502,21 @@ export class GameScene extends Phaser.Scene {
     this._touchLeft = this._touchRight = this._touchF12 = false;
   }
 
-  // Top speed in internal units, accounting for cocaine pickup boost.
+  // Top speed in internal units, accounting for cocaine pickup boost + NOS.
   _maxSpeedWithBoost() {
     const bonusMph = this.drugs.getCocaineSpeedBonusMPH?.() ?? 0;
-    const topMph   = 120 + bonusMph;
+    const nosTier  = this._vehicleAccessories?.().nos ?? 0;
+    const topMph   = 120 + bonusMph + nosTier * 5;
     return MAX_SPEED * (topMph / 120);
   }
 
   // Displayed MPH = (current speed / current top-speed) × top-MPH.
   _displayMPH() {
-    // +4 mph per coke bag, +4 mph per meth pickup (per user spec).
+    // +4 mph per coke bag, +4 mph per meth pickup, +5 mph per NOS tier.
     const cokeBonus = this.drugs?.getCocaineSpeedBonusMPH?.() ?? 0;
     const methBonus = this.drugs?.getMethSpeedBonusMPH?.()    ?? 0;
-    const topMph   = 120 + cokeBonus + methBonus;
+    const nosTier   = this._vehicleAccessories?.().nos ?? 0;
+    const topMph   = 120 + cokeBonus + methBonus + nosTier * 5;
     const topUnits = MAX_SPEED * (topMph / 120);
     const trueMph  = (this.player.speed / topUnits) * topMph;
     // LSD ≥ 60% — time distortion: world keeps scrolling at the player's

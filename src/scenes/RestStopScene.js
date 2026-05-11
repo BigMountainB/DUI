@@ -157,13 +157,7 @@ const SECTIONS = {
   },
   dealer_acc: {
     label: '🔧  ACCESSORIES',
-    items: [
-      { id: 'repair',  label: '🔧  REPAIR CAR',         cost: 1000, desc: 'Restore full health',                              payload: { repair: true } },
-      { id: 'paint',   label: '🎨  PAINT JOB',          cost: 4500, desc: 'Drops ALL stars — only way out from under a 5★ chopper.', payload: { clearStars: true } },
-      { id: 'nos',     label: '⚡  NOS UPGRADE',        cost: 4500, desc: '+5 mph cruise + boost',                            payload: { upgrade: 'nos' } },
-      { id: 'armor',   label: '🛡  REINFORCED BUMPER',  cost: 3500, desc: 'Take 25% less crash damage',                       payload: { upgrade: 'armor' } },
-      { id: 'traction',label: '❄️  TRACTION TIRES',     cost: 2500, desc: 'Negate snow / rain grip penalty (4x4 only)',       payload: { tractionTires: true } },
-    ],
+    items: [],   // populated dynamically per-vehicle in create()
   },
   dealer_cars: {
     label: '🚗  CARS',
@@ -409,6 +403,51 @@ export class RestStopScene extends Phaser.Scene {
       it => !this._ownedVehicles.includes(it.payload.buyVehicle)
     );
     SECTIONS.dealer_cars.label = `🚗  CARS — ${_stopBrands.dealer.name}`;
+
+    // ── DEALER_ACC: per-vehicle accessory shop ──────────────────────
+    // Repair + Paint are always available.  Bumper, Traction, and NOS
+    // are filtered against the CURRENT vehicle's accessory state so
+    // already-installed items disappear (and NOS shows the next tier's
+    // price + a tier indicator).
+    const _save = this.registry?.get?.('save');
+    const _accAll = _save?.get?.('accessories') ?? {};
+    const _vAcc   = _accAll[this._vehicleId] ?? {};
+    const _vHasBumper   = !!_vAcc.bumper;
+    const _vHasTraction = !!_vAcc.traction;
+    const _vNosTier     = Math.max(0, Math.min(3, _vAcc.nos ?? 0));
+    const NOS_PRICES = [5000, 10000, 15000];
+
+    const accItems = [
+      { id: 'repair',  label: '🔧  REPAIR CAR', cost: 1000,
+        desc: 'Restore full health', payload: { repair: true } },
+      { id: 'paint',   label: '🎨  PAINT JOB',  cost: 4500,
+        desc: 'Drops ALL stars — only way out from under a 5★ chopper.',
+        payload: { clearStars: true } },
+    ];
+    if (_vNosTier < 3) {
+      const nextTier = _vNosTier + 1;
+      accItems.push({
+        id: 'nos', label: `⚡  NOS UPGRADE — LV ${nextTier}`,
+        cost: NOS_PRICES[_vNosTier],
+        desc: `+5 mph cruise & boost (total +${nextTier * 5}).`,
+        payload: { vehicleAccessory: 'nos' },
+      });
+    }
+    if (!_vHasBumper) {
+      accItems.push({
+        id: 'armor', label: '🛡  REINFORCED BUMPER', cost: 3500,
+        desc: 'Take 20% less crash damage on this vehicle.',
+        payload: { vehicleAccessory: 'bumper' },
+      });
+    }
+    if (!_vHasTraction) {
+      accItems.push({
+        id: 'traction', label: '❄️  TRACTION TIRES', cost: 2500,
+        desc: '−40% slide penalty on any car (−100% with 4x4).',
+        payload: { vehicleAccessory: 'traction' },
+      });
+    }
+    SECTIONS.dealer_acc.items = accItems;
 
     // ── Per-shop drug menus (gated by pickupCounts on registry) ────
     // Each shop keeps its base items + appends the drugs it sells (only
@@ -977,7 +1016,29 @@ export class RestStopScene extends Phaser.Scene {
       this._purchases.durabilityOnResume = Math.min(vehMax, cur + 15);
     }
     if (p.tractionTires) {
+      // Legacy payload (global flag) — kept so existing call sites don't
+      // break, but the new per-vehicle path below is the real source.
       this._purchases.tractionTires = true;
+    }
+    if (p.vehicleAccessory) {
+      // Per-vehicle accessory purchase (bumper / traction / nos).  Write
+      // directly into the per-mode save profile under accessories[vid]
+      // so the new VehicleId carries it across runs.
+      const save = this.registry?.get?.('save');
+      if (save) {
+        const all = save.get('accessories') ?? {};
+        const cur = all[this._vehicleId] ?? {};
+        if (p.vehicleAccessory === 'bumper')   cur.bumper   = true;
+        if (p.vehicleAccessory === 'traction') cur.traction = true;
+        if (p.vehicleAccessory === 'nos') {
+          cur.nos = Math.min(3, (cur.nos ?? 0) + 1);
+        }
+        all[this._vehicleId] = cur;
+        save.set('accessories', all);
+      }
+      // Stash a flag GameScene reads on resume so the HUD updates
+      // immediately if needed.  Rebuilds shop card on next visit.
+      this._purchases.accessoryRefresh = true;
     }
     if (p.camouflage) {
       // Single-shot star clear — implemented as "drop 2 stars on resume".
