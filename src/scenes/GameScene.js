@@ -4559,16 +4559,16 @@ export class GameScene extends Phaser.Scene {
       const baseH = tex?.height || 40;
       const targetW = proj.sw * (scaleHint ?? 1) * (inTunnel ? 0.88 : 1);
       const targetH = targetW * (baseH / baseW);
-      // Tire shadow — anchored to the visual BOTTOM of the car sprite
-      // (origin 0.5, 0.5 → bottom edge sits at proj.sy + targetH/2),
-      // then pulled in slightly so the shadow tucks under the wheels
-      // instead of floating below the bumper.  A second shadow is
-      // drawn at the ghost-car offset during double-vision so the
-      // ghost copy doesn't float without a shadow of its own.
+      // Tire shadow — NPC sprites use origin (0.5, 1), so the car's
+      // BOTTOM (wheels) sit at proj.sy.  The shadow is anchored to
+      // proj.sy and pulled slightly UP into the car's footprint so it
+      // tucks tight under the wheels instead of trailing below.  A
+      // second shadow paints at the ghost offset during double-vision
+      // so the ghost copy doesn't float without one.
       if (shadowG) {
         const shW = proj.sw * 0.78;
         const shH = Math.max(1.2, proj.sw * 0.10);
-        const shY = proj.sy + targetH * 0.38;
+        const shY = proj.sy - shH * 0.55;
         shadowG.fillStyle(0x000000, 0.32);
         shadowG.fillEllipse(proj.sx, shY, shW, shH);
         if (ghostOffset > 0) {
@@ -7337,6 +7337,10 @@ export class GameScene extends Phaser.Scene {
 
   _startGameplay() {
     this._awaitingStart = false;
+    // Every run kicks off with the same 2.5-second i-frame as a
+    // respawn — sprite blinks, damage is absorbed, road is frozen —
+    // so the player has time to register that gameplay started.
+    this._invincibleUntil = (this.time?.now ?? 0) + 2500;
     // Custom mode — apply the slider levels chosen on the title screen.
     // Also unlock every drug at level > 0 so the bar renders properly.
     if (this._customStartLevels && this.drugs?.levels) {
