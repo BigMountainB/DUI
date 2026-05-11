@@ -1853,7 +1853,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Steering with momentum — ramps to full turn speed in ~0.12s, bleeds off in ~0.45s
-    const steerIn  = this._isLeft() ? -1 : this._isRight() ? 1 : 0;
+    // Flappy mode: car always pulls FULL LEFT unless the action input
+    // (right key / tap / space) is held — in which case it swings full
+    // right.  Left input is ignored.  Same magnitude both ways, same
+    // activeTau ramp as classic, so the swing feels equally fast.
+    const steerIn = (this._steeringMode() === 'flappy')
+      ? (this._isRight() ? 1 : -1)
+      : (this._isLeft() ? -1 : this._isRight() ? 1 : 0);
     const steerDir = phys.invertSteering ? -steerIn : steerIn;
 
     // ── Snow slip: last commitment locks for 0.05-0.35s ───────────
@@ -1957,17 +1963,8 @@ export class GameScene extends Phaser.Scene {
     if (_tractionOk) gripMul = 1;
     const slipMul = 1 + (1 - gripMul) * 1.5;   // 1.0 dry, ~1.15 rain, ~1.375 snow
 
-    // Flappy mode — constant leftward "gravity" pulls the car off-center
-    // unless the player holds right to counter.  Magnitude is ~60 % of
-    // TURN_SPEED so right input clearly wins when pressed but the pull
-    // becomes obvious within a second of release.
-    const flappyGravity = (this._steeringMode() === 'flappy')
-      ? -TURN_SPEED * 0.60
-      : 0;
-
     p.x += (
       p.steerVelocity  * dt * gripMul
-      + flappyGravity      * dt
       + phys.steerDrift   * dt
       + centrifugal        * dt * slipMul
       + phys.extraCurve    * p.speed * 0.001 * dt
