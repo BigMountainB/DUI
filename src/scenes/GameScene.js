@@ -670,6 +670,9 @@ export class GameScene extends Phaser.Scene {
       // Skip the title overlay so the player drops straight back in.
       this._awaitingStart = false;
       this._introDone     = true;
+      // 2.5-second i-frame on every checkpoint respawn — sprite blinks,
+      // damage is absorbed, road is frozen (see _updatePlayer).
+      this._invincibleUntil = (this.time?.now ?? 0) + 2500;
     } else if (this._resumeFromStop) {
       const rs = REST_STOPS.find(r => r.id === this._resumeFromStop);
       if (rs) {
@@ -867,6 +870,13 @@ export class GameScene extends Phaser.Scene {
     this._introDone     = !this._awaitingStart;
     this._introGfx      = null;
     this.player.speed   = this._awaitingStart ? MAX_SPEED * 0.18 : MAX_SPEED * 0.4;
+    // Rest-stop / save-code resume gets the same 2.5-second i-frame
+    // (blink + damage immunity + road frozen) as a fresh respawn so
+    // the player doesn't get clobbered the instant they're back on the
+    // road.  Set AFTER _invincibleUntil was zeroed in init().
+    if (this._resumeFromStop) {
+      this._invincibleUntil = (this.time?.now ?? 0) + 2500;
+    }
 
     // ── HUD ───────────────────────────────────────────────────────────
     // _buildHUD also creates the title overlay objects (used pre-tap).
@@ -2204,7 +2214,14 @@ export class GameScene extends Phaser.Scene {
     // Combined effect: read 60 mph, cover ground as if at 150 mph.
     const lsdLvl = this.drugs?.get?.(DRUGS.LSD) ?? 0;
     const distMul = lsdLvl >= 0.90 ? 1.25 : 1.0;
-    p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
+    // Crash i-frame freezes the world — speed pinned to zero so the
+    // road doesn't scroll while the player car blinks.  Position is
+    // not advanced; player resumes moving once the window expires.
+    if (_iframeActive) {
+      p.speed = 0;
+    } else {
+      p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
+    }
 
     // Visual lean — follows steer velocity so it lingers after key release
     const leanDir = p.steerVelocity / (TURN_SPEED || 1);  // normalised -1..1
@@ -2868,15 +2885,19 @@ export class GameScene extends Phaser.Scene {
     // Sits just above the No-NPC-damage / No-police checkboxes.  Six
     // buttons in a row, active one tinted yellow.  Resolved star count
     // is passed through to onConfirm so _startGameplay can seed it.
+    // Reverse-couples with the No-police checkbox below: picking a
+    // non-zero star count auto-unchecks "No police" (the two settings
+    // are mutually exclusive).
     let startStars = 0;
     let refreshStarBtns = null;          // hoisted so checkboxes can repaint it
+    let uncheckNoPolice = null;          // hoisted so stars can uncheck No-Police
     if (mode === 'custom') {
-      const starRowY  = panelY + panelH - 104;
-      const starBtnW  = 28;
-      const starBtnH  = 22;
-      const starGap   = 4;
+      const starRowY  = panelY + panelH - 116;
+      const starBtnW  = 38;
+      const starBtnH  = 30;
+      const starGap   = 6;
       this.add.text(panelX + 22, starRowY + starBtnH / 2, 'STARS', {
-        fontSize: '11px', fontFamily: 'Impact, "Arial Black", sans-serif',
+        fontSize: '15px', fontFamily: 'Impact, "Arial Black", sans-serif',
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0, 0.5).setDepth(D + 3);
       const starButtons = [];
@@ -2885,13 +2906,13 @@ export class GameScene extends Phaser.Scene {
           const isOn = i === startStars;
           entry.bg.clear();
           entry.bg.fillStyle(isOn ? 0xFFCC22 : 0x222222, 1);
-          entry.bg.fillRoundedRect(entry.x, starRowY, starBtnW, starBtnH, 4);
+          entry.bg.fillRoundedRect(entry.x, starRowY, starBtnW, starBtnH, 5);
           entry.bg.lineStyle(2, isOn ? 0xFFFFFF : 0x888888, 1);
-          entry.bg.strokeRoundedRect(entry.x + 0.5, starRowY + 0.5, starBtnW - 1, starBtnH - 1, 4);
+          entry.bg.strokeRoundedRect(entry.x + 0.5, starRowY + 0.5, starBtnW - 1, starBtnH - 1, 5);
           entry.lbl.setColor(isOn ? '#000' : '#DDD');
         });
       };
-      const starXStart = panelX + 84;
+      const starXStart = panelX + 96;
       for (let i = 0; i <= 5; i++) {
         const sx = starXStart + i * (starBtnW + starGap);
         const bg = this.add.graphics().setDepth(D + 2);
@@ -2899,7 +2920,7 @@ export class GameScene extends Phaser.Scene {
         bg.input.cursor = 'pointer';
         const lbl = this.add.text(sx + starBtnW / 2, starRowY + starBtnH / 2,
           i === 0 ? '0' : i + '★', {
-          fontSize: '12px', fontFamily: 'Impact, "Arial Black", sans-serif',
+          fontSize: '16px', fontFamily: 'Impact, "Arial Black", sans-serif',
           color: '#DDD', stroke: '#000', strokeThickness: 2,
         }).setOrigin(0.5).setDepth(D + 3);
         starButtons.push({ x: sx, bg, lbl });
@@ -2908,6 +2929,9 @@ export class GameScene extends Phaser.Scene {
           ptr.event?.stopPropagation?.();
           startStars = i;
           refreshStarBtns();
+          // Picking a real wanted level forces "No police" OFF — the
+          // two settings can't coexist.
+          if (i > 0) uncheckNoPolice?.();
         });
       }
       refreshStarBtns();
@@ -2915,46 +2939,46 @@ export class GameScene extends Phaser.Scene {
 
     // ── Custom-mode checkboxes (No NPC damage / No police) ───────
     if (mode === 'custom') {
-      const cbY = panelY + panelH - 78;
-      const cbSize = 14;
+      const cbY = panelY + panelH - 80;
+      const cbSize = 22;
       const checkboxes = [
         { x: panelX + 22,        label: 'No NPC damage', key: 'noNpcDamage' },
-        { x: panelX + 22 + 180,  label: 'No police',     key: 'noPolice' },
+        { x: panelX + 22 + 220,  label: 'No police',     key: 'noPolice' },
       ];
       const cbState = { noNpcDamage: false, noPolice: false };
+      const cbRefreshers = {};
       checkboxes.forEach(({ x, label, key }) => {
         const box = this.add.graphics().setDepth(D + 2);
         const drawBox = (checked) => {
           box.clear();
           box.fillStyle(checked ? 0x44CCFF : 0x222222, 1);
-          box.fillRoundedRect(x, cbY, cbSize, cbSize, 3);
-          box.lineStyle(1.5, 0xFFFFFF, 1);
-          box.strokeRoundedRect(x + 0.5, cbY + 0.5, cbSize - 1, cbSize - 1, 3);
+          box.fillRoundedRect(x, cbY, cbSize, cbSize, 4);
+          box.lineStyle(2, 0xFFFFFF, 1);
+          box.strokeRoundedRect(x + 0.5, cbY + 0.5, cbSize - 1, cbSize - 1, 4);
           if (checked) {
-            box.lineStyle(2, 0xFFFFFF, 1);
+            box.lineStyle(3, 0xFFFFFF, 1);
             box.beginPath();
-            box.moveTo(x + 3, cbY + cbSize * 0.55);
-            box.lineTo(x + cbSize * 0.45, cbY + cbSize - 3);
-            box.lineTo(x + cbSize - 2, cbY + 3);
+            box.moveTo(x + 4, cbY + cbSize * 0.55);
+            box.lineTo(x + cbSize * 0.45, cbY + cbSize - 4);
+            box.lineTo(x + cbSize - 3, cbY + 4);
             box.strokePath();
           }
         };
         drawBox(false);
+        cbRefreshers[key] = drawBox;
         box.setInteractive(new Phaser.Geom.Rectangle(x, cbY, cbSize, cbSize), Phaser.Geom.Rectangle.Contains);
         box.input.cursor = 'pointer';
-        const lbl = this.add.text(x + cbSize + 5, cbY + cbSize / 2, label, {
-          fontSize: '11px', fontFamily: 'Arial, sans-serif',
-          color: '#CCCCCC',
+        const lbl = this.add.text(x + cbSize + 8, cbY + cbSize / 2, label, {
+          fontSize: '15px', fontFamily: 'Arial, sans-serif',
+          color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
         }).setOrigin(0, 0.5).setDepth(D + 3);
-        // Tap on label OR box toggles.
         const toggle = () => {
           cbState[key] = !cbState[key];
           drawBox(cbState[key]);
           if (key === 'noNpcDamage') noNpcDamage = cbState[key];
           if (key === 'noPolice') {
             noPolice = cbState[key];
-            // Checking "No police" implicitly zeros wanted level — stars
-            // are meaningless when the police system is off entirely.
+            // Checking "No police" implicitly zeros wanted level.
             if (cbState[key]) {
               startStars = 0;
               refreshStarBtns?.();
@@ -2965,7 +2989,7 @@ export class GameScene extends Phaser.Scene {
           ptr.event?.stopPropagation?.();
           toggle();
         });
-        const lblHit = this.add.rectangle(x + cbSize + 5, cbY, 140, cbSize, 0x000000, 0)
+        const lblHit = this.add.rectangle(x + cbSize + 8, cbY, 180, cbSize, 0x000000, 0)
           .setOrigin(0, 0).setDepth(D + 3).setInteractive({ useHandCursor: true });
         lblHit.on('pointerdown', (ptr) => {
           ptr.event?.stopPropagation?.();
@@ -2973,6 +2997,14 @@ export class GameScene extends Phaser.Scene {
         });
         objs.push(box, lbl, lblHit);
       });
+      // Hoisted handle for the star picker to force No-Police OFF.
+      uncheckNoPolice = () => {
+        if (cbState.noPolice) {
+          cbState.noPolice = false;
+          noPolice = false;
+          cbRefreshers.noPolice?.(false);
+        }
+      };
     }
 
     // ── Confirm / Cancel buttons ─────────────────────────────────
