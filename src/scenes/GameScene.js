@@ -218,6 +218,16 @@ export class GameScene extends Phaser.Scene {
     // Zero-HP wreck → game-over screen.  Now that the HP bar is on the
     // HUD the player can see this coming, so auto-ending the run is fair.
     this.damage.on('wreck', () => this._endGame('crash'));
+    // First HP loss flips the run out of the "drive straight" intro:
+    // Tap-mode's auto-pull-left kicks in from the moment the player
+    // takes damage, even if they haven't tapped yet.  Same flags the
+    // first-tap path clears.
+    this.damage.on('damage', () => {
+      if (this._awaitingFirstGameTap || this._steerLockUntilTap) {
+        this._awaitingFirstGameTap = false;
+        this._steerLockUntilTap    = false;
+      }
+    });
 
     // ── Graphics layers ───────────────────────────────────────────────
     this.roadGfx      = this.add.graphics();
@@ -1444,14 +1454,12 @@ export class GameScene extends Phaser.Scene {
       this.effects.triggerShake(60, phys.cameraTremor * 0.0008);
     }
 
-    // Game time + party clock are paused while the run is in the
-    // pre-first-tap "ready" freeze — time starts ticking with the
-    // player's first input.  Checkpoint-resume sets _steerLockUntilTap
-    // instead (steering only); timer runs from load there.
-    if (!this._awaitingFirstGameTap) {
-      this.gameTime += rawDt;
-      if (this._partyClockSec > 0) this._partyClockSec = Math.max(0, this._partyClockSec - rawDt);
-    }
+    // Game time + party clock tick from the moment the car starts
+    // moving forward (scene load for both fresh starts and checkpoint
+    // resumes).  i-frame crash freezes still suspend movement; the
+    // timer ticks through them because the player is on the clock.
+    this.gameTime += rawDt;
+    if (this._partyClockSec > 0) this._partyClockSec = Math.max(0, this._partyClockSec - rawDt);
     // Checkpoint-resume steer-lock: any raw input (key or touch)
     // clears the lock so the player regains control.  The lock is set
     // in the _resumeFromStop / _resumeFromPosition init branches.
