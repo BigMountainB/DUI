@@ -1957,11 +1957,15 @@ export class GameScene extends Phaser.Scene {
     // right.  Left input is ignored.  Same magnitude both ways, same
     // activeTau ramp as classic, so the swing feels equally fast.
     //
-    // During the crash i-frame window: ALL steering input is ignored AND
-    // the Tap-mode left pull is suspended.  steerIn forced to 0 so the
-    // car coasts at center until the player regains control.
+    // Two cases zero out the steering input entirely (steerIn = 0):
+    //   • Crash i-frame window — sprite blinks, road frozen, no input.
+    //   • Pre-first-tap "ready" state — the car drives STRAIGHT down
+    //     the road until the player makes their first input.  Tap-mode's
+    //     left pull is suspended so the car doesn't immediately drift
+    //     off-road during the intro beat.
     const _iframeActive = (this.time?.now ?? 0) < this._invincibleUntil;
-    const steerIn = _iframeActive
+    const _readyState   = !!this._awaitingFirstGameTap;
+    const steerIn = (_iframeActive || _readyState)
       ? 0
       : (this._steeringMode() === 'flappy')
         ? (this._isRight() ? 1 : -1)
@@ -2210,11 +2214,12 @@ export class GameScene extends Phaser.Scene {
     // Combined effect: read 60 mph, cover ground as if at 150 mph.
     const lsdLvl = this.drugs?.get?.(DRUGS.LSD) ?? 0;
     const distMul = lsdLvl >= 0.90 ? 1.25 : 1.0;
-    // Crash i-frame OR pre-first-tap "ready" state freezes the world
-    // — speed pinned to zero so the road doesn't scroll.  i-frame
-    // states also blink the sprite; the first-tap state does not.
-    const _frozen = _iframeActive || this._awaitingFirstGameTap;
-    if (_frozen) {
+    // Crash i-frame freezes the world (speed pinned to zero, sprite
+    // blinks).  The pre-first-tap "ready" state does NOT freeze — the
+    // road keeps scrolling at idle and the car drives straight ahead
+    // (steerIn=0 handled above) until the player makes their first
+    // input, at which point Tap-mode's leftward pull kicks in.
+    if (_iframeActive) {
       p.speed = 0;
     } else {
       p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
