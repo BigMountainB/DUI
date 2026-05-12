@@ -494,9 +494,26 @@ export class GameScene extends Phaser.Scene {
             this.audio?.setPaused?.(false);
             this.registry?.remove?.('drugUnlocks');
             this.registry?.remove?.('drugProgress');
+            // Hardening: explicitly null out every "where were we?"
+            // pointer so the next scene.start CANNOT accidentally
+            // resume from a stale checkpoint snapshot.
+            const _save = this.registry?.get?.('save');
+            _save?.set?.('lastRestStop', null);
+            this._resumeFromStop     = null;
+            this._resumeFromPosition = null;
+            this._resumePurchases    = null;
+            this._resumeScore        = 0;
+            this._resumeStars        = 0;
+            this._lastCheckpoint     = null;
+            this._odometer           = 0;
+            this.score               = 0;
             if (this.player) this.player.position = 0;
-            this._lastCheckpoint = null;
-            this._odometer       = 0;
+            // Reset HP to the current vehicle's max so the player
+            // starts fresh, not at whatever durability they crashed at.
+            const _vehId = this.registry?.get?.('vehicleId') ?? 'beater';
+            const _veh   = VEHICLES[_vehId] ?? VEHICLES.beater;
+            this.damage?.setMax?.(_veh.hp);
+            this.damage?.setDurability?.(_veh.hp);
             this.scene.start('Game', {});
           },
         );
@@ -3605,6 +3622,17 @@ export class GameScene extends Phaser.Scene {
                   :              'REAR-END!';
       this._showPopup(label, isHeadOn ? '#FF2222' : '#FF8800');
       this._applyDamage(isHeadOn ? 3 + impact.severity * 3 : 1 + impact.severity * 2, isHeadOn ? 'head_on' : 'traffic');
+      if (isHeadOn) {
+        // Spin / roll the player car to the center and grant 2-second
+        // i-frame.  All subsequent damage is absorbed during the
+        // blink, so chaining a head-on into a tree or another NPC
+        // costs only the first hit.
+        this.player.x        = 0;
+        this.player.steerVelocity = 0;
+        this.player.speed   *= 0.5;
+        this._invincibleUntil = Math.max(this._invincibleUntil ?? 0,
+          (this.time?.now ?? 0) + 2000);
+      }
       car.alive      = false;
       car.crashed    = true;
       car.crashTimer = 1.6;
@@ -3688,6 +3716,13 @@ export class GameScene extends Phaser.Scene {
       this.cops.addStar(0.5);                  // head-on with oncoming cop
       this.effects.triggerShake(440 + impact.severity * 360, 0.015 + impact.severity * 0.012);
       this._applyDamage((3 + impact.severity * 3) * damageMul, 'cop_head_on');
+      // Same spin-to-center + 2-sec i-frame as NPC head-on — chained
+      // damage during the blink is fully absorbed.
+      this.player.x        = 0;
+      this.player.steerVelocity = 0;
+      this.player.speed   *= 0.5;
+      this._invincibleUntil = Math.max(this._invincibleUntil ?? 0,
+        (this.time?.now ?? 0) + 2000);
       const headons = this.cops.registerHeadOn();
       const left = 3 - headons;
       this._showPopup(
