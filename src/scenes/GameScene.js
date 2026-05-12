@@ -6331,7 +6331,12 @@ export class GameScene extends Phaser.Scene {
     // Car HP — green > 50, orange > 20, red ≤ 20.  Reads from the existing
     // DamageModel (max 100) so all takeDamage calls feed the same number.
     if (this.hudHP && this.damage) {
-      const hp = Math.max(0, Math.round(this.damage.getDurability?.() ?? 100));
+      // CEIL so the displayed HP only reads "0" once durability is
+      // ACTUALLY 0 (and the wreck event has fired).  Math.round used
+      // to show "0 HP" at durability 0.49, which made the game look
+      // like it kept going after the readout hit zero.
+      const dur = this.damage.getDurability?.() ?? 100;
+      const hp  = Math.max(0, Math.ceil(dur));
       const color = hp > 50 ? '#44FF44' : hp > 20 ? '#FFAA22' : '#FF2244';
       this.hudHP.setText(`${hp} HP`).setColor(color);
     }

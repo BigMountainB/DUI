@@ -351,11 +351,12 @@ export class DrugSystem {
     if (id === DRUGS.COCAINE) this.cocainePickupCount += 1;
     this.pickupCounts[id] = (this.pickupCounts[id] ?? 0) + 1;
 
-    // Immediate OD check — bar can safely fill to 100%.  OD only fires
-    // when the player is ALREADY at 100% and takes another hit (i.e.,
-    // would overflow past 1.0).  This gives the player a 100% "safe
-    // zone" to chase the maxed-out achievements.
-    if (cfg.canOD && prevLevel >= 1.0) {
+    // Immediate OD check — bar can safely fill to 100% AND stay there
+    // without overdose.  OD only fires if the level somehow exceeds
+    // 1.0 (i.e., 101%+).  Since pickup() clamps to 1.0, this strict
+    // > 1.0 check effectively never fires from normal play — exactly
+    // what the user wants: 100% is a permanent safe zone.
+    if (cfg.canOD && this.levels[id] > 1.0) {
       return { overdose: true, drug: id };
     }
     return { overdose: false, drug: id };
