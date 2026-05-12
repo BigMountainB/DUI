@@ -3614,6 +3614,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   _onVehicleCollision(car, _idx, hit) {
+    // Player is phasing through traffic during i-frame — skip the
+    // entire collision (no popup, no damage, no score, no NPC spin
+    // either, since they didn't actually hit anything).
+    if ((this.time?.now ?? 0) < this._invincibleUntil) return;
     const p    = this.player;
     const relZ = Math.max(50, car.position - p.position);
     const proj = this.road.getVehicleProjection(relZ, car.laneOffset);
@@ -3736,6 +3740,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   _onCopCollision(cop, idx, hit) {
+    // i-frame phase-through — same as NPC traffic.  No bust counters
+    // accrue, no popup, no damage.
+    if ((this.time?.now ?? 0) < this._invincibleUntil) return;
     const p    = this.player;
     const relZ = Math.max(50, cop.position - p.position);
     const proj = this.road.getVehicleProjection(relZ, cop.laneOffset);
