@@ -687,9 +687,12 @@ export class GameScene extends Phaser.Scene {
       // Skip the title overlay so the player drops straight back in.
       this._awaitingStart = false;
       this._introDone     = true;
-      // 2.5-second i-frame on every checkpoint respawn — sprite blinks,
-      // damage is absorbed, road is frozen (see _updatePlayer).
-      this._invincibleUntil = (this.time?.now ?? 0) + 2500;
+      // Checkpoint respawn now mirrors the fresh-game intro: car goes
+      // straight until the player taps to take control.  Unlike the
+      // fresh start, the party clock + gameTime tick IMMEDIATELY —
+      // they don't wait for the first tap.  See `_steerLockUntilTap`
+      // gate in _updatePlayer for the steering side.
+      this._steerLockUntilTap = true;
     } else if (this._resumeFromStop) {
       const rs = REST_STOPS.find(r => r.id === this._resumeFromStop);
       if (rs) {
@@ -887,12 +890,12 @@ export class GameScene extends Phaser.Scene {
     this._introDone     = !this._awaitingStart;
     this._introGfx      = null;
     this.player.speed   = this._awaitingStart ? MAX_SPEED * 0.18 : MAX_SPEED * 0.4;
-    // Rest-stop / save-code resume gets the same 2.5-second i-frame
-    // (blink + damage immunity + road frozen) as a fresh respawn so
-    // the player doesn't get clobbered the instant they're back on the
-    // road.  Set AFTER _invincibleUntil was zeroed in init().
+    // Rest-stop / save-code resume now mirrors the fresh-game intro:
+    // car drives straight until the player taps.  Unlike the fresh
+    // start, the party clock + gameTime tick from the moment the
+    // scene boots — they don't wait for the first tap.
     if (this._resumeFromStop) {
-      this._invincibleUntil = (this.time?.now ?? 0) + 2500;
+      this._steerLockUntilTap = true;
     }
 
     // ── HUD ───────────────────────────────────────────────────────────
@@ -1443,10 +1446,17 @@ export class GameScene extends Phaser.Scene {
 
     // Game time + party clock are paused while the run is in the
     // pre-first-tap "ready" freeze — time starts ticking with the
-    // player's first input.
+    // player's first input.  Checkpoint-resume sets _steerLockUntilTap
+    // instead (steering only); timer runs from load there.
     if (!this._awaitingFirstGameTap) {
       this.gameTime += rawDt;
       if (this._partyClockSec > 0) this._partyClockSec = Math.max(0, this._partyClockSec - rawDt);
+    }
+    // Checkpoint-resume steer-lock: any raw input (key or touch)
+    // clears the lock so the player regains control.  The lock is set
+    // in the _resumeFromStop / _resumeFromPosition init branches.
+    if (this._steerLockUntilTap && (this._isLeftRaw() || this._isRightRaw())) {
+      this._steerLockUntilTap = false;
     }
 
     // ── One-shot key actions ──────────────────────────────────────────
@@ -1974,15 +1984,16 @@ export class GameScene extends Phaser.Scene {
     // right.  Left input is ignored.  Same magnitude both ways, same
     // activeTau ramp as classic, so the swing feels equally fast.
     //
-    // Two cases zero out the steering input entirely (steerIn = 0):
+    // Three cases zero out the steering input (steerIn = 0):
     //   • Crash i-frame window — sprite blinks, road frozen, no input.
-    //   • Pre-first-tap "ready" state — the car drives STRAIGHT down
-    //     the road until the player makes their first input.  Tap-mode's
-    //     left pull is suspended so the car doesn't immediately drift
-    //     off-road during the intro beat.
+    //   • Pre-first-tap "ready" state — fresh-game intro, car drives
+    //     STRAIGHT and the timer is paused until the player taps.
+    //   • Steer-lock-until-tap — checkpoint resumes, car drives
+    //     straight but the timer runs from scene load.
     const _iframeActive = (this.time?.now ?? 0) < this._invincibleUntil;
     const _readyState   = !!this._awaitingFirstGameTap;
-    const steerIn = (_iframeActive || _readyState)
+    const _steerLocked  = !!this._steerLockUntilTap;
+    const steerIn = (_iframeActive || _readyState || _steerLocked)
       ? 0
       : (this._steeringMode() === 'flappy')
         ? (this._isRight() ? 1 : -1)
