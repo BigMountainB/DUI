@@ -5509,13 +5509,26 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(1, 0.5).setDepth(d);
 
     // ── Gas gauge (below HP, right edge) ─────────────────────────────
-    // Shows remaining range in miles + the ⛽ icon.  Green > 30 mi,
-    // amber 30→10, red ≤ 10 with a slow blink.  Updated each frame in
-    // _renderHUD via this.hudGas.setText / setColor.
-    this.hudGas = this.add.text(SCREEN_W - 78, 108, '⛽ --- mi', {
-      fontSize: '28px', fontFamily: IMPACT,
-      color: '#44FF44', stroke: '#000000', strokeThickness: 4,
-    }).setOrigin(1, 0.5).setDepth(d);
+    // Two parts: a 28-px-wide PNG pump icon (ui_gas_full when above
+    // 30 mi, ui_gas_empty at 30 mi or less) + the remaining-miles text
+    // to its left.  Green > 30 mi, amber 30→10, red ≤ 10 with a slow
+    // blink.  Updated each frame in _renderHUD via this.hudGas.setText /
+    // setColor and this.hudGasIcon.setTexture.
+    const _gasIconKey = this.textures.exists('ui_gas_full') ? 'ui_gas_full' : null;
+    if (_gasIconKey) {
+      this.hudGasIcon = this.add.image(SCREEN_W - 14, 108, 'ui_gas_full')
+        .setOrigin(1, 0.5).setDepth(d).setDisplaySize(36, 36);
+    } else {
+      this.hudGasIcon = null;
+    }
+    // Text sits LEFT of the icon (origin (1, 0.5) right-aligned).  When
+    // the PNG is missing, render the legacy ⛽ emoji inline.
+    const _gasTextX = this.hudGasIcon ? SCREEN_W - 14 - 36 - 6 : SCREEN_W - 14;
+    this.hudGas = this.add.text(_gasTextX, 108,
+      this.hudGasIcon ? '--- mi' : '⛽ --- mi', {
+        fontSize: '28px', fontFamily: IMPACT,
+        color: '#44FF44', stroke: '#000000', strokeThickness: 4,
+      }).setOrigin(1, 0.5).setDepth(d);
 
     // ── TOP-RIGHT: Speed (big) + radio ─────────────────────────────────
     // Speed colour matches the run's difficulty so the readout itself
@@ -6311,7 +6324,7 @@ export class GameScene extends Phaser.Scene {
       // (reading 'isParent')".
       this._hudObjects.push(
         ...[
-          this.hudScore, this.hudMult, this.hudDist, this.hudRegion, this.hudStars, this.hudHP, this.hudGas,
+          this.hudScore, this.hudMult, this.hudDist, this.hudRegion, this.hudStars, this.hudHP, this.hudGas, this.hudGasIcon,
           this.hudSpeed, this.hudRadio, this.hudPopup,
           this.hudRearCop, this.hudRestStop, this.hudHelicopter, this.hudHelicopterImg,
           this._titleScrim, this._titleMain, this._titleSub, this._titleRoute, this._titleTap,
@@ -6454,7 +6467,18 @@ export class GameScene extends Phaser.Scene {
       else if (gas <= GAS_LIGHT_AT_MI)    gColor = '#FFAA22';
       else if (nearExitWarn)              gColor = '#FFAA22';
       else                                gColor = '#44FF44';
-      this.hudGas.setText(gas <= 0 ? '⛽ EMPTY' : `⛽ ${gas} mi`).setColor(gColor);
+      // If the PNG icon is mounted, render text-only (no emoji); icon
+      // texture swaps to gas_empty once miles ≤ GAS_LIGHT_AT_MI (30).
+      if (this.hudGasIcon) {
+        this.hudGas.setText(gas <= 0 ? 'EMPTY' : `${gas} mi`).setColor(gColor);
+        const wantKey = gas <= GAS_LIGHT_AT_MI ? 'ui_gas_empty' : 'ui_gas_full';
+        if (this.hudGasIcon.texture.key !== wantKey
+            && this.textures.exists(wantKey)) {
+          this.hudGasIcon.setTexture(wantKey);
+        }
+      } else {
+        this.hudGas.setText(gas <= 0 ? '⛽ EMPTY' : `⛽ ${gas} mi`).setColor(gColor);
+      }
     }
     // Combo name (most recently activated only) + multiplier inline.
     // Format: "SNOW-CONE  ×3.5" or just "×3.5" when nothing's active.

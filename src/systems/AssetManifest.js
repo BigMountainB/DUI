@@ -160,6 +160,10 @@ export const ASSET_MANIFEST = {
   ui: [
     { key: 'ui_crash_collision', path: 'assets/ui/crash_collision.png' },
     { key: 'ui_crash_overdose',  path: 'assets/ui/crash_overdose.png' },
+    // Gas-gauge HUD swap.  Full pump shows above 30 mi remaining,
+    // empty pump shows once the tank is at 30 mi or less.
+    { key: 'ui_gas_full',        path: 'assets/ui/gas_full.png' },
+    { key: 'ui_gas_empty',       path: 'assets/ui/gas_empty.png' },
     // Title-screen letters — animated independently for a drunk/woozy
     // sway+fade effect on the intro overlay.  See GameScene._buildHUD.
     { key: 'ui_title_d',         path: 'assets/ui/title_d.png' },
