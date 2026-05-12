@@ -1459,6 +1459,34 @@ export class GameScene extends Phaser.Scene {
       this._steerLockUntilTap = false;
     }
 
+    // ── Low-HP smoke ───────────────────────────────────────────────
+    // ≤15 HP: light, infrequent puffs (every ~500 ms).
+    // ≤5 HP: heavier, larger puffs (every ~200 ms).
+    if (this.damage && this.playerSprite) {
+      const hp = this.damage.getDurability?.() ?? 100;
+      if (hp <= 15 && hp > 0) {
+        const interval = hp <= 5 ? 0.20 : 0.50;
+        this._lowHpSmokeT = (this._lowHpSmokeT ?? 0) + rawDt;
+        if (this._lowHpSmokeT >= interval) {
+          this._lowHpSmokeT = 0;
+          const px = this.playerSprite.x;
+          const py = this.playerSprite.y;
+          const sizeMul = hp <= 5 ? 1.5 : 1.0;
+          const wobble = (Math.random() - 0.5) * 12;
+          this.explosions.push({
+            sx: px + wobble,
+            sy: py - 4,
+            sw: (18 + Math.random() * 14) * sizeMul,
+            timer: 0,
+            maxTimer: hp <= 5 ? 1.1 : 0.85,
+            smoke: true,
+          });
+        }
+      } else if (this._lowHpSmokeT) {
+        this._lowHpSmokeT = 0;
+      }
+    }
+
     // ── One-shot key actions ──────────────────────────────────────────
     if ((this.keyF?.isDown && !this._f12KeyPressed) || this._touchF12) {
       this._useTopF12();
