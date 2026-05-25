@@ -46,9 +46,23 @@ export const REGION_PALETTES = {
     name: 'Lake Washington',
     sky:     0x80A0BE,
     fog:     0xA8C0D0,
-    horizon: 0x5688AC,   // water-blue horizon
-    grass1:  0x3A6B92,   // lake water
-    grass2:  0x2D547A,
+    // horizon = the color of the haze band painted across the screen
+    // at mid-height (in Road.render).  Was water-blue 0x5688AC which
+    // visually dominated the area where Mercer Island land projects
+    // (right at the horizon), making distant houses appear to sit on
+    // water.  Bumped to greenish-gray so the haze blends with the
+    // green grass underneath and the land-band reads as land, not water.
+    horizon: 0x6F8470,
+    // grass1/grass2 = the FULL-SCREEN background under the horizon.
+    // Bridge segments paint their own water on top of this per-slice,
+    // so this color is only actually visible where the bridge ends
+    // and land starts (mile 7.2+ Mercer Island, mile 10.2+ Bellevue).
+    // SATURATED green so the land band past the bridge is clearly
+    // distinguishable from the deep-blue bridge water — otherwise
+    // the player at mile 6.75-7.2 looking ahead sees houses appearing
+    // to float on what reads as continuous water.
+    grass1:  0x5A9050,   // bright lawn green
+    grass2:  0x447040,
     road1:   0x646464,
     road2:   0x606060,
     rumble1: 0xFFFFFF,
@@ -156,12 +170,12 @@ export const REGION_PALETTES = {
 //   mile 12 = 0.04096,  mile 38 = 0.12969,  mile 88 = 0.30034,
 //   mile 138 = 0.47099, mile 195 = 0.66553, mile 293 = 1.0
 export const REGION_ORDER = [
-  { start: 0.0000, end: 0.0068, key: 'seattle_urban'   }, //   0–2 mi: West Seattle (homes before bridge)
-  { start: 0.0068, end: 0.0239, key: 'downtown_seattle'}, //   2–7 mi: West Seattle Bridge + downtown towers
-  { start: 0.0239, end: 0.0273, key: 'lake_washington' }, //   7–8 mi:   Lacey V. Murrow Floating Bridge (West)
-  { start: 0.0273, end: 0.0341, key: 'mercer_island'   }, //   8–10 mi:  Mercer Island land (homes + lid tunnel)
-  { start: 0.0341, end: 0.0392, key: 'lake_washington' }, //  10–11.5 mi: East Channel Floating Bridge
-  { start: 0.0392, end: 0.0478, key: 'eastside_urban'  }, //  11.5–14 mi: Bellevue (downtown buildings; was a gap 11.5→12)
+  { start: 0.0000, end: 0.0020, key: 'seattle_urban'   }, //   0–0.6 mi: West Seattle (homes before bridge)
+  { start: 0.0020, end: 0.0195, key: 'downtown_seattle'}, //   0.6–5.7 mi: West Seattle Bridge → SoDo → Mt Baker Tunnel
+  { start: 0.0195, end: 0.0246, key: 'lake_washington' }, //   5.7–7.2 mi: Lacey V. Murrow Floating Bridge
+  { start: 0.0246, end: 0.0335, key: 'mercer_island'   }, //   7.2–9.8 mi: Mercer Island land (Lid Tunnel + ridge descent)
+  { start: 0.0335, end: 0.0348, key: 'lake_washington' }, //   9.8–10.2 mi: East Channel Floating Bridge
+  { start: 0.0348, end: 0.0478, key: 'eastside_urban'  }, //  10.2–14 mi: Bellevue (downtown buildings)
   { start: 0.0478, end: 0.1297, key: 'eastside'        }, //  14–38 mi: Bellevue suburbs → North Bend
   { start: 0.1297, end: 0.3003, key: 'cascades'        }, //  38–88 mi: Snoqualmie Pass + Easton + Cle Elum
   { start: 0.3003, end: 0.4710, key: 'east_cascades'   }, //  88–138 mi: Thorp → Ellensburg → Vantage

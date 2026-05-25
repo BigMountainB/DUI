@@ -154,8 +154,14 @@ export const ROUTE_SEGS   = 470000;
 const _CP_RAW = [
   { name: 'West Seattle',     mileage:   0, end:   5, isStart: true },
   { name: 'Seattle',           mileage:   5, end:   7 },
-  { name: 'Mercer Island',     mileage:   7, end:  11 },
-  { name: 'Bellevue',          mileage:  12, end:  16 },
+  // Mercer Island ends at the East Channel Bridge (mile 9.8-10.2).
+  // Past that bridge you're on the Bellevue mainland, so the label
+  // and the region (eastside_urban at mile 10.2+) need to agree —
+  // otherwise the player sees tall Bellevue skyline buildings while
+  // the label still reads "Mercer Island" (Mercer Island is
+  // residential, no skyscrapers).
+  { name: 'Mercer Island',     mileage:   7, end:  10 },
+  { name: 'Bellevue',          mileage:  10, end:  16 },
   { name: 'Issaquah',          mileage:  17, end:  25 },
   { name: 'Snoqualmie',        mileage:  26, end:  31 },
   { name: 'North Bend',        mileage:  32, end:  38 },
@@ -218,7 +224,7 @@ export function getLocationName(progress) {
 // at Colfax, and finishes on WA-270 into Pullman (we reuse hwy_wa270 for
 // WA-271 since the same green WA-state badge fits visually).
 const _REST_STOP_DEF = [
-  { id: 'S',  name: 'Seattle, WA',         mileage:    5, exit: 'Exit 5',     hwy: 'hwy_i90',   amenities: ['gas', 'drugs', 'dealer'] },
+  { id: 'S',  name: 'Seattle, WA',         mileage:    4, exit: 'Exit 4',     hwy: 'hwy_i90',   amenities: ['gas', 'drugs', 'dealer'] },
   // Mercer Island sits between the Mercer Island Lid Tunnel (8.5–9.0)
   // and the East Channel Bridge (10–11.5).  Mile 9.5 keeps the entire
   // 1-mi ramp window (8.5–9.5) on dry road only after the player exits
@@ -262,44 +268,52 @@ export const REST_STOPS = _REST_STOP_DEF.map(rs => ({
 //   sprite       — texture key; falls back to 'car_player' if absent
 export const VEHICLES = {
   beater: {
-    id: 'beater', label: 'Beater', hp: 50,  rangeMi: 150, topMph: 110, boostMph: 0,
+    id: 'beater', label: 'Used Sedan', hp: 50,  rangeMi: 250, topMph: 110, boostMph: 0,
     drive: '2WD', fuel: 'gas', heat: 0.85, priceUsd: 0,
-    sprite: 'car_player', tint: 0xB8A990,         // faded brown/tan
+    sprite: 'car_player', spriteBack: 'codex_beater_back', spriteFront: 'codex_beater_front',
+    tint: 0xEEEEEE,    // off-white (swatch only — PNG isn't tinted at render time)
   },
   suv4x4: {
     id: 'suv4x4', label: 'Used 4x4 SUV', hp: 70, rangeMi: 300, topMph: 115, boostMph: 0,
     drive: '4x4', fuel: 'gas', heat: 0.95, priceUsd: 4500,
-    sprite: 'car_player', tint: 0x4A6E3F,         // muted forest green
+    sprite: 'car_player', spriteBack: 'codex_suv4x4_back', spriteFront: 'codex_suv4x4_front',
+    tint: 0x3A78D6,    // mid blue (swatch only)
   },
   usedTruck: {
     id: 'usedTruck', label: 'Used Truck', hp: 90, rangeMi: 350, topMph: 117, boostMph: 0,
     drive: '4x4', fuel: 'gas', heat: 1.00, priceUsd: 8000,
-    sprite: 'car_player', tint: 0x7A5236,         // weathered brown
+    sprite: 'car_player', spriteBack: 'codex_used_truck_back', spriteFront: 'codex_used_truck_front',
+    tint: 0x224488,    // deeper truck blue (swatch only)
   },
   newTruck: {
-    id: 'newTruck', label: 'New Truck', hp: 100, rangeMi: 100, topMph: 120, boostMph: 0,
+    id: 'newTruck', label: 'New Truck', hp: 100, rangeMi: 400, topMph: 120, boostMph: 0,
     drive: '4x4', fuel: 'gas', heat: 1.10, priceUsd: 12000,
-    sprite: 'car_player', tint: 0x1F1F1F,         // shiny black
+    sprite: 'car_player', spriteBack: 'codex_new_truck_back', spriteFront: 'codex_new_truck_front',
+    tint: 0x1F1F1F,         // shiny black (swatch only)
   },
   evTruck: {
-    id: 'evTruck', label: 'Electric Truck', hp: 85, rangeMi: 120, topMph: 118, boostMph: 0,
+    id: 'evTruck', label: 'Electric Truck', hp: 85, rangeMi: 300, topMph: 118, boostMph: 0,
     drive: '4x4', fuel: 'electric', heat: 1.05, priceUsd: 14000,
-    sprite: 'car_player', tint: 0xC9CDD2,         // brushed silver
+    sprite: 'car_player', spriteBack: 'codex_ev_truck_back', spriteFront: 'codex_ev_truck_front',
+    tint: 0xEE7733,    // orange (swatch only)
   },
   sportsCar: {
     id: 'sportsCar', label: 'Sports Car', hp: 75, rangeMi: 500, topMph: 165, boostMph: 0,
     drive: '2WD', fuel: 'gas', heat: 1.25, priceUsd: 22000,
-    sprite: 'car_player', tint: 0xFFC107,         // canary yellow
+    sprite: 'car_player', spriteBack: 'codex_sports_car_back', spriteFront: 'codex_sports_car_front',
+    tint: 0xFFC107,         // canary yellow (swatch only)
   },
   bestlaRoadster: {
-    id: 'bestlaRoadster', label: 'Bestla Roadster', hp: 85, rangeMi: 250, topMph: 200, boostMph: 50,
+    id: 'bestlaRoadster', label: 'Electric Roadster', hp: 85, rangeMi: 250, topMph: 200, boostMph: 50,
     drive: '2WD', fuel: 'electric', heat: 1.30, priceUsd: 65000,
-    sprite: 'car_player', tint: 0xCC1122,         // candy red
+    sprite: 'car_player', spriteBack: 'codex_bestla_roadster_back', spriteFront: 'codex_bestla_roadster_front',
+    tint: 0x33AA55,    // emerald green (swatch only)
   },
   playdoutS3X: {
-    id: 'playdoutS3X', label: 'Play\'dOut S3X', hp: 125, rangeMi: 250, topMph: 190, boostMph: 0,
-    drive: '4x4', fuel: 'gas', heat: 1.40, priceUsd: 90000,
-    sprite: 'car_player', tint: 0x6F2DA8,         // deep purple
+    id: 'playdoutS3X', label: 'Bestla Play\'dOut S3X', hp: 125, rangeMi: 400, topMph: 190, boostMph: 0,
+    drive: '4x4', fuel: 'electric', heat: 1.40, priceUsd: 90000,
+    sprite: 'car_player', spriteBack: 'codex_playdout_s3x_back', spriteFront: 'codex_playdout_s3x_front',
+    tint: 0x55AAEE,    // lighter sky blue (swatch only)
   },
 };
 

@@ -334,21 +334,29 @@ export class CopSystem {
   }
 
   useF12Token(type, playerPos = 0, direction = 'auto', traffic = null) {
-    // Each fire still consumes one token / one bullet.  The "infinite"
-    // semantic the user clarified later is just NO STACK CAP — players
-    // can pick up as many as they want.  Heat (25% star roll per fire)
-    // is added at the GameScene call site.
+    // Each fire consumes one token / one bullet in scored modes.  In
+    // custom (sandbox) mode weapons are infinite — neither tokens nor
+    // ammo are decremented, so the player can keep firing without
+    // picking up resupply.  Heat (25% star roll per fire) is added
+    // at the GameScene call site.
+    const isCustom = Difficulty.mode?.() === 'custom';
     if (type === 'gun') {
-      if (this.gunAmmo <= 0) return { ok: false, victims: [], weapon: type };
-      this.gunAmmo--;
-      if (this.gunAmmo === 0) {
-        const i = this.f12Tokens.indexOf('gun');
-        if (i !== -1) this.f12Tokens.splice(i, 1);
+      if (!isCustom) {
+        if (this.gunAmmo <= 0) return { ok: false, victims: [], weapon: type };
+        this.gunAmmo--;
+        if (this.gunAmmo === 0) {
+          const i = this.f12Tokens.indexOf('gun');
+          if (i !== -1) this.f12Tokens.splice(i, 1);
+        }
+      } else if (!this.f12Tokens.includes('gun')) {
+        // Sandbox safety — gun must always be in the inventory for
+        // the HUD to show the slot.  Re-add if it was somehow stripped.
+        this.f12Tokens.push('gun');
       }
     } else {
       const idx = this.f12Tokens.indexOf(type);
       if (idx === -1) return { ok: false, victims: [], weapon: type };
-      this.f12Tokens.splice(idx, 1);
+      if (!isCustom) this.f12Tokens.splice(idx, 1);
     }
 
     // Build a unified pool of targets across cops + traffic so every weapon
@@ -400,27 +408,15 @@ export class CopSystem {
       }
 
       case 'spike_strip': {
-        // Spike strip is rear-only by design — dropped behind the car.
-        // Spiked cops crawl at 40 u/s for 8s then despawn; civilian traffic
-        // behind the player is just removed (driver pulled over).
-        const targets = this.cops.filter(c => {
-          const rel = c.position - playerPos;
-          return rel < 0 && rel > -6000;
-        });
-        for (const cop of targets) {
-          cop.spiked = true;
-          cop.speed  = 40;
-          setTimeout(() => {
-            const i = this.cops.indexOf(cop);
-            if (i !== -1) this.cops.splice(i, 1);
-          }, 8000);
-        }
-        if (traffic) {
-          for (let i = traffic.length - 1; i >= 0; i--) {
-            const rel = traffic[i].position - playerPos;
-            if (rel < 0 && rel > -6000) traffic.splice(i, 1);
-          }
-        }
+        // Spike strip wipes EVERY cop behind the player — no range cap,
+        // no 8-second crawl, no survivors.  Drops the rear pursuit
+        // completely in one drop.  Civilian traffic behind the player
+        // is also pulled over.
+        const targets = pool.filter(({ obj }) =>
+          (obj.position - playerPos) < 0);
+        const copKills = removeAll(targets);
+        this.bumpCount     = Math.max(0, this.bumpCount - copKills);
+        this.rearBumpCount = 0;
         break;
       }
 
@@ -475,7 +471,14 @@ export class CopSystem {
         this.stars     = 0;
         this.starTimer = 0;
         this.cops      = [];
-        this.bumpCount = 0;
+        // Zero EVERY bump-counter family — without this, a player who
+        // racked 4/5 rear bumps, hit disguise, and took one more rear
+        // bump would BUST instantly with no warning.  Disguise is a
+        // hard cleanse, so it must reset all four counters.
+        this.bumpCount     = 0;
+        this.rearBumpCount = 0;
+        this.headOnCount   = 0;
+        this.pitCount      = 0;
         this.arrestPending = false;
         break;
     }
@@ -491,7 +494,7 @@ export class CopSystem {
     // surprising the player with a phantom BUST.
     if (this.cops.length === 0) {
       this._copFreeTime = (this._copFreeTime ?? 0) + dt;
-      if (this._copFreeTime > 5) {
+      if (this._copFreeTime > 20) {
         if (this.bumpCount > 0)     this.bumpCount     = 0;
         if (this.rearBumpCount > 0) this.rearBumpCount = 0;
         if (this.headOnCount > 0)   this.headOnCount   = 0;
@@ -504,13 +507,12 @@ export class CopSystem {
 
     if (this.stars > 0) {
       this.starTimer -= dt;
-      // Helicopter star-lock — at 5★ the chopper is overhead and the
-      // stars STOP decaying naturally.  The only way out is to pull
-      // into a rest stop and buy the PAINT JOB ($4500, dealer
-      // accessories) — `clearStars` zeros the wanted level on resume,
-      // the chopper leaves, and decay resumes.
+      // One full star decays per minute of real time — 1★ in 60s,
+      // 2★ in 120s, up to 4★ in 240s.  5★ is the exception: helicopter
+      // is overhead and the wanted level is LOCKED.  Only a rest-stop
+      // paint job (`clearStars`) drops the player out of 5★.
       if (this.starTimer <= 0 && !this.helicopterActive) {
-        this.stars = Math.max(0, this.stars - STAR_DECAY * dt * 60);
+        this.stars = Math.max(0, this.stars - dt / 60);
         if (this.stars < 0.5) {
           this.bumpCount = this.rearBumpCount = this.headOnCount = this.pitCount = 0;
           this.arrestPending = false;
@@ -544,7 +546,13 @@ export class CopSystem {
       this._barricadeCooldown = 6 + Math.random() * 4;   // every 6-10 sec
     }
     // Single helicopter that lives as long as we're at 5★.
-    this.helicopterActive = this.stars >= 4.5;
+    // Threshold 4.75 (was 4.5): a fractional star bump that landed on
+    // exactly 4.5 used to lock the player out of decay forever — the
+    // decay branch is gated by !helicopterActive AND helicopterActive
+    // only flips off below 4.5, leaving a one-sided stuck state.  By
+    // tightening to 4.75 the chopper still locks the player at "true 5★"
+    // (display rounds up) while leaving the 4.5/4.75 band decay-able.
+    this.helicopterActive = this.stars >= 4.75;
     if (this.helicopterActive) {
       this.helicopterPos     = playerPos + 1500;          // visually ahead-above
       this.helicopterPhase   = (this.helicopterPhase ?? 0) + dt;

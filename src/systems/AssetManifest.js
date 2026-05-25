@@ -36,6 +36,46 @@ export const ASSET_MANIFEST = {
     // SWAT — front/back pair used by 4★+ heavy units (do 2× damage).
     { key: 'car_back_swat',    path: 'assets/cars/car_back_swat.png' },
     { key: 'car_front_swat',   path: 'assets/cars/car_front_swat.png' },
+    // Codex upgraded vehicle art — front/back pairs for premium garage cars.
+    { key: 'codex_beater_back',          path: 'assets/cars/codex/codex_beater_back.png' },
+    { key: 'codex_beater_front',         path: 'assets/cars/codex/codex_beater_front.png' },
+    { key: 'codex_suv4x4_back',          path: 'assets/cars/codex/codex_suv4x4_back.png' },
+    { key: 'codex_suv4x4_front',         path: 'assets/cars/codex/codex_suv4x4_front.png' },
+    { key: 'codex_used_truck_back',      path: 'assets/cars/codex/codex_used_truck_back.png' },
+    { key: 'codex_used_truck_front',     path: 'assets/cars/codex/codex_used_truck_front.png' },
+    { key: 'codex_new_truck_back',       path: 'assets/cars/codex/codex_new_truck_back.png' },
+    { key: 'codex_new_truck_front',      path: 'assets/cars/codex/codex_new_truck_front.png' },
+    { key: 'codex_ev_truck_back',        path: 'assets/cars/codex/codex_ev_truck_back.png' },
+    { key: 'codex_ev_truck_front',       path: 'assets/cars/codex/codex_ev_truck_front.png' },
+    { key: 'codex_sports_car_back',      path: 'assets/cars/codex/codex_sports_car_back.png' },
+    { key: 'codex_sports_car_front',     path: 'assets/cars/codex/codex_sports_car_front.png' },
+    { key: 'codex_bestla_roadster_back', path: 'assets/cars/codex/codex_bestla_roadster_back.png' },
+    { key: 'codex_bestla_roadster_front', path: 'assets/cars/codex/codex_bestla_roadster_front.png' },
+    { key: 'codex_playdout_s3x_back',  path: 'assets/cars/codex/bestla_playdout_s3x_back.png' },
+    { key: 'codex_playdout_s3x_front', path: 'assets/cars/codex/bestla_playdout_s3x_front.png' },
+    // Traffic aliases for the Codex garage cars.  GameScene resolves NPC
+    // traffic with car_back_<set> / car_front_<set> keys.
+    { key: 'car_back_codex_beater',          path: 'assets/cars/codex/codex_beater_back.png' },
+    { key: 'car_front_codex_beater',         path: 'assets/cars/codex/codex_beater_front.png' },
+    { key: 'car_back_codex_suv4x4',          path: 'assets/cars/codex/codex_suv4x4_back.png' },
+    { key: 'car_front_codex_suv4x4',         path: 'assets/cars/codex/codex_suv4x4_front.png' },
+    { key: 'car_back_codex_used_truck',      path: 'assets/cars/codex/codex_used_truck_back.png' },
+    { key: 'car_front_codex_used_truck',     path: 'assets/cars/codex/codex_used_truck_front.png' },
+    { key: 'car_back_codex_new_truck',       path: 'assets/cars/codex/codex_new_truck_back.png' },
+    { key: 'car_front_codex_new_truck',      path: 'assets/cars/codex/codex_new_truck_front.png' },
+    { key: 'car_back_codex_ev_truck',        path: 'assets/cars/codex/codex_ev_truck_back.png' },
+    { key: 'car_front_codex_ev_truck',       path: 'assets/cars/codex/codex_ev_truck_front.png' },
+    { key: 'car_back_codex_sports_car',      path: 'assets/cars/codex/codex_sports_car_back.png' },
+    { key: 'car_front_codex_sports_car',     path: 'assets/cars/codex/codex_sports_car_front.png' },
+    { key: 'car_back_codex_bestla_roadster', path: 'assets/cars/codex/codex_bestla_roadster_back.png' },
+    { key: 'car_front_codex_bestla_roadster', path: 'assets/cars/codex/codex_bestla_roadster_front.png' },
+    // Extra civilian NPC traffic variants.
+    { key: 'car_back_npc_hatchback',  path: 'assets/cars/codex/car_npc_hatchback_back.png' },
+    { key: 'car_front_npc_hatchback', path: 'assets/cars/codex/car_npc_hatchback_front.png' },
+    { key: 'car_back_npc_minivan',    path: 'assets/cars/codex/car_npc_minivan_back.png' },
+    { key: 'car_front_npc_minivan',   path: 'assets/cars/codex/car_npc_minivan_front.png' },
+    { key: 'car_back_npc_wagon',      path: 'assets/cars/codex/car_npc_wagon_back.png' },
+    { key: 'car_front_npc_wagon',     path: 'assets/cars/codex/car_npc_wagon_front.png' },
     // Side-view police images for cars parked on the shoulder.  Random
     // roadside cop encounters use these — left-shoulder cops face right
     // (toward the road) and vice versa.
@@ -44,50 +84,74 @@ export const ASSET_MANIFEST = {
   ],
   // (hookers section removed — HookerSystem was vestigial / deleted.)
   drugs: [
-    { key: 'drug_beer',     path: 'assets/drugs/beer.png' },
-    { key: 'drug_weed',     path: 'assets/drugs/weed.png' },
-    { key: 'drug_cocaine',  path: 'assets/drugs/cocaine.webp' },
-    { key: 'drug_shrooms',  path: 'assets/drugs/shrooms.png' },
-    { key: 'drug_lsd',      path: 'assets/drugs/lsd.png' },
-    { key: 'drug_heroin',   path: 'assets/drugs/heroin.png' },
-    { key: 'drug_rx',       path: 'assets/drugs/rx.png' },          // not yet provided
-    { key: 'drug_fentanyl', path: 'assets/drugs/fentanyl.png' },    // not yet provided
-    { key: 'drug_ketamine', path: 'assets/drugs/ketamine.png' },
-    { key: 'drug_meth',     path: 'assets/drugs/meth.png' },        // not yet provided
+    { key: 'drug_beer',     path: 'assets/drugs/beer.png?v=badge-zoom-1' },
+    { key: 'drug_weed',     path: 'assets/drugs/weed.png?v=badge-zoom-1' },
+    { key: 'drug_cocaine',  path: 'assets/drugs/cocaine.webp?v=badge-zoom-1' },
+    { key: 'drug_shrooms',  path: 'assets/drugs/shrooms.png?v=badge-zoom-1' },
+    { key: 'drug_lsd',      path: 'assets/drugs/lsd.png?v=badge-zoom-1' },
+    { key: 'drug_heroin',   path: 'assets/drugs/heroin.png?v=badge-zoom-1' },
+    { key: 'drug_rx',       path: 'assets/drugs/rx.png?v=badge-zoom-1' },
+    { key: 'drug_fentanyl', path: 'assets/drugs/fentanyl.png?v=badge-zoom-1' },
+    { key: 'drug_ketamine', path: 'assets/drugs/ketamine.png?v=badge-zoom-1' },
+    { key: 'drug_meth',     path: 'assets/drugs/meth.png?v=badge-zoom-1' },
   ],
   buildings: [
-    { key: 'building_1', path: 'assets/buildings/building1.png' },
-    { key: 'building_2', path: 'assets/buildings/building2.webp' },
-    { key: 'building_3', path: 'assets/buildings/building3.png' },
-    { key: 'building_4', path: 'assets/buildings/building4.png' },
-    { key: 'building_5', path: 'assets/buildings/building5.png' },
-    { key: 'building_6', path: 'assets/buildings/building6.png' },
-    { key: 'building_7', path: 'assets/buildings/building7.png' },
-    { key: 'space_needle', path: 'assets/buildings/space_needle.png' },
-    // West Seattle homes — single-family residential photo assets used in
-    // seattle_urban (mile 0–2) and the Issaquah tail of eastside (mile 16–17).
-    { key: 'west_seattle_1', path: 'assets/buildings/west_seattle_1.png' },
-    { key: 'west_seattle_2', path: 'assets/buildings/west_seattle_2.png' },
-    { key: 'west_seattle_3', path: 'assets/buildings/west_seattle_3.png' },
-    { key: 'west_seattle_4', path: 'assets/buildings/west_seattle_4.png' },
-    { key: 'west_seattle_5', path: 'assets/buildings/west_seattle_5.png' },
-    { key: 'west_seattle_6', path: 'assets/buildings/west_seattle_6.png' },
-    // Sea/Bev skyscraper photo assets used in downtown Seattle and
-    // downtown Bellevue (eastside_urban).
-    { key: 'sea_bev_1', path: 'assets/buildings/sea_bev_1.png' },
-    { key: 'sea_bev_2', path: 'assets/buildings/sea_bev_2.png' },
-    { key: 'sea_bev_3', path: 'assets/buildings/sea_bev_3.png' },
-    { key: 'sea_bev_4', path: 'assets/buildings/sea_bev_4.png' },
-    { key: 'sea_bev_5', path: 'assets/buildings/sea_bev_5.png' },
-    { key: 'sea_bev_6', path: 'assets/buildings/sea_bev_6.png' },
-    // Bell/Issy mid-rise photo assets used in Bellevue surroundings and
-    // the early eastside stretch through Issaquah.
-    { key: 'bell_issy_1', path: 'assets/buildings/bell_issy_1.png' },
-    { key: 'bell_issy_2', path: 'assets/buildings/bell_issy_2.png' },
-    { key: 'bell_issy_3', path: 'assets/buildings/bell_issy_3.png' },
-    { key: 'bell_issy_4', path: 'assets/buildings/bell_issy_4.png' },
-    { key: 'bell_issy_5', path: 'assets/buildings/bell_issy_5.png' },
-    { key: 'bell_issy_6', path: 'assets/buildings/bell_issy_6.png' },
+    { key: 'space_needle', path: 'assets/buildings/codex/space_needle_landmark.png' },
+    // Codex real-reference scenery pass — transparent cutout candidates
+    // grounded in Seattle / Bellevue / Issaquah reference architecture.
+    { key: 'codex_seattle_skyline',         path: 'assets/buildings/codex/seattle_skyline_cluster.png' },
+    { key: 'codex_seattle_tower_pair',      path: 'assets/buildings/codex/seattle_tower_pair.png' },
+    { key: 'codex_seattle_office_cluster',  path: 'assets/buildings/codex/seattle_office_cluster.png' },
+    { key: 'codex_bellevue_skyline',        path: 'assets/buildings/codex/bellevue_skyline_cluster.png' },
+    { key: 'codex_bellevue_wavy_residential', path: 'assets/buildings/codex/bellevue_wavy_residential.png' },
+    { key: 'codex_bellevue_city_center_dark', path: 'assets/buildings/codex/bellevue_city_center_dark.png' },
+    { key: 'codex_bellevue_braced_glass_tower', path: 'assets/buildings/codex/bellevue_braced_glass_tower.png' },
+    { key: 'codex_bellevue_residential_cluster', path: 'assets/buildings/codex/bellevue_residential_cluster.png' },
+    { key: 'codex_seattle_columbia_center', path: 'assets/buildings/codex/seattle_columbia_center.png' },
+    { key: 'codex_seattle_rainier_square',  path: 'assets/buildings/codex/seattle_rainier_square.png' },
+    { key: 'codex_seattle_two_union_square', path: 'assets/buildings/codex/seattle_two_union_square.png' },
+    { key: 'codex_seattle_1201_third',      path: 'assets/buildings/codex/seattle_1201_third.png' },
+    { key: 'codex_seattle_municipal_tower', path: 'assets/buildings/codex/seattle_municipal_tower.png' },
+    { key: 'codex_seattle_f5_tower',        path: 'assets/buildings/codex/seattle_f5_tower.png' },
+    { key: 'codex_seattle_safeco_plaza',    path: 'assets/buildings/codex/seattle_safeco_plaza.png' },
+    { key: 'codex_seattle_city_centre',     path: 'assets/buildings/codex/seattle_city_centre.png' },
+    { key: 'codex_seattle_russell_investments', path: 'assets/buildings/codex/seattle_russell_investments.png' },
+    { key: 'codex_seattle_lumen_field',     path: 'assets/buildings/codex/seattle_lumen_field.png' },
+    { key: 'codex_seattle_tmobile_park',    path: 'assets/buildings/codex/seattle_tmobile_park.png' },
+    { key: 'codex_bellevue_roadside_strip', path: 'assets/buildings/codex/bellevue_roadside_strip.png' },
+    // Directional variants — angle-matched for the side of the road
+    // they spawn on so the façade faces the player as they pass.
+    { key: 'codex_pse_bellevue_office_left',         path: 'assets/buildings/codex/bellevue_pse_office_left.png' },
+    { key: 'codex_pse_bellevue_office_right',        path: 'assets/buildings/codex/bellevue_pse_office_right.png' },
+    { key: 'codex_pse_bellevue_second_office_left',  path: 'assets/buildings/codex/bellevue_pse_second_office_left.png' },
+    { key: 'codex_pse_bellevue_second_office_right', path: 'assets/buildings/codex/bellevue_pse_second_office_right.png' },
+    { key: 'codex_bellevue_twin_residential_left',   path: 'assets/buildings/codex/bellevue_twin_residential_left.png' },
+    { key: 'codex_issaquah_front_supply',   path: 'assets/buildings/codex/issaquah_front_st_supply.png' },
+    { key: 'codex_issaquah_highlands',      path: 'assets/buildings/codex/issaquah_highlands_market.png' },
+    { key: 'codex_issaquah_cottage',        path: 'assets/buildings/codex/issaquah_craftsman_cottage.png' },
+    { key: 'codex_issaquah_roadside_strip_perspective', path: 'assets/buildings/codex/issaquah_roadside_strip_perspective.png' },
+    { key: 'codex_west_seattle_horizon_left',       path: 'assets/buildings/codex/west_seattle_horizon_left.png' },
+    { key: 'codex_west_seattle_horizon_right',      path: 'assets/buildings/codex/west_seattle_horizon_right.png' },
+    { key: 'codex_west_seattle_lowrise_apartments', path: 'assets/buildings/codex/west_seattle_lowrise_apartments.png' },
+    { key: 'codex_west_seattle_junction_shops',     path: 'assets/buildings/codex/west_seattle_junction_shops.png' },
+    { key: 'codex_west_seattle_warehouse_row',      path: 'assets/buildings/codex/west_seattle_warehouse_row.png' },
+    { key: 'codex_west_seattle_hillside_condos',    path: 'assets/buildings/codex/west_seattle_hillside_condos.png' },
+    { key: 'codex_west_seattle_overpass_ramp',      path: 'assets/buildings/codex/west_seattle_overpass_ramp.png' },
+    // Container cranes flanking the West Seattle Bridge — strict left/right
+    // pairing so each side spawns from its own sub-pool (cranes face the road).
+    { key: 'codex_ws_crane_crate_left',         path: 'assets/buildings/codex/west_seattle_container_cranes_crate_left.png' },
+    { key: 'codex_ws_crane_white_boxes_left',   path: 'assets/buildings/codex/west_seattle_container_cranes_white_boxes_left.png' },
+    { key: 'codex_ws_crane_crate_right',        path: 'assets/buildings/codex/west_seattle_container_cranes_crate_right.png' },
+    { key: 'codex_ws_crane_white_boxes_right',  path: 'assets/buildings/codex/west_seattle_container_cranes_white_boxes_right.png' },
+    { key: 'codex_west_seattle_container_stack_18', path: 'assets/buildings/codex/west_seattle_container_stack_18.png' },
+    // West Seattle homes — same Codex building asset folder as Seattle,
+    // Bellevue, and Issaquah regional scenery.
+    { key: 'west_seattle_1', path: 'assets/buildings/codex/west_seattle_1.png' },
+    { key: 'west_seattle_2', path: 'assets/buildings/codex/west_seattle_2.png' },
+    { key: 'west_seattle_3', path: 'assets/buildings/codex/west_seattle_3.png' },
+    { key: 'west_seattle_4', path: 'assets/buildings/codex/west_seattle_4.png' },
+    { key: 'west_seattle_5', path: 'assets/buildings/codex/west_seattle_5.png' },
+    { key: 'west_seattle_6', path: 'assets/buildings/codex/west_seattle_6.png' },
   ],
   businesses: [
     // Brand-logo placards used by the rest-stop services-sign UI.
@@ -127,11 +191,36 @@ export const ASSET_MANIFEST = {
     { key: 'sign_P',  path: 'assets/businesses/sign_P.png'  },
   ],
   trees: [
-    { key: 'tree_hemlock1', path: 'assets/trees/hemlock1.png' },
-    { key: 'tree_hemlock2', path: 'assets/trees/hemlock2.png' },
-    { key: 'tree_cedar1',   path: 'assets/trees/cedar1.avif' },
-    { key: 'tree_cedar2',   path: 'assets/trees/cedar2.png' },
-    { key: 'tree_generic',  path: 'assets/trees/tree1.png' },
+    // Urban broadleaves — Seattle / Mercer Island / Bellevue street &
+    // yard trees.  Bigleaf Maple (Acer macrophyllum) is the iconic PNW
+    // city tree; vine maple is the understory infill.
+    { key: 'tree_bigleaf_maple_1', path: 'assets/trees/bigleaf_maple_1.png' },
+    { key: 'tree_bigleaf_maple_2', path: 'assets/trees/bigleaf_maple_2.png' },
+    { key: 'tree_vine_maple_1',    path: 'assets/trees/vine_maple_1.png' },
+    // Western WA conifers — Bellevue → Issaquah → Snoqualmie Pass.
+    // hemlock1/2 + cedar1/2 already on disk; the other species ship as
+    // soon as Codex drops the PNGs (paths are pre-registered so the
+    // scenery wiring doesn't need a second editing pass).
+    { key: 'tree_hemlock1',       path: 'assets/trees/hemlock1.png' },
+    { key: 'tree_hemlock2',       path: 'assets/trees/hemlock2.png' },
+    { key: 'tree_hemlock3',       path: 'assets/trees/hemlock3.png' },
+    { key: 'tree_red_cedar_1',    path: 'assets/trees/red_cedar_1.png' },
+    { key: 'tree_red_cedar_2',    path: 'assets/trees/red_cedar_2.png' },
+    { key: 'tree_cedar1',         path: 'assets/trees/cedar1.avif' },
+    { key: 'tree_cedar2',         path: 'assets/trees/cedar2.png' },
+    { key: 'tree_douglas_fir_1',  path: 'assets/trees/douglas_fir_1.png' },
+    { key: 'tree_douglas_fir_2',  path: 'assets/trees/douglas_fir_2.png' },
+    // Eastern WA — Cle Elum → Ellensburg → Columbia Basin.
+    { key: 'tree_ponderosa_1',    path: 'assets/trees/ponderosa_1.png' },
+    { key: 'tree_ponderosa_2',    path: 'assets/trees/ponderosa_2.png' },
+    { key: 'tree_white_pine_1',   path: 'assets/trees/white_pine_1.png' },
+    { key: 'tree_white_pine_2',   path: 'assets/trees/white_pine_2.png' },
+    // Columbia Basin shrub-steppe.
+    { key: 'shrub_sage_1',        path: 'assets/trees/sage_1.png' },
+    { key: 'shrub_sage_2',        path: 'assets/trees/sage_2.png' },
+    { key: 'shrub_rabbitbrush_1', path: 'assets/trees/rabbitbrush_1.png' },
+    // Legacy placeholder — kept as final fallback.
+    { key: 'tree_generic',        path: 'assets/trees/tree1.png' },
   ],
   weapons: [
     { key: 'weapon_gun',         path: 'assets/weapons/gun.png' },
@@ -164,6 +253,10 @@ export const ASSET_MANIFEST = {
     // empty pump shows once the tank is at 30 mi or less.
     { key: 'ui_gas_full',        path: 'assets/ui/gas_full.png' },
     { key: 'ui_gas_empty',       path: 'assets/ui/gas_empty.png' },
+    // Portrait phone-as-menu background.  Rotating the device to
+    // portrait (or pressing M on desktop) launches PhoneMenuScene with
+    // this PNG as the full-screen letterboxed background.
+    { key: 'ui_phone_menu_bg',   path: 'assets/ui/iphone_menu_bg.png' },
     // Title-screen letters — animated independently for a drunk/woozy
     // sway+fade effect on the intro overlay.  See GameScene._buildHUD.
     { key: 'ui_title_d',         path: 'assets/ui/title_d.png' },

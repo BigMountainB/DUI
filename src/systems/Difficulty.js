@@ -62,6 +62,11 @@ const MODES = {
 const DEFAULT_MODE = 'normal';
 
 let _current = DEFAULT_MODE;
+// Sub-difficulty used WHEN running Custom mode — picks which gameplay
+// multipliers (damage, cop escalation, traffic) Custom inherits.
+// Defaults to 'normal'.  Custom still keeps its no-score + no-clock
+// behaviour regardless of this pick.
+let _customSub = 'normal';
 
 export const Difficulty = {
   /** Set the active mode and persist to the SaveSystem-backed registry.
@@ -82,8 +87,26 @@ export const Difficulty = {
     const save = registry?.get?.('save');
     const stored = registry?.get?.('difficulty') ?? save?.get?.('difficulty');
     if (stored && MODES[stored]) _current = stored;
+    const storedSub = save?.get?.('settings.customSub')
+                   ?? registry?.get?.('customSub');
+    if (storedSub && MODES[storedSub] && storedSub !== 'custom') {
+      _customSub = storedSub;
+    }
     return _current;
   },
+
+  /** Set the sub-difficulty used inside Custom mode.  Persists globally
+   *  (cross-mode) since the player's preferred Custom flavour shouldn't
+   *  reset between runs.  Accepts 'easy' | 'normal' | 'hard'. */
+  setCustomSub(sub, registry) {
+    if (!MODES[sub] || sub === 'custom') return;
+    _customSub = sub;
+    registry?.set?.('customSub', sub);
+    const save = registry?.get?.('save');
+    save?.set?.('settings.customSub', sub);
+  },
+
+  customSub() { return _customSub; },
 
   /** Active mode id (string). */
   mode() { return _current; },
@@ -91,12 +114,20 @@ export const Difficulty = {
   /** Active mode descriptor (label, blurb, multipliers, flags). */
   current() { return MODES[_current] ?? MODES[DEFAULT_MODE]; },
 
-  /** Convenience flag/multiplier accessors. */
-  dayNight()         { return this.current().dayNight; },
-  weather()          { return this.current().weather; },
-  damageMul()        { return this.current().damageMul; },
-  copEscalationMul() { return this.current().copEscalationMul; },
-  trafficMul()       { return this.current().trafficMul; },
+  /** Convenience flag/multiplier accessors.  In Custom mode the gameplay
+   *  multipliers (damage / cops / traffic / weather) are inherited from
+   *  the chosen sub-difficulty (E/N/H), while Custom's own flags
+   *  (noScore, partyClockSec, etc.) still apply. */
+  _gameplaySrc() {
+    const c = this.current();
+    if (c.id === 'custom') return MODES[_customSub] ?? MODES.normal;
+    return c;
+  },
+  dayNight()         { return this._gameplaySrc().dayNight; },
+  weather()          { return this._gameplaySrc().weather; },
+  damageMul()        { return this._gameplaySrc().damageMul; },
+  copEscalationMul() { return this._gameplaySrc().copEscalationMul; },
+  trafficMul()       { return this._gameplaySrc().trafficMul; },
   partyClockSec()    { return this.current().partyClockSec ?? 40 * 60; },
   onTimeBonusMul()   { return this.current().onTimeBonusMul ?? 1.0; },
   noScore()          { return !!this.current().noScore; },

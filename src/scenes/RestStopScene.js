@@ -456,6 +456,26 @@ export class RestStopScene extends Phaser.Scene {
       ?? this._drugPickupCounts ?? {};
     SECTIONS.gas.items     = [...SECTIONS.gas.items,     ...shopDrugItems('gas',     _pickupCounts)];
     SECTIONS.hunting.items = [...SECTIONS.hunting.items, ...shopDrugItems('hunting', _pickupCounts)];
+    // Camp repair guard — if the player's HP is already higher than
+    // 65 % of this vehicle's max, the "repair to 65 %" purchase would
+    // DOWN-tier their HP.  Mark it disabled so it shows "N/A" and the
+    // tap returns a friendly status message instead of charging $.
+    {
+      const _vehMax65    = VEHICLES[this._vehicleId]?.hp ?? 100;
+      const _target65    = Math.round(_vehMax65 * 0.65);
+      const _hpAtEntry65 = this._durabilityAtEntry ?? _vehMax65;
+      SECTIONS.camp.items = SECTIONS.camp.items.map(it => {
+        if (it.id !== 'campfix') return it;
+        if (_hpAtEntry65 >= _target65) {
+          return {
+            ...it,
+            disabled: true,
+            disabledReason: `Already at ${Math.round(_hpAtEntry65)}/${_vehMax65} HP — above the 65 % target.`,
+          };
+        }
+        return it;
+      });
+    }
     SECTIONS.camp.items    = [...SECTIONS.camp.items,    ...shopDrugItems('camp',    _pickupCounts)];
     SECTIONS.dealer_acc.items = [...SECTIONS.dealer_acc.items, ...shopDrugItems('dealer', _pickupCounts)];
     // Charging-station drugs only appear if the stop actually has a
@@ -685,8 +705,12 @@ export class RestStopScene extends Phaser.Scene {
     }
 
     // ── BACK button (shown only on sub-menus) ────────────────────────
+    // Moved to the top-LEFT corner (x=10, y=8) so it stops covering the
+    // SAVE CODE / code text just below.  Section header still sits at
+    // contentY - 32 since it belongs visually with the sub-menu content.
     {
-      const bx = this._contentX, by = contentY - 32;
+      const bx = 10, by = 8;
+      const headerY = contentY - 32;
       this._backBtnBg = this.add.rectangle(bx, by, 80, 26, 0xFFFFFF, 1)
         .setOrigin(0, 0).setStrokeStyle(2, 0x000000)
         .setInteractive({ useHandCursor: true })
@@ -698,7 +722,7 @@ export class RestStopScene extends Phaser.Scene {
       this._backBtnBg.on('pointerout',  () => this._backBtnBg.setFillStyle(0xFFFFFF));
       this._backBtnBg.on('pointerdown', () => this._popScreen());
       // Section header text — repurposed when a sub-menu opens.
-      this._sectionHeader = this.add.text(this._contentX + this._contentW / 2, by + 13, '', {
+      this._sectionHeader = this.add.text(this._contentX + this._contentW / 2, headerY + 13, '', {
         fontSize: '15px', fontFamily: IMPACT,
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5).setVisible(false);
@@ -888,29 +912,40 @@ export class RestStopScene extends Phaser.Scene {
     // there's no $ to spend and the shop shouldn't gate them out).
     const freeMode = Difficulty.noScore?.() === true;
     const effectiveCost = freeMode ? 0 : item.cost;
+    const disabled = !!item.disabled;            // set per-item when the
+                                                  // purchase would be a
+                                                  // no-op or downgrade.
 
     const cost = this.add.text(x + w - 8, y + h / 2,
-      effectiveCost > 0 ? `$${effectiveCost}` : 'FREE', {
+      disabled              ? 'N/A' :
+      effectiveCost > 0     ? `$${effectiveCost}` : 'FREE', {
         fontSize: compact ? '11px' : '13px', fontFamily: IMPACT,
         color: '#FFEE00', stroke: '#000', strokeThickness: 2,
       }).setOrigin(1, 0.5);
     created.push(label, desc, cost);
 
     const refresh = () => {
-      const ok = this._score >= effectiveCost;       // always true in freeMode
+      const ok = !disabled && this._score >= effectiveCost;
       bg.setFillStyle(ok ? 0x2A1808 : 0x1A0E04);
       bg.setStrokeStyle(2, ok ? 0xFFCC66 : 0x664422);
       label.setAlpha(ok ? 1 : 0.45);
       desc.setAlpha(ok ? 1 : 0.45);
-      cost.setColor(effectiveCost === 0 ? '#88FFCC' : (ok ? '#FFEE00' : '#886622'));
+      cost.setColor(disabled ? '#886622'
+                   : effectiveCost === 0 ? '#88FFCC'
+                   : (ok ? '#FFEE00' : '#886622'));
     };
     refresh();
     this._buttonRefresh.push(refresh);
 
-    bg.on('pointerover', () => { if (this._score >= effectiveCost) bg.setFillStyle(0x44280C); });
+    bg.on('pointerover', () => { if (!disabled && this._score >= effectiveCost) bg.setFillStyle(0x44280C); });
     bg.on('pointerout',  () => refresh());
     bg.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
+      if (disabled) {
+        this._flash(bg, 0xFF4444);
+        this._setStatus(item.disabledReason ?? 'Not available right now.', '#FF6666');
+        return;
+      }
       if (this._score < effectiveCost) {
         this._flash(bg, 0xFF4444);
         this._setStatus(`Need $${effectiveCost - this._score} more!`, '#FF6666');
@@ -973,7 +1008,10 @@ export class RestStopScene extends Phaser.Scene {
     if (!p) return;
     if (p.repair) {
       this._purchases.repair             = true;
-      this._purchases.durabilityOnResume = 100;
+      // Restore to the actual vehicle's max HP, not the legacy 100.
+      // playdoutS3X has 125 HP, so a flat 100 silently capped a "full
+      // repair" at 80 % of capacity for that vehicle.
+      this._purchases.durabilityOnResume = VEHICLES[this._vehicleId]?.hp ?? 100;
     }
     // ── Phase 2-4 payloads ────────────────────────────────────────
     if (p.refuel) {

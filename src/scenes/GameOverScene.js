@@ -286,6 +286,18 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   _startOver() {
-    this.scene.start('Game');
+    // Mirror the pause-menu Start Over wipe: clear persistent drug
+    // unlocks, drug-progress, last-rest-stop pointer, and any leftover
+    // Custom-mode opt-ins so a Custom run can't bleed `noPolice` /
+    // `noNpcDamage` / starting stars into the fresh launch.  Without
+    // this wipe, this scene's "START OVER" was semantically a "From
+    // Checkpoint stripped of stars" — same persisted state, just zeroed
+    // score.  GameScene.init() rebuilds scene-instance state from
+    // registry, so wiping registry + save is enough here.
+    this.registry?.remove?.('drugUnlocks');
+    this.registry?.remove?.('drugProgress');
+    const save = this.registry?.get?.('save');
+    save?.set?.('lastRestStop', null);
+    this.scene.start('Game', {});
   }
 }

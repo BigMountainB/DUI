@@ -57,10 +57,16 @@ export class Road {
   }
 
   /** Main render call — called every frame from GameScene */
-  render(g, ghostG, playerPos, playerX, palette, effects, propsG) {
+  render(g, ghostG, playerPos, playerX, palette, effects, propsG, frontG) {
     g.clear();
     if (propsG) propsG.clear();
+    if (frontG) frontG.clear();
     this._propsG = propsG ?? null;
+    // Bridge "front overlay" — when present, bridge-segment guardrails
+    // paint here (at a higher depth than the crane sprite band) so the
+    // bridge railings properly occlude the West Seattle Bridge cranes
+    // instead of letting the cranes show through the railing.
+    this._frontG = frontG ?? null;
     // Stash so per-sprite draw can hide cop_roadblock when stars < 3.
     this._currentStars = effects?.currentStars ?? 0;
     // Stash so _drawSprites can render NPC cars at their correct depth
@@ -681,7 +687,12 @@ export class Road {
     // --- PROJECT VISIBLE SEGMENTS ---
     const cameraZ = playerPos - (Math.floor(playerPos / SEG_LENGTH) * SEG_LENGTH);
     this._cameraZ = cameraZ;
-    const cameraX = playerX * ROAD_WIDTH;
+    // Camera lateral tracking. When enabled (default), the camera follows
+    // the player's X so the road stays centered on the player's view.
+    // When disabled (debug toggle F4), the camera stays at world X=0 so
+    // the player visibly slides across the road and roadside scenery
+    // doesn't appear to drift in the opposite direction.
+    const cameraX = (this._cameraTracksPlayer === false ? 0 : playerX) * ROAD_WIDTH;
     // Camera Y interpolates across the segment boundary instead of
     // snapping to the current segment's elevation.  Sampling discretely
     // made the road jolt by (segB.y − segA.y) every time the player
@@ -920,146 +931,17 @@ export class Road {
       }
     }
 
-    if (_embTunnelProj) {
-      const e = _embTunnelProj;
-      const w2 = e.screenW;
-      const x2 = e.screenX;
-      const segLanes = e.seg?.lanes ?? 4;
-      const rw2    = rumbleW(w2, segLanes);
-      const wallW2 = w2 * 0.95;
-      const outerL = x2 - w2 - rw2 - wallW2;
-      const outerR = x2 + w2 + rw2 + wallW2;
-
-      const sH = e.scale * SCREEN_H / 2;
-      const sW = e.scale * SCREEN_W / 2;
-
-      // Lintel + hill geometry, all in world units so they scale with
-      // perspective: a far hill is a small bump, a close hill fills the
-      // sky.  Adjusted to read as a real Mercer Island bluff: hill
-      // crest ~2.5× the lintel height above the road; flanks extend
-      // ~10× the road's half-width to either side of the mouth.
-      const H_CEIL  = 4500;     // lintel height above road
-      const H_HILL  = 12500;    // crest height above road
-      const W_FLANK = 67500;    // hill base extends this far past the mouth
-                                // (9× the original 7500 — three-step expansion
-                                // from the user.  The mouth opening itself is
-                                // unchanged because outerL/outerR are derived
-                                // from the projected road width, independent
-                                // of W_FLANK).
-
-      const ceilDrop = H_CEIL * sH;
-      const archTopY = e.screenY - ceilDrop;
-      const archThk  = Math.max(3, ceilDrop * 0.42);
-      const lintelY  = archTopY - archThk;
-      const crestY   = e.screenY - H_HILL * sH;
-      // Clamp the hill base to never extend below the horizon midline —
-      // otherwise a too-close tunnel projection pulls the polygon base
-      // down into the road area and the hill paints over the asphalt.
-      const groundY  = Math.min(e.screenY, SCREEN_H * 0.55);
-      const flankX   = W_FLANK * sW;
-      const baseLeftX  = outerL - flankX;
-      const baseRightX = outerR + flankX;
-      const centerX    = (outerL + outerR) / 2;
-      const dropY      = groundY - crestY;
-
-      // Distance fade — a far-out hill blends into fog so it materialises
-      // smoothly.  Far hills are 0.30 alpha, close hills full alpha.
-      const peekFog = clamp(e.n / DRAW_DIST, 0, 4);
-      const baseAlpha = clamp(1 - Math.pow(peekFog * 0.45, 1.4), 0.30, 1);
-
-      // Hill silhouette traced clockwise from bottom-left base, up the
-      // sloped flank to the peak, down the other flank to bottom-right
-      // base, then around the mouth cutout (only when the mouth is
-      // resolvably tall — at long distance it's not).
-      const cutMouth = (groundY - lintelY) > 4 && (outerR - outerL) > 6;
-      const hillPath = [
-        { x: baseLeftX,                    y: groundY },
-        { x: baseLeftX + flankX * 0.30,    y: groundY - dropY * 0.28 },
-        { x: baseLeftX + flankX * 0.62,    y: groundY - dropY * 0.62 },
-        { x: baseLeftX + flankX * 0.88,    y: groundY - dropY * 0.92 },
-        { x: centerX,                      y: crestY },
-        { x: baseRightX - flankX * 0.88,   y: groundY - dropY * 0.92 },
-        { x: baseRightX - flankX * 0.62,   y: groundY - dropY * 0.62 },
-        { x: baseRightX - flankX * 0.30,   y: groundY - dropY * 0.28 },
-        { x: baseRightX,                   y: groundY },
-      ];
-      if (cutMouth) {
-        hillPath.push(
-          { x: outerR, y: groundY },
-          { x: outerR, y: lintelY },
-          { x: outerL, y: lintelY },
-          { x: outerL, y: groundY },
-        );
-      }
-
-      // Concrete face fill
-      g.fillStyle(0xB7B0A0, baseAlpha);
-      g.fillPoints(hillPath, true);
-
-      // Subtle vertical shading band along the slope flanks for depth.
-      if (sH > 0.05) {
-        g.fillStyle(0x9F988A, 0.35 * baseAlpha);
-        const shadeBand = [
-          hillPath[0], hillPath[1], hillPath[2], hillPath[3], hillPath[4],
-          { x: centerX, y: crestY + dropY * 0.04 },
-        ];
-        g.fillPoints(shadeBand, true);
-      }
-
-      // Lighter rim band along the upper silhouette — a thin highlight
-      // strip hugging the top edge in a lighter concrete shade so the
-      // hillside reads as catching the sky's light at its crest line.
-      // Painted as a band: top edge follows the silhouette, bottom edge
-      // is the same silhouette dropped by ~3% of the hill height.
-      if (sH > 0.02) {
-        const rimDrop = Math.max(2, dropY * 0.035);
-        const upper = [hillPath[0], hillPath[1], hillPath[2], hillPath[3],
-                       hillPath[4],
-                       hillPath[5], hillPath[6], hillPath[7], hillPath[8]];
-        const rimBand = [
-          ...upper,
-          // ...then trace back along the same points dropped by rimDrop,
-          // in reverse order, to close the band.
-          ...upper.slice().reverse().map(p => ({ x: p.x, y: p.y + rimDrop })),
-        ];
-        g.fillStyle(0xCFC9B6, baseAlpha);
-        g.fillPoints(rimBand, true);
-      }
-
-      // Concrete lintel beam above the mouth — only when mouth is sized.
-      if (cutMouth && archThk > 1) {
-        const archW = outerR - outerL;
-        const lintelL = outerL - archThk * 0.4;
-        const lintelW = archW + archThk * 0.8;
-        // Concrete face of the lintel.
-        g.fillStyle(0xC4BFA8, baseAlpha);
-        g.fillRect(lintelL, archTopY - archThk, lintelW, archThk);
-        // Lighter rim band along the lintel TOP — same colour as the
-        // hillside crest rim, so the silhouette reads as a single
-        // continuous edge wrapping across the whole structure.
-        g.fillStyle(0xCFC9B6, baseAlpha);
-        g.fillRect(lintelL, archTopY - archThk,
-                   lintelW, Math.max(1, archThk * 0.22));
-        // Soft shadow under the lintel (suggests recess into the hillside).
-        g.fillStyle(0x000000, 0.35 * baseAlpha);
-        g.fillRect(outerL, archTopY,
-                   archW, Math.max(1, archThk * 0.30));
-        // Border outline around the mouth opening — a dark stroke on the
-        // jamb edges + lintel underside so the mouth reads as a hole cut
-        // into the concrete face, not a flat rectangle.
-        const stroke = Math.max(1.2, archThk * 0.10);
-        g.fillStyle(0x4A453B, baseAlpha);
-        // Left jamb interior edge
-        g.fillRect(outerL - stroke * 0.5, archTopY,
-                   stroke, Math.max(0, groundY - archTopY));
-        // Right jamb interior edge
-        g.fillRect(outerR - stroke * 0.5, archTopY,
-                   stroke, Math.max(0, groundY - archTopY));
-        // Lintel underside (top of the mouth opening)
-        g.fillRect(outerL - stroke * 0.5, archTopY - stroke * 0.3,
-                   archW + stroke, stroke);
-      }
-    }
+    // Facade drawing MOVED into _drawTunnelFacade(), invoked from
+    // renderTunnelOverlay() so it paints on tunnelGfx (depth 9.82) AFTER
+    // scene sprites — that way buildings geographically behind the tunnel
+    // can't bleed through the concrete face.  Store the projection so
+    // the overlay pass can read it without re-walking the segments.
+    this._embTunnelProj = _embTunnelProj;
+    // Also publish the first-visible-tunnel segment N so the scenery
+    // renderer can cull buildings whose segments sit past the mouth.
+    this._firstTunnelN = _firstTunnelIdx >= 0
+      ? _firstTunnelIdx
+      : (_embTunnelProj?.n ?? -1);
 
     // Render sprites FAR → NEAR so close-up buildings paint over distant ones
     // (drawn[] is built near→far, so iterate backwards). Without this,
@@ -1180,6 +1062,28 @@ export class Road {
     g.clear();
     const drawn = this._drawn;
     if (!drawn?.length) return;
+    const segLen = this.segments.length;
+    const playerPos = this._playerPos ?? 0;
+    const camIdx = ((Math.floor(playerPos / SEG_LENGTH)) % segLen + segLen) % segLen;
+    const inTunnel = !!this.segments[camIdx]?.tunnel;
+    if (inTunnel) {
+      let farthestTunnel = null;
+      for (let k = 0; k < drawn.length; k++) {
+        const d = drawn[k];
+        if (d?.seg?.tunnel && d.screenY >= 0 && d.screenY <= SCREEN_H) {
+          farthestTunnel = d;
+        }
+      }
+      if (farthestTunnel) {
+        const H_CEIL = 4500;
+        const ceilDrop = farthestTunnel.scale * H_CEIL * SCREEN_H / 2;
+        const coverBotY = Math.max(0, farthestTunnel.screenY - ceilDrop);
+        if (coverBotY > -150) {
+          g.fillStyle(0x6B665B, 1);
+          g.fillRect(-150, -150, SCREEN_W + 300, coverBotY + 150);
+        }
+      }
+    }
     for (let i = drawn.length - 1; i >= 0; i--) {
       const curr = drawn[i];
       if (!curr?.seg?.tunnel) continue;
@@ -1188,18 +1092,293 @@ export class Road {
     }
   }
 
-  renderSignOverlay(g) {
+  /**
+   * Tunnel entrance facade — invoked from GameScene._renderFrame() on
+   * its own graphics layer (tunnelFacadeGfx).  Sets the layer's depth
+   * DYNAMICALLY each frame so the facade slots into the same depth
+   * band a scene sprite at the tunnel's distance would occupy:
+   *   • sprites CLOSER than the tunnel (higher depth) render OVER the
+   *     facade → correct perspective for houses in front of the tunnel
+   *   • sprites AT or PAST the tunnel (≤ same depth) render UNDER the
+   *     facade → correctly occluded
+   *   • past-tunnel buildings are also culled in _renderSceneSprites
+   * Skipped while the camera is inside the tunnel.
+   */
+  renderTunnelFacade(g) {
+    // Mouth rect cleared by default; set by _drawTunnelFacade when
+    // the facade is actually drawn (camera outside tunnel + valid
+    // embankment projection + mouth resolvable at this distance).
+    this._tunnelMouthRect = null;
     if (!g) return;
     g.clear();
+    const segLen = this.segments.length;
+    const playerPos = this._playerPos ?? 0;
+    const camIdx = ((Math.floor(playerPos / SEG_LENGTH)) % segLen + segLen) % segLen;
+    const inTunnel = !!this.segments[camIdx]?.tunnel;
+    if (inTunnel) return;
+    const e = this._embTunnelProj;
+    if (!e) return;
+    // Match scenery depth formula at the tunnel's distance, then nudge
+    // down by 0.05 so any sprite AT exact tunnel distance still wins.
+    // Formula mirrors _renderSceneSprites: depth = 9.5 - min(1, relZ/76000) * 2.5.
+    const tunnelRelZ = (e.n ?? DRAW_DIST) * SEG_LENGTH;
+    const sceneDepthAtTunnel = 9.5 - Math.max(0, Math.min(1, tunnelRelZ / 76000)) * 2.5;
+    g.setDepth(sceneDepthAtTunnel - 0.05);
+    this._drawTunnelFacade(g);
+  }
+
+  /**
+   * Tunnel entrance facade — the hillside silhouette + portal mouth.
+   *
+   * Drawn as TWO explicit opaque pieces (left flank + right flank) that
+   * meet along the vertical centerline above the mouth.  This is
+   * deterministic occlusion: no concave polygons, no cutout edge cases.
+   * The mouth opening is simply the rectangular area between the two
+   * pieces, below the lintel — left undrawn so the tunnel interior
+   * (drawn by _drawTunnelShell) shows through.
+   *
+   *      ┌─────crest─────┐
+   *     /│               │\
+   *    / │   LEFT  RIGHT │ \
+   *   /  │   FLANK FLANK │  \
+   *  /   │               │   \
+   *  ──lintel─┐       ┌──lintel──
+   *          │  mouth │
+   *          │ (open) │
+   *  ────────┴────────┴──────── ground
+   *
+   * The two flanks share the edge (centerX, crestY) → (centerX, lintelY)
+   * so the area ABOVE the mouth (between lintel and crest) is filled by
+   * the union of both pieces.  Below the lintel, the pieces step LEFT
+   * and RIGHT to the mouth jambs and down to ground — leaving the mouth
+   * opening empty.
+   */
+  _drawTunnelFacade(g) {
+    const e = this._embTunnelProj;
+    if (!e) return;
+
+    const w2 = e.screenW;
+    const x2 = e.screenX;
+    const segLanes = e.seg?.lanes ?? 4;
+    const rw2    = rumbleW(w2, segLanes);
+    const wallW2 = w2 * 0.95;
+    const outerL = x2 - w2 - rw2 - wallW2;
+    const outerR = x2 + w2 + rw2 + wallW2;
+
+    const sH = e.scale * SCREEN_H / 2;
+    const sW = e.scale * SCREEN_W / 2;
+
+    // Lintel + hill geometry, all in world units so they scale with
+    // perspective.  W_FLANK restored to 337500 per user request to
+    // undo the temporary 30000 narrowing.  H_HILL = 2× original 12500
+    // (tall hill); H_CEIL kept at original (mouth height).
+    const H_CEIL  = 4500;
+    const H_HILL  = 25000;
+    const W_FLANK = 337500;
+
+    const ceilDrop = H_CEIL * sH;
+    const archTopY = e.screenY - ceilDrop;
+    const archThk  = Math.max(3, ceilDrop * 0.42);
+    const lintelY  = archTopY - archThk;
+    const crestY   = e.screenY - H_HILL * sH;
+    // Hill base = tunnel's projected road Y.  Previously this was
+    // clamped to SCREEN_H * 0.55 (mid-screen) "to keep the polygon
+    // from painting over the asphalt" — but that left a visible GAP
+    // between the hill's bottom edge and the actual tunnel-road
+    // surface on screen, through which the player could see the
+    // tunnel interior / horizon / scenery that the front wall is
+    // supposed to occlude.  The polygon doesn't actually overlap the
+    // foreground road because the foreground road sits BELOW e.screenY
+    // in screen space (closer to the bottom), while the hill polygon
+    // sits ABOVE e.screenY (its upper bound is crestY).
+    const groundY  = e.screenY;
+    const flankX   = W_FLANK * sW;
+    const baseLeftX  = outerL - flankX;
+    const baseRightX = outerR + flankX;
+    const centerX    = (outerL + outerR) / 2;
+    const dropY      = groundY - crestY;
+
+    const peekFog = clamp(e.n / DRAW_DIST, 0, 4);
+    const baseAlpha = 1;
+    const rimAlpha  = clamp(1 - Math.pow(peekFog * 0.45, 1.4), 0.30, 1);
+
+    const cutMouth = (groundY - lintelY) > 4 && (outerR - outerL) > 6;
+
+    // Publish the tunnel-mouth screen rectangle so GameScene can:
+    //   (a) mask the tunnel interior (tunnelGfx) to ONLY render
+    //       inside the mouth opening — interior can't bleed past
+    //       the facade anymore
+    //   (b) cull scene sprites whose screen bounding box overlaps
+    //       the mouth (their transparent PNG padding would otherwise
+    //       let the masked interior peek through)
+    if (cutMouth) {
+      this._tunnelMouthRect = {
+        x: outerL,
+        y: lintelY,
+        w: outerR - outerL,
+        h: groundY - lintelY,
+      };
+    } else {
+      this._tunnelMouthRect = null;
+    }
+
+    // ── Left flank polygon ────────────────────────────────────────────
+    // Traced clockwise from base-left up the left silhouette to the
+    // peak, then DOWN along the centerline to lintel level, then LEFT
+    // along the lintel to the left jamb, then DOWN to ground and back
+    // along the ground to base.  When cutMouth is false (far away,
+    // mouth not resolvable), the polygon simply closes at (centerX,
+    // groundY) — no mouth notch.
+    const leftPiece = cutMouth ? [
+      { x: baseLeftX,                    y: groundY },
+      { x: baseLeftX + flankX * 0.30,    y: groundY - dropY * 0.28 },
+      { x: baseLeftX + flankX * 0.62,    y: groundY - dropY * 0.62 },
+      { x: baseLeftX + flankX * 0.88,    y: groundY - dropY * 0.92 },
+      { x: centerX,                      y: crestY },
+      { x: centerX,                      y: lintelY },
+      { x: outerL,                       y: lintelY },
+      { x: outerL,                       y: groundY },
+    ] : [
+      { x: baseLeftX,                    y: groundY },
+      { x: baseLeftX + flankX * 0.30,    y: groundY - dropY * 0.28 },
+      { x: baseLeftX + flankX * 0.62,    y: groundY - dropY * 0.62 },
+      { x: baseLeftX + flankX * 0.88,    y: groundY - dropY * 0.92 },
+      { x: centerX,                      y: crestY },
+      { x: centerX,                      y: groundY },
+    ];
+
+    // ── Right flank polygon (mirror) ──────────────────────────────────
+    const rightPiece = cutMouth ? [
+      { x: centerX,                      y: crestY },
+      { x: baseRightX - flankX * 0.88,   y: groundY - dropY * 0.92 },
+      { x: baseRightX - flankX * 0.62,   y: groundY - dropY * 0.62 },
+      { x: baseRightX - flankX * 0.30,   y: groundY - dropY * 0.28 },
+      { x: baseRightX,                   y: groundY },
+      { x: outerR,                       y: groundY },
+      { x: outerR,                       y: lintelY },
+      { x: centerX,                      y: lintelY },
+    ] : [
+      { x: centerX,                      y: crestY },
+      { x: baseRightX - flankX * 0.88,   y: groundY - dropY * 0.92 },
+      { x: baseRightX - flankX * 0.62,   y: groundY - dropY * 0.62 },
+      { x: baseRightX - flankX * 0.30,   y: groundY - dropY * 0.28 },
+      { x: baseRightX,                   y: groundY },
+      { x: centerX,                      y: groundY },
+    ];
+
+    // Concrete face — both pieces solid-fill, no overlap issues since
+    // they share only the centerline edge.
+    g.fillStyle(0xB7B0A0, baseAlpha);
+    g.fillPoints(leftPiece, true);
+    g.fillPoints(rightPiece, true);
+
+    // Subtle vertical shading band on the LEFT slope for depth.
+    if (sH > 0.05) {
+      g.fillStyle(0x9F988A, 0.35);
+      g.fillPoints([
+        leftPiece[0], leftPiece[1], leftPiece[2], leftPiece[3], leftPiece[4],
+        { x: centerX, y: crestY + dropY * 0.04 },
+      ], true);
+    }
+
+    // Lighter rim band along the upper silhouette — a thin highlight
+    // strip hugging the top edge.  Built from the OUTER silhouette of
+    // both pieces (base-left → peak → base-right) so the rim wraps
+    // continuously across the structure.
+    if (sH > 0.02) {
+      const rimDrop = Math.max(2, dropY * 0.035);
+      const upper = [
+        { x: baseLeftX,                  y: groundY },
+        { x: baseLeftX + flankX * 0.30,  y: groundY - dropY * 0.28 },
+        { x: baseLeftX + flankX * 0.62,  y: groundY - dropY * 0.62 },
+        { x: baseLeftX + flankX * 0.88,  y: groundY - dropY * 0.92 },
+        { x: centerX,                    y: crestY },
+        { x: baseRightX - flankX * 0.88, y: groundY - dropY * 0.92 },
+        { x: baseRightX - flankX * 0.62, y: groundY - dropY * 0.62 },
+        { x: baseRightX - flankX * 0.30, y: groundY - dropY * 0.28 },
+        { x: baseRightX,                 y: groundY },
+      ];
+      const rimBand = [
+        ...upper,
+        ...upper.slice().reverse().map(p => ({ x: p.x, y: p.y + rimDrop })),
+      ];
+      g.fillStyle(0xCFC9B6, rimAlpha);
+      g.fillPoints(rimBand, true);
+    }
+
+    // Concrete lintel beam above the mouth — only when mouth is sized.
+    if (cutMouth && archThk > 1) {
+      const archW = outerR - outerL;
+      const lintelL = outerL - archThk * 0.4;
+      const lintelW = archW + archThk * 0.8;
+      // Concrete face of the lintel.
+      g.fillStyle(0xC4BFA8, 1);
+      g.fillRect(lintelL, archTopY - archThk, lintelW, archThk);
+      // Lighter rim band along the lintel TOP — same colour as the
+      // hillside crest rim, so the silhouette reads as a single
+      // continuous edge wrapping across the whole structure.
+      g.fillStyle(0xCFC9B6, rimAlpha);
+      g.fillRect(lintelL, archTopY - archThk,
+                 lintelW, Math.max(1, archThk * 0.22));
+      // Soft shadow under the lintel.
+      g.fillStyle(0x000000, 0.35);
+      g.fillRect(outerL, archTopY,
+                 archW, Math.max(1, archThk * 0.30));
+      // Dark stroke on jamb edges + lintel underside so the mouth reads
+      // as a hole cut into the concrete face.
+      const stroke = Math.max(1.2, archThk * 0.10);
+      g.fillStyle(0x4A453B, 1);
+      // Left jamb interior edge
+      g.fillRect(outerL - stroke * 0.5, archTopY,
+                 stroke, Math.max(0, groundY - archTopY));
+      // Right jamb interior edge
+      g.fillRect(outerR - stroke * 0.5, archTopY,
+                 stroke, Math.max(0, groundY - archTopY));
+      // Lintel underside (top of the mouth opening)
+      g.fillRect(outerL - stroke * 0.5, archTopY - stroke * 0.3,
+                 archW + stroke, stroke);
+    }
+  }
+
+  /**
+   * Sign overlay — drawn per-sign into a pool of Graphics objects so
+   * each sign can have its OWN depth matching its world distance.
+   * That way a close house/tree naturally occludes a distant sign,
+   * instead of all signs being batched into one always-on-top layer.
+   *
+   * @param {Phaser.GameObjects.Graphics[]} pool - pre-allocated pool;
+   *   each visible sign claims one slot.  Unused slots are hidden.
+   */
+  renderSignOverlay(pool) {
+    if (!Array.isArray(pool) || pool.length === 0) return;
     const drawn = this._drawn;
-    if (!drawn?.length) return;
-    for (let i = drawn.length - 1; i >= 0; i--) {
+    let used = 0;
+    if (!drawn?.length) {
+      for (let i = 0; i < pool.length; i++) pool[i].clear().setVisible(false);
+      return;
+    }
+    // Iterate FAR → NEAR so the pool's draw order matches scene
+    // sprites (close signs claim later pool slots = drawn last within
+    // same-depth batches).  Depth is set per-slot below.
+    for (let i = drawn.length - 1; i >= 0 && used < pool.length; i--) {
       const d = drawn[i];
       const seg = d?.seg;
       if (!seg?.sprites?.length) continue;
       const screenX = d.screenX;
       const spriteScale = d.scale * SCREEN_W / 2;
+      // `n` is the segment offset from camera for this drawn entry.
+      // Stored on d by render() — falls back to index reconstruction
+      // if missing (older snapshots).
+      const n = d.n ?? (drawn.length - 1 - i);
+      const relZ = n * SEG_LENGTH + SEG_LENGTH / 2;
+      // Mirror the scene-sprite depth ramp so signs land in the
+      // same band as the buildings/trees that should occlude them.
+      // Add +0.10 so when a sign and a scene sprite share the same
+      // world distance, the sign sits slightly above (signs are
+      // meant to be readable; tied scenery shouldn't beat them).
+      const signDepth = (9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5) + 0.10;
       for (const sp of seg.sprites) {
+        if (used >= pool.length) break;
         if (sp.collected) continue;
         if (sp.type !== 'mileage_sign'
          && sp.type !== 'exit_sign_green'
@@ -1212,8 +1391,14 @@ export class Road {
         const spriteH = toInt(sp.baseH * spriteScale * 0.5);
         const spriteW = toInt(sp.baseW * spriteScale * 0.5);
         if (spriteH < 1) continue;
+        const g = pool[used++];
+        g.clear();
+        g.setDepth(signDepth).setVisible(true);
         this._drawSpriteShape(g, sp.type, spriteX, d.screenY - spriteH, spriteW, spriteH, sp.collected, sp);
       }
+    }
+    for (let i = used; i < pool.length; i++) {
+      pool[i].clear().setVisible(false);
     }
   }
 
@@ -1229,16 +1414,22 @@ export class Road {
     const rw1 = rumbleW(w1, segLanes);
     const rw2 = rumbleW(w2, segLanes);
 
-    const wallW1 = w1 * 0.95;
-    const wallW2 = w2 * 0.95;
-    const outFar_L  = x2 - w2 - rw2 - wallW2;
-    const outFar_R  = x2 + w2 + rw2 + wallW2;
-    const outNear_L = x1 - w1 - rw1 - wallW1;
-    const outNear_R = x1 + w1 + rw1 + wallW1;
-    const inFar_L   = x2 - w2 - rw2;
-    const inFar_R   = x2 + w2 + rw2;
-    const inNear_L  = x1 - w1 - rw1;
-    const inNear_R  = x1 + w1 + rw1;
+    const shoulder1 = Math.max(rw1 * 1.35, w1 * 0.10);
+    const shoulder2 = Math.max(rw2 * 1.35, w2 * 0.10);
+    const wallW1 = w1 * 0.78;
+    const wallW2 = w2 * 0.78;
+    const roadFar_L  = x2 - w2 - rw2;
+    const roadFar_R  = x2 + w2 + rw2;
+    const roadNear_L = x1 - w1 - rw1;
+    const roadNear_R = x1 + w1 + rw1;
+    const inFar_L   = roadFar_L - shoulder2;
+    const inFar_R   = roadFar_R + shoulder2;
+    const inNear_L  = roadNear_L - shoulder1;
+    const inNear_R  = roadNear_R + shoulder1;
+    const outFar_L  = inFar_L - wallW2;
+    const outFar_R  = inFar_R + wallW2;
+    const outNear_L = inNear_L - wallW1;
+    const outNear_R = inNear_R + wallW1;
 
     const H_CEIL       = 4500;
     const ceilDropFar  = curr.scale * H_CEIL * SCREEN_H / 2;
@@ -1257,13 +1448,20 @@ export class Road {
       inFar_R,   fy,     outFar_R,  ceilFy,
       outNear_R, ny,     inNear_R,  ny);
 
+    fillTrap(g, 0x8F8A7D,
+      roadFar_L,  fy, inFar_L,  fy,
+      inNear_L,   ny, roadNear_L, ny);
+    fillTrap(g, 0x8F8A7D,
+      inFar_R,    fy, roadFar_R, fy,
+      roadNear_R, ny, inNear_R,  ny);
+
     const shadowFy = fy + segH * 0.70;
     fillTrap(g, 0x6E6660,
-      x2 - w2 - rw2 - wallW2 * 0.35, shadowFy, inFar_L, shadowFy,
-      inNear_L, ny, x1 - w1 - rw1 - wallW1 * 0.35, ny);
+      inFar_L - wallW2 * 0.35, shadowFy, inFar_L, shadowFy,
+      inNear_L, ny, inNear_L - wallW1 * 0.35, ny);
     fillTrap(g, 0x6E6660,
-      inFar_R, shadowFy, x2 + w2 + rw2 + wallW2 * 0.35, shadowFy,
-      x1 + w1 + rw1 + wallW1 * 0.35, ny, inNear_R, ny);
+      inFar_R, shadowFy, inFar_R + wallW2 * 0.35, shadowFy,
+      inNear_R + wallW1 * 0.35, ny, inNear_R, ny);
 
     const curbW1 = Math.max(2, rw1 * 0.6);
     const curbW2 = Math.max(2, rw2 * 0.6);
@@ -1417,8 +1615,23 @@ export class Road {
     // tunnel.  The tunnel structure (walls + ceiling) paints on top of
     // this, bounded to the road's screen-area, so the sky and grass
     // outside the tunnel structure stay visible.
+    // For LAND segments (no water/bridge overpaint coming), enforce a
+    // generous minimum slice height so distant land doesn't render as
+    // a 1-2 px sliver that gets visually dominated by foreground
+    // bridge/water.  This acts as a "shoreline apron" at bridge→land
+    // transitions: when the player is on a bridge looking at the
+    // upcoming island, the dry segments past the bridge end project
+    // as thin horizon bands.  Extending those bands DOWN (toward
+    // larger screen Y) by 60 px makes the green island shore clearly
+    // visible underneath any homes spawned there.  Bridge segments
+    // are iterated near-first and paint their water at smaller
+    // screen Y (higher up they're not, smaller cz means LARGER fy
+    // — closer to bottom), so the dry land's grass extends down
+    // toward the bridge water and forms a visible shoreline edge.
+    const isLandSeg = !seg.water && !seg.bridge;
+    const grassH = isLandSeg ? Math.max(60, segH) : segH;
     g.fillStyle(grass, 1);
-    g.fillRect(-150, fy, SCREEN_W + 300, segH);
+    g.fillRect(-150, fy, SCREEN_W + 300, grassH);
 
     // ── Tunnel: concrete portal structure rendered per-segment ─────────
     // Walls + ceiling are concrete-coloured trapezoids that taper with
@@ -1428,20 +1641,25 @@ export class Road {
     // edges (which mirror the road's taper), the structure converges
     // to the road's vanishing point and never bleeds into the sky.
     if (seg.tunnel) {
-      // Wall thickness — about a lane wide on each side of the road.
-      const wallW1 = w1 * 0.95;
-      const wallW2 = w2 * 0.95;
-
-      // Outer wall edges (where wall meets sky / scenery outside).
-      const outFar_L  = x2 - w2 - rw2 - wallW2;
-      const outFar_R  = x2 + w2 + rw2 + wallW2;
-      const outNear_L = x1 - w1 - rw1 - wallW1;
-      const outNear_R = x1 + w1 + rw1 + wallW1;
-      // Inner wall edges (where wall meets road's rumble).
-      const inFar_L   = x2 - w2 - rw2;
-      const inFar_R   = x2 + w2 + rw2;
-      const inNear_L  = x1 - w1 - rw1;
-      const inNear_R  = x1 + w1 + rw1;
+      // Leave a 3-5 ft visual shoulder between the fog line and the
+      // tunnel wall.  Wall edges still use the same near/far road
+      // projection, so they stay parallel to the fog line through curves.
+      const shoulder1 = Math.max(rw1 * 1.35, w1 * 0.10);
+      const shoulder2 = Math.max(rw2 * 1.35, w2 * 0.10);
+      const wallW1 = w1 * 0.78;
+      const wallW2 = w2 * 0.78;
+      const roadFar_L  = x2 - w2 - rw2;
+      const roadFar_R  = x2 + w2 + rw2;
+      const roadNear_L = x1 - w1 - rw1;
+      const roadNear_R = x1 + w1 + rw1;
+      const inFar_L   = roadFar_L - shoulder2;
+      const inFar_R   = roadFar_R + shoulder2;
+      const inNear_L  = roadNear_L - shoulder1;
+      const inNear_R  = roadNear_R + shoulder1;
+      const outFar_L  = inFar_L - wallW2;
+      const outFar_R  = inFar_R + wallW2;
+      const outNear_L = inNear_L - wallW1;
+      const outNear_R = inNear_R + wallW1;
 
       // CEILING — projects H_CEIL world-units above the road.  At far
       // depth the ceiling is just above the road on screen; at near
@@ -1471,18 +1689,26 @@ export class Road {
         inFar_R,   fy,     outFar_R,  ceilFy,
         outNear_R, ny,     inNear_R,  ny);
 
+      // Concrete shoulder between fog line/rumble and wall.
+      fillTrap(g, 0x8F8A7D,
+        roadFar_L,  fy, inFar_L,  fy,
+        inNear_L,   ny, roadNear_L, ny);
+      fillTrap(g, 0x8F8A7D,
+        inFar_R,    fy, roadFar_R, fy,
+        roadNear_R, ny, inNear_R,  ny);
+
       // Wall-base shadow — bottom strip of each wall darker so it
       // reads as "shadow under the lights."  Trapezoid hugging the
       // road's outer rumble for the lower 30 % of the wall.
       const shadowFy = fy + segH * 0.70;
       // Left base shadow
       fillTrap(g, 0x6E6660,
-        x2 - w2 - rw2 - wallW2 * 0.35, shadowFy, inFar_L, shadowFy,
-        inNear_L, ny, x1 - w1 - rw1 - wallW1 * 0.35, ny);
+        inFar_L - wallW2 * 0.35, shadowFy, inFar_L, shadowFy,
+        inNear_L, ny, inNear_L - wallW1 * 0.35, ny);
       // Right base shadow
       fillTrap(g, 0x6E6660,
-        inFar_R, shadowFy, x2 + w2 + rw2 + wallW2 * 0.35, shadowFy,
-        x1 + w1 + rw1 + wallW1 * 0.35, ny, inNear_R, ny);
+        inFar_R, shadowFy, inFar_R + wallW2 * 0.35, shadowFy,
+        inNear_R + wallW1 * 0.35, ny, inNear_R, ny);
 
       // Concrete CURB — pale strip between road rumble and wall base.
       // Reads as "where the floor meets the wall" line.
@@ -1572,6 +1798,17 @@ export class Road {
         g.fillRect(leftX - flare, botY - Math.max(1, segH * 0.2), pylonW + flare * 2, Math.max(1, segH * 0.35));
         g.fillRect(rightX - flare, botY - Math.max(1, segH * 0.2), pylonW + flare * 2, Math.max(1, segH * 0.35));
       }
+    }
+
+    // Left-side-only water (Elliott Bay along the West Seattle approach).
+    // Painted before the bilateral `seg.water` block so a future segment
+    // that wants BOTH flags can still get bilateral water from the block
+    // below.  Doesn't paint waves/streaks — bay water is just a flat field.
+    if (seg.waterLeft && !seg.water && !seg.bridge) {
+      const wave = (Math.sin(seg.index * 0.18) * 0.5 + 0.5);
+      const waterCol = lerpColor(0x224A6E, 0x4A7FA8, wave * 0.6);
+      g.fillStyle(waterCol, 1);
+      g.fillRect(-150, fy, Math.max(0, x2 - w2 - rw2 + 150), segH);
     }
 
     if (seg.water) {
@@ -1667,34 +1904,37 @@ export class Road {
       const RAIL_BASE = 0xC8C4BB;
       const RAIL_DARK = 0x6E6A60;
       const RAIL_TOP  = 0xE6E2D6;
+      // Route bridge guardrails to the front-overlay layer so their edges
+      // stay crisp.
+      const rg = (seg.bridge && this._frontG) ? this._frontG : g;
       // Left guardrail face
-      fillTrap(g, RAIL_BASE,
+      fillTrap(rg, RAIL_BASE,
         x2 - w2 - rw2 - railW2, fy, x2 - w2 - rw2, fy,
         x1 - w1 - rw1,         ny, x1 - w1 - rw1 - railW1, ny);
       // Top edge highlight (thin)
-      fillTrap(g, RAIL_TOP,
+      fillTrap(rg, RAIL_TOP,
         x2 - w2 - rw2 - railW2, fy, x2 - w2 - rw2 - railW2 + Math.max(1, railW2 * 0.30), fy,
         x1 - w1 - rw1 - railW1 + Math.max(1, railW1 * 0.30), ny, x1 - w1 - rw1 - railW1, ny);
       // Bottom shadow (thin)
-      fillTrap(g, RAIL_DARK,
+      fillTrap(rg, RAIL_DARK,
         x2 - w2 - rw2 - Math.max(1, railW2 * 0.30), fy, x2 - w2 - rw2, fy,
         x1 - w1 - rw1, ny, x1 - w1 - rw1 - Math.max(1, railW1 * 0.30), ny);
       // Right guardrail face
-      fillTrap(g, RAIL_BASE,
+      fillTrap(rg, RAIL_BASE,
         x2 + w2 + rw2,         fy, x2 + w2 + rw2 + railW2, fy,
         x1 + w1 + rw1 + railW1, ny, x1 + w1 + rw1,         ny);
-      fillTrap(g, RAIL_TOP,
+      fillTrap(rg, RAIL_TOP,
         x2 + w2 + rw2 + railW2 - Math.max(1, railW2 * 0.30), fy, x2 + w2 + rw2 + railW2, fy,
         x1 + w1 + rw1 + railW1, ny, x1 + w1 + rw1 + railW1 - Math.max(1, railW1 * 0.30), ny);
-      fillTrap(g, RAIL_DARK,
+      fillTrap(rg, RAIL_DARK,
         x2 + w2 + rw2,         fy, x2 + w2 + rw2 + Math.max(1, railW2 * 0.30), fy,
         x1 + w1 + rw1 + Math.max(1, railW1 * 0.30), ny, x1 + w1 + rw1, ny);
       // Reflector posts every 6 segments — orange dots on top of the rail
       if ((seg.index % 6) === 0) {
         const postH = Math.max(2, segH * 0.45);
-        g.fillStyle(0xFF8800, 1);
-        g.fillRect(x2 - w2 - rw2 - railW2 - 1, fy - postH * 0.4, 2, postH * 0.4);
-        g.fillRect(x2 + w2 + rw2 + railW2 - 1, fy - postH * 0.4, 2, postH * 0.4);
+        rg.fillStyle(0xFF8800, 1);
+        rg.fillRect(x2 - w2 - rw2 - railW2 - 1, fy - postH * 0.4, 2, postH * 0.4);
+        rg.fillRect(x2 + w2 + rw2 + railW2 - 1, fy - postH * 0.4, 2, postH * 0.4);
       }
     }
 
@@ -1751,8 +1991,15 @@ export class Road {
       }
     }
 
+    // For bridge segments, route the road surface + markings to the
+    // front-overlay layer (bridgeFrontGfx, depth 4) so the asphalt
+    // paints OVER cranes (depth 2) — they can't be seen "through" the
+    // road — while NPCs / cops / drugs / signs (depth ≥ 7) still paint
+    // on top of the road as expected.
+    const surfaceG = (seg.bridge && this._frontG) ? this._frontG : g;
+
     // Road surface (top edge = far/narrow = curr; bottom edge = near/wide = next)
-    fillTrap(g, road,
+    fillTrap(surfaceG, road,
       x2 - w2, fy, x2 + w2, fy,
       x1 + w1, ny, x1 - w1, ny);
 
@@ -1779,15 +2026,14 @@ export class Road {
       // edge IS the visible gore — no special draw, the underlying
       // grass shows through because we leave that band unpainted.
       const t = rs * rs * (3 - 2 * rs);   // smoothstep — gentle apex, sharp peel
-      const rampW1 = w1 * t;
-      const rampW2 = w2 * t;
+      const rampW1 = w1 * 1.25 * t;
+      const rampW2 = w2 * 1.25 * t;
       // Wider gore wedge — at peak (t=1), the ramp's inner edge sits
-      // ~1.6 × the road's half-width away from the road's outer edge.
-      // For a typical near-depth segment (w1 ≈ 130-180 px) this is
-      // ~210-290 px of visible grass between road and ramp, matching
-      // the player's "200+ px divergence" ask.
-      const gap1   = w1 * 1.6 * t;
-      const gap2   = w2 * 1.6 * t;
+      // ~2 road half-widths away from the road's outer edge, with a
+      // 1.25-lane ramp beyond it.  This makes the exit lane pull well
+      // away from traffic instead of reading as a shoulder bulge.
+      const gap1   = w1 * 2.05 * t;
+      const gap2   = w2 * 2.05 * t;
       // Asphalt fill — same color as the active road stripe so the ramp
       // doesn't read as a different road type, just a continuation.
       fillTrap(g, road,
@@ -1804,17 +2050,8 @@ export class Road {
       // tiny V-arrows read as glitchy white triangles in the ramp wedge
       // rather than as a readable "do-not-cross" zone.  The white edge
       // stripe + yellow RPM dots are enough to communicate the split.)
-      // ── Raised pavement markers (RPMs) — small yellow dots running
-      // down the centre of the gore, every other segment, to read as
-      // a continuous reflective dotted line.
-      if (rs > 0.25 && (seg.index & 1) === 0) {
-        const rpmX1 = x1 + w1 + gap1 * 0.5;
-        const rpmX2 = x2 + w2 + gap2 * 0.5;
-        const rpmW  = Math.max(1, gap1 * 0.18);
-        g.fillStyle(0xFFEE00, 0.95);
-        g.fillRect(rpmX2 - rpmW / 2, fy + segH * 0.4, rpmW, Math.max(1, segH * 0.2));
-        g.fillRect(rpmX1 - rpmW / 2, ny - segH * 0.6, rpmW, Math.max(1, segH * 0.2));
-      }
+      // (Yellow RPM dots in the gore removed — they read as "lane
+      // markings painted on grass" without the underlying pavement.)
       // ── Right-shoulder delineators — small black bars along the
       // outside edge of the ramp, classic delineator post pattern from
       // the reference image.  Drawn every 3rd segment (about every
@@ -1850,12 +2087,12 @@ export class Road {
     }
 
     // Left rumble
-    fillTrap(g, rumble,
+    fillTrap(surfaceG, rumble,
       x2 - w2 - rw2, fy, x2 - w2, fy,
       x1 - w1, ny, x1 - w1 - rw1, ny);
 
     // Right rumble
-    fillTrap(g, rumble,
+    fillTrap(surfaceG, rumble,
       x2 + w2, fy, x2 + w2 + rw2, fy,
       x1 + w1 + rw1, ny, x1 + w1, ny);
 
@@ -1874,7 +2111,7 @@ export class Road {
         if (lane === skipLane) continue;
         const lx1 = x1 + (lane / segLanes) * 2 * w1 - w1;
         const lx2 = x2 + (lane / segLanes) * 2 * w2 - w2;
-        fillTrap(g, laneCol,
+        fillTrap(surfaceG, laneCol,
           lx2 - lw2, fy, lx2 + lw2, fy,
           lx1 + lw1, ny, lx1 - lw1, ny);
       }
@@ -1886,10 +2123,10 @@ export class Road {
       const clw2 = Math.max(1, Math.round(lw2 * 0.55));
       const gap1 = lw1 * 1.1;
       const gap2 = lw2 * 1.1;
-      fillTrap(g, 0xFFEE00,
+      fillTrap(surfaceG, 0xFFEE00,
         x2 - gap2 - clw2, fy, x2 - gap2,       fy,
         x1 - gap1,        ny, x1 - gap1 - clw1, ny);
-      fillTrap(g, 0xFFEE00,
+      fillTrap(surfaceG, 0xFFEE00,
         x2 + gap2,        fy, x2 + gap2 + clw2, fy,
         x1 + gap1 + clw1, ny, x1 + gap1,        ny);
     }
@@ -1945,9 +2182,17 @@ export class Road {
         const sign = visualOffset >= 0 ? 1 : -1;
         visualOffset = sign * Math.max(Math.abs(visualOffset), minOffset);
       }
-      const spriteX = toInt(screenX + screenW * visualOffset);
       const spriteH = toInt(sp.baseH * spriteScale * 0.5);
       const spriteW = toInt(sp.baseW * spriteScale * 0.5);
+      if (sp.type === 'house' || sp.type === 'building' || sp.type === 'tree'
+          || sp.type === 'cactus' || sp.type === 'palm' || sp.type === 'shrub'
+          || sp.type === 'landmark') {
+        const sign = visualOffset >= 0 ? 1 : -1;
+        const carPx = scale * 825 * SCREEN_W / 2;
+        const neededOffset = 1 + (spriteW * 0.5 + carPx * 2) / Math.max(1, screenW);
+        visualOffset = sign * Math.max(Math.abs(visualOffset), neededOffset);
+      }
+      const spriteX = toInt(screenX + screenW * visualOffset);
       const spriteTopY = screenY - spriteH;
 
       // Only skip if entirely below the screen or vanishingly small.
@@ -2700,7 +2945,7 @@ export class Road {
         const sy = a.screenY + (by - a.screenY) * t;
         const scale = a.scale + (bs - a.scale) * t;
         const sw = scale * 825 * SCREEN_W / 2;
-        return { sx, sy, sw, scale, visible };
+        return { sx, sy, sw, scale, visible, roadHalfW: screenW };
       }
     }
     // First-frame fallback (samples not yet populated).
@@ -2709,6 +2954,7 @@ export class Road {
       sx: SCREEN_W / 2 + scale * laneOffset * ROAD_WIDTH * SCREEN_W / 2,
       sy: SCREEN_H / 2 + scale * 1000 * SCREEN_H / 2,
       sw: scale * 825 * SCREEN_W / 2,
+      roadHalfW: scale * ROAD_WIDTH * SCREEN_W / 2,
       scale,
       visible: true,
     };

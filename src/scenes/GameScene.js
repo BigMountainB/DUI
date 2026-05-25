@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  SCREEN_W, SCREEN_H, SEG_LENGTH, ROUTE_SEGS, ROAD_WIDTH,
+  SCREEN_W, SCREEN_H, SEG_LENGTH, ROUTE_SEGS, ROAD_WIDTH, DRAW_DIST,
   MAX_SPEED, ACCEL, BRAKE, DECEL, TURN_SPEED, OFFROAD_SLOW, CENTRIFUGAL,
   PTS_DIST, PTS_CRASH, PTS_HITCH, DRUG_MULT, DRUG_PTS,
   DRUGS, DRUG_CONFIG, DRUG_COMBOS, CHECKPOINTS, TOTAL_ROUTE_MILES, REST_STOPS,
@@ -24,6 +24,100 @@ import { getPaletteAtProgress, REGION_ORDER, REGION_PALETTES, lerpColor } from '
 
 const CAM_DEPTH = 0.84;
 const IMPACT    = 'Impact, "Arial Black", Arial, sans-serif';
+const PLAYER_CAR_VISUAL_H = 49;
+const SCENERY_ROAD_CLEARANCE_CAR_LENGTHS = 2;
+const SCENERY_IMAGE_PROFILES = {
+  // City-photo cutouts need height-led sizing. Width-led sizing makes
+  // tall tower assets gigantic and wide skyline assets oddly squat. Near
+  // skyline caps land around 4-6 player-car heights.
+  codex_seattle_skyline:        { heightMult: 3.90, maxW: 500, maxH: PLAYER_CAR_VISUAL_H * 5.4, minOffset: 4.75, groundDrop: 0.010 },
+  codex_seattle_office_cluster: { heightMult: 3.80, maxW: 500, maxH: PLAYER_CAR_VISUAL_H * 5.3, minOffset: 4.75, groundDrop: 0.010 },
+  codex_seattle_tower_pair:     { heightMult: 4.60, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 4.35, groundDrop: 0.010 },
+  // Bellevue buildings: uniform 6× car height cap so the row reads as a
+  // consistent skyline; minOffset 2.05 = one car width past the sidewalk.
+  codex_bellevue_skyline:       { heightMult: 6.0, maxW: 560, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_bellevue_wavy_residential: { heightMult: 6.0, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_bellevue_city_center_dark: { heightMult: 6.0, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_bellevue_braced_glass_tower: { heightMult: 6.0, maxW: 210, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_bellevue_residential_cluster: { heightMult: 6.0, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_seattle_columbia_center: { heightMult: 5.90, maxW: 170, maxH: PLAYER_CAR_VISUAL_H * 6.7, minOffset: 4.55, groundDrop: 0.010 },
+  codex_seattle_rainier_square:  { heightMult: 5.45, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 6.1, minOffset: 4.65, groundDrop: 0.010 },
+  codex_seattle_two_union_square: { heightMult: 5.35, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 4.60, groundDrop: 0.010 },
+  codex_seattle_1201_third:      { heightMult: 5.15, maxW: 210, maxH: PLAYER_CAR_VISUAL_H * 5.8, minOffset: 4.55, groundDrop: 0.010 },
+  codex_seattle_municipal_tower: { heightMult: 5.05, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 5.7, minOffset: 4.65, groundDrop: 0.010 },
+  codex_seattle_f5_tower:        { heightMult: 5.25, maxW: 180, maxH: PLAYER_CAR_VISUAL_H * 5.9, minOffset: 4.50, groundDrop: 0.010 },
+  codex_seattle_safeco_plaza:    { heightMult: 4.70, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 5.3, minOffset: 4.65, groundDrop: 0.010 },
+  codex_seattle_city_centre:     { heightMult: 4.55, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 5.1, minOffset: 4.65, groundDrop: 0.010 },
+  codex_seattle_russell_investments: { heightMult: 4.55, maxW: 260, maxH: PLAYER_CAR_VISUAL_H * 5.1, minOffset: 4.85, groundDrop: 0.010 },
+  codex_seattle_lumen_field:     { widthMult: 5.75, maxW: 540, maxH: PLAYER_CAR_VISUAL_H * 3.8, minOffset: 5.25, groundDrop: 0.045 },
+  codex_seattle_tmobile_park:    { widthMult: 5.65, maxW: 540, maxH: PLAYER_CAR_VISUAL_H * 3.9, minOffset: 5.45, groundDrop: 0.045 },
+  codex_bellevue_roadside_strip: { widthMult: 3.45, maxW: 480, maxH: PLAYER_CAR_VISUAL_H * 2.75, minOffset: 4.50, groundDrop: 0.010 },
+  // Directional Bellevue variants — uniform 6× car height + close offset.
+  codex_pse_bellevue_office_left:         { heightMult: 6.0, maxW: 300, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_pse_bellevue_office_right:        { heightMult: 6.0, maxW: 300, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_pse_bellevue_second_office_left:  { heightMult: 6.0, maxW: 320, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_pse_bellevue_second_office_right: { heightMult: 6.0, maxW: 320, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  codex_bellevue_twin_residential_left:   { heightMult: 6.0, maxW: 340, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
+  // West Seattle homes — same 6× height + close offset rule applied uniformly.
+  west_seattle_1: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
+  west_seattle_2: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
+  west_seattle_3: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
+  west_seattle_4: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
+  west_seattle_5: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
+  west_seattle_6: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
+  // Container cranes — strict left/right pairing.  Same dimensions across
+  // all variants (6.6× car height, generous maxW for the wider rigs).
+  codex_ws_crane_crate_left:        { heightMult: 25, maxW: 1900, maxH: PLAYER_CAR_VISUAL_H * 25, minOffset: 6.0, groundDrop: 0.15 },
+  codex_ws_crane_white_boxes_left:  { heightMult: 25, maxW: 1900, maxH: PLAYER_CAR_VISUAL_H * 25, minOffset: 6.0, groundDrop: 0.15 },
+  codex_ws_crane_crate_right:       { heightMult: 25, maxW: 1900, maxH: PLAYER_CAR_VISUAL_H * 25, minOffset: 6.0, groundDrop: 0.15 },
+  codex_ws_crane_white_boxes_right: { heightMult: 25, maxW: 1900, maxH: PLAYER_CAR_VISUAL_H * 25, minOffset: 6.0, groundDrop: 0.15 },
+  codex_west_seattle_container_stack_18: { widthMult: 3.15, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 2.7, minOffset: 3.15, groundDrop: 0.015 },
+  // Issaquah / Eastside suburbs — close roadside houses and small-town
+  // frontage, not skyline backdrop. Keep them just past the sidewalk and
+  // size by height so they don't read as tiny piles in the field.
+  codex_issaquah_front_supply:  { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 2.65, groundDrop: 0.010 },
+  codex_issaquah_highlands:     { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 2.65, groundDrop: 0.010 },
+  codex_issaquah_cottage:       { heightMult: 4.4, maxW: 440, maxH: PLAYER_CAR_VISUAL_H * 4.4, minOffset: 2.45, groundDrop: 0.010 },
+  codex_issaquah_roadside_strip_perspective: { widthMult: 3.35, maxW: 420, maxH: PLAYER_CAR_VISUAL_H * 2.25, minOffset: 2.65, groundDrop: 0.010 },
+  codex_west_seattle_horizon_left:  { widthMult: 4.15, maxW: 560, maxH: PLAYER_CAR_VISUAL_H * 2.4, minOffset: 5.35, groundDrop: 0.010 },
+  codex_west_seattle_horizon_right: { widthMult: 4.15, maxW: 560, maxH: PLAYER_CAR_VISUAL_H * 2.4, minOffset: 5.35, groundDrop: 0.010 },
+  codex_west_seattle_lowrise_apartments: { heightMult: 3.35, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 4.0, minOffset: 3.85, groundDrop: 0.010 },
+  codex_west_seattle_junction_shops:     { widthMult: 2.75, maxW: 360, maxH: PLAYER_CAR_VISUAL_H * 2.7, minOffset: 3.05, groundDrop: 0.010 },
+  codex_west_seattle_warehouse_row:      { widthMult: 2.95, maxW: 360, maxH: PLAYER_CAR_VISUAL_H * 2.45, minOffset: 3.20, groundDrop: 0.010 },
+  codex_west_seattle_hillside_condos:    { heightMult: 3.65, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 4.3, minOffset: 4.10, groundDrop: 0.010 },
+  codex_west_seattle_overpass_ramp:      { widthMult: 2.85, maxW: 380, maxH: PLAYER_CAR_VISUAL_H * 2.2, minOffset: 2.95, groundDrop: 0.010 },
+  space_needle:                 { heightMult: 6.0, maxW: 110, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 4.80, groundDrop: 0.010 },
+  // ── Trees & shrubs ────────────────────────────────────────────────
+  // Urban broadleaves — Bigleaf Maple + Vine Maple.  Crown is wider
+  // than tall (heightMult lower than conifers, generous maxW).
+  tree_bigleaf_maple_1: { heightMult: 2.0, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 3.4, minOffset: 1.75, groundDrop: 0.010 },
+  tree_bigleaf_maple_2: { heightMult: 1.9, maxW: 260, maxH: PLAYER_CAR_VISUAL_H * 3.2, minOffset: 1.75, groundDrop: 0.010 },
+  tree_vine_maple_1:    { heightMult: 1.5, maxW: 200, maxH: PLAYER_CAR_VISUAL_H * 2.4, minOffset: 1.65, groundDrop: 0.005 },
+  // Tall Western WA conifers (mile 14–88) — Doug fir, Western Hemlock,
+  // Western Red Cedar.  Sized so a roadside tree sits ~4 player-car
+  // heights tall at close projection — bigger than a residential house
+  // would be silly, smaller and they read as bushes.
+  tree_douglas_fir_1: { heightMult: 2.6, maxW: 240, maxH: PLAYER_CAR_VISUAL_H * 4.6, minOffset: 1.85, groundDrop: 0.010 },
+  tree_douglas_fir_2: { heightMult: 2.5, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 4.3, minOffset: 1.85, groundDrop: 0.010 },
+  tree_hemlock1:      { heightMult: 2.5, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 4.4, minOffset: 1.85, groundDrop: 0.010 },
+  tree_hemlock2:      { heightMult: 2.2, maxW: 200, maxH: PLAYER_CAR_VISUAL_H * 3.8, minOffset: 1.85, groundDrop: 0.010 },
+  tree_hemlock3:      { heightMult: 2.4, maxW: 210, maxH: PLAYER_CAR_VISUAL_H * 4.2, minOffset: 1.85, groundDrop: 0.010 },
+  tree_red_cedar_1:   { heightMult: 2.6, maxW: 240, maxH: PLAYER_CAR_VISUAL_H * 4.6, minOffset: 1.85, groundDrop: 0.010 },
+  tree_red_cedar_2:   { heightMult: 2.5, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 4.4, minOffset: 1.85, groundDrop: 0.010 },
+  tree_cedar1:        { heightMult: 2.3, maxW: 200, maxH: PLAYER_CAR_VISUAL_H * 4.0, minOffset: 1.85, groundDrop: 0.010 },
+  tree_cedar2:        { heightMult: 2.3, maxW: 200, maxH: PLAYER_CAR_VISUAL_H * 4.0, minOffset: 1.85, groundDrop: 0.010 },
+  // Eastern WA dry-side pines (mile 88–195) — Ponderosa, Western White
+  // Pine.  Slightly shorter / sparser silhouette than the wet-side
+  // conifers but the renderer profile is similar.
+  tree_ponderosa_1:   { heightMult: 2.4, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 4.2, minOffset: 1.85, groundDrop: 0.010 },
+  tree_ponderosa_2:   { heightMult: 2.2, maxW: 200, maxH: PLAYER_CAR_VISUAL_H * 3.8, minOffset: 1.85, groundDrop: 0.010 },
+  tree_white_pine_1:  { heightMult: 2.4, maxW: 200, maxH: PLAYER_CAR_VISUAL_H * 4.2, minOffset: 1.85, groundDrop: 0.010 },
+  tree_white_pine_2:  { heightMult: 2.3, maxW: 200, maxH: PLAYER_CAR_VISUAL_H * 4.0, minOffset: 1.85, groundDrop: 0.010 },
+  // Columbia Basin shrubs — low, round, wider than tall.
+  shrub_sage_1:        { heightMult: 0.95, maxW: 180, maxH: PLAYER_CAR_VISUAL_H * 1.4, minOffset: 1.55, groundDrop: 0.005 },
+  shrub_sage_2:        { heightMult: 0.85, maxW: 160, maxH: PLAYER_CAR_VISUAL_H * 1.2, minOffset: 1.55, groundDrop: 0.005 },
+  shrub_rabbitbrush_1: { heightMult: 1.10, maxW: 180, maxH: PLAYER_CAR_VISUAL_H * 1.6, minOffset: 1.55, groundDrop: 0.005 },
+};
 
 function makePlayer() {
   return {
@@ -53,6 +147,11 @@ export class GameScene extends Phaser.Scene {
     this._resumeScore    = data?.resumeScore    ?? 0;
     this._resumeStars    = data?.resumeStars    ?? 0;
     this._resumePurchases = data?.purchases    ?? null;
+    // Forward-warp flag — true when the player skipped ahead via the
+    // map's level-select.  Triggers a gas deduction equal to the trip
+    // distance (mile 0 → destination), so warping forward isn't a
+    // free fuel skip on top of being a clock/trophy skip.
+    this._warpedForward  = !!data?.warpForward;
     // Restart-from-checkpoint after death: position only, NO score/stars.
     // GameOverScene's "RESTART FROM CHECKPOINT" button passes this.
     this._resumeFromPosition = data?.resumeFromPosition ?? null;
@@ -107,6 +206,11 @@ export class GameScene extends Phaser.Scene {
     this._touchF12   = false;
     this._touchBrake = false;
     this._touchBoost = false;
+    // ACCEL pedal charge — 0-100%.  Holding accel drains 100% over 5
+    // min real-time; releasing refills 100% over 20 min.  Hits 0 →
+    // boost auto-disables; refills passively whenever boost is off.
+    // Bar lives under the gas HUD readout (see _renderHUD).
+    this._accelCharge = 100;
     // HUD drug-bar drag handler — same reuse issue.  The Phaser input
     // system tears down its listeners on scene shutdown, but our
     // `_drugBarDragWired` flag persisted into the next run so the
@@ -134,6 +238,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // Registry of every top-row button — populated below as each is
+    // created.  _applyTopRowHandedness() iterates this on flip to
+    // mirror all buttons around SCREEN_W/2.
+    this._topRowButtons = [];
+    // ── Perf diagnostic flags (URL params) ─────────────────────────
+    // Toggle expensive render passes via ?nomirror / ?nosprites /
+    // ?noeffects to isolate where frame time is going.
+    const _q = (typeof location !== 'undefined' ? location.search : '') || '';
+    this._perf = {
+      noMirror:  /[?&]nomirror(=|&|$)/.test(_q),
+      noSprites: /[?&]nosprites(=|&|$)/.test(_q),
+      noEffects: /[?&]noeffects(=|&|$)/.test(_q),
+    };
+    this._renderedSpriteCount = 0;
     console.log('[GameScene] create start');
     try {
       this._doCreate();
@@ -148,6 +266,13 @@ export class GameScene extends Phaser.Scene {
 
   _doCreate() {
     this.cameras.main.setBackgroundColor(0x000000);
+
+    // Handedness — DEFAULT is left-handed (weapon/HP/gas/speed column
+    // on the LEFT, drug bars on the RIGHT) per the new game baseline.
+    // Persisted in the global settings slot; toggled from the
+    // phone-menu (future) or the Shift+L debug keybind below.
+    const _save = this.registry.get('save');
+    this._leftHanded = _save?.get?.('settings.handedness', 'left') !== 'right';
 
     // Track which objects belong to the world (shake/sway with the main camera)
     // vs the HUD (must remain perfectly static on a separate UI camera).
@@ -172,10 +297,13 @@ export class GameScene extends Phaser.Scene {
     this._fiveStarSurvived = false;
     this._everHitStars     = false;      // for Crystal Clean (Pullman-end)
     this._everUsedRestStop = false;      // for Iron Bladder (Pullman-end)
-    // Custom-mode opt-in flags from the start-screen checkboxes.  Default
-    // false; survives across scene-restart via the field but the user
-    // resets them by re-launching from the title.
-    this._customFlags = this._customFlags ?? { noNpcDamage: false, noPolice: false };
+    // Custom-mode opt-in flags from the start-screen checkboxes.  Reset
+    // every init() so a previous Custom run can't bleed `noPolice` /
+    // `noNpcDamage` into the next Normal/Easy/Hard launch.  The CUSTOM
+    // modal sets these AFTER init() runs, before calling _startGameplay,
+    // so the modal flow isn't broken by the unconditional reset.
+    this._customFlags      = { noNpcDamage: false, noPolice: false };
+    this._customStartStars = null;
 
     this.road    = new Road();
     this.drugs   = new DrugSystem();
@@ -222,15 +350,41 @@ export class GameScene extends Phaser.Scene {
     // Tap-mode's auto-pull-left kicks in from the moment the player
     // takes damage, even if they haven't tapped yet.  Same flags the
     // first-tap path clears.
-    this.damage.on('damage', () => {
+    this.damage.on('damage', ({ amount } = {}) => {
       if (this._awaitingFirstGameTap || this._steerLockUntilTap) {
         this._awaitingFirstGameTap = false;
         this._steerLockUntilTap    = false;
+      }
+      // Floating "-X HP" popup beside the HP readout for 1.5 s.
+      if (this.hudHPDamage && amount > 0) {
+        const n = Math.round(amount * 10) / 10;
+        const txt = (n === Math.floor(n)) ? `-${n.toFixed(0)}` : `-${n.toFixed(1)}`;
+        this.hudHPDamage.setText(txt).setVisible(true);
+        // Position just on the CENTER side of the live HP text — right
+        // of HP in left-handed mode, left of HP otherwise.
+        const hb = this.hudHP?.getBounds?.();
+        if (hb) {
+          const GAP = 8;
+          this.hudHPDamage.x = this._leftHanded ? (hb.right + GAP) : (hb.left - GAP);
+        }
+        this._hpDamageUntil = (this.time?.now ?? 0) + 1500;
       }
     });
 
     // ── Graphics layers ───────────────────────────────────────────────
     this.roadGfx      = this.add.graphics();
+    // Smoke layer sits ABOVE the player car so low-HP puffs read
+    // clearly instead of being half-hidden behind the chassis.
+    // (Player car is at depth 9.95; this lands just above.)
+    this._smokeGfx    = this.add.graphics().setDepth(9.97);
+    // Scenery crash explosion (fire/smoke ring) — high-depth layer so
+    // the fire burst is visible OVER buildings the player crashed into.
+    // Previously the explosion was painted into roadGfx (depth 0), which
+    // meant it was hidden behind every building sprite (depth 7-9.5) —
+    // the collision was happening (car reset / HP loss) but the player
+    // saw no visual feedback because the fire was painted behind the
+    // building they just hit.
+    this._explosionGfx = this.add.graphics().setDepth(9.96);
     this.ghostGfx     = this.add.graphics();
     // Procedural-sprite layer (houses, buildings, etc.) — sits in the
     // tree/car depth band so they don't always render *behind* image-
@@ -240,7 +394,38 @@ export class GameScene extends Phaser.Scene {
     // and the player's car still paint in front.
     this.propsGfx     = this.add.graphics().setDepth(9.45);
     this.tunnelGfx    = this.add.graphics().setDepth(9.82);
-    this.signGfx      = this.add.graphics().setDepth(9.86);
+    // Tunnel interior mask — the actual stencil shape that limits
+    // where tunnelGfx (interior walls/ceiling) can render.  Each
+    // frame we draw EITHER the mouth-opening rectangle (when
+    // approaching the tunnel) OR a full-screen rect (when the camera
+    // is inside).  Outside of those cases the mask is empty, so the
+    // tunnel interior can't paint anywhere.  This replaces the
+    // depth-juggling approach: the interior CAN'T leak past the
+    // mouth opening because Phaser stencils it out.
+    this._tunnelMaskGfx = this.add.graphics().setVisible(false);
+    this.tunnelGfx.setMask(this._tunnelMaskGfx.createGeometryMask());
+    // signGfx replaced by _signGfxPool (per-sign Graphics with dynamic
+    // depths matched to each sign's distance — see below).
+    // Bridge front-overlay (depth 4) — acts as an opaque road-surface
+    // re-paint layer for bridge segments.  Road.js routes bridge-segment
+    // asphalt + lane markings + rumbles + guardrails here, so the
+    // bridge deck paints OVER cranes (renderDepth 2) but stays UNDER
+    // NPCs / cops / drugs / signs (depth ≥ 7) which still appear on
+    // top of the road as expected.
+    this.bridgeFrontGfx = this.add.graphics().setDepth(4);
+    // Tunnel entrance facade — depth is set DYNAMICALLY per frame by
+    // Road.renderTunnelFacade() based on the tunnel's actual distance,
+    // so closer scenery renders in front and past-tunnel scenery is
+    // occluded.  Initial depth here is just a placeholder.
+    this.tunnelFacadeGfx = this.add.graphics().setDepth(7.6);
+    // Sign overlay pool — one Graphics per visible sign, depth set
+    // per-frame based on the sign's world distance so closer scenery
+    // can naturally occlude distant signs (instead of all signs
+    // batching into one always-on-top layer).
+    this._signGfxPool = [];
+    for (let i = 0; i < 24; i++) {
+      this._signGfxPool.push(this.add.graphics().setVisible(false));
+    }
     this.overlayGfx   = this.add.graphics().setDepth(10);
     this.vignetteGfx  = this.add.graphics().setDepth(11);
     this.hudFlashGfx  = this.add.graphics().setDepth(12);
@@ -261,31 +446,56 @@ export class GameScene extends Phaser.Scene {
     this.hudGfx = this.add.graphics().setDepth(20);
     this._hudObjects.push(this.hudGfx);
 
+    // ── DEBUG OVERLAY ────────────────────────────────────────────────
+    // Toggle with F3.  Draws on-screen collision rectangles, sprite
+    // anchor points, the tunnel mouth rect, and a live text readout
+    // (mile / region / x / speed / counts).  Lets us see "what the
+    // game thinks is happening" vs "what the player sees", which is
+    // the only sane way to debug the rendering↔collision divergences
+    // that have bitten us repeatedly (Bellevue offset mismatch,
+    // Mercer house hitbox, tunnel see-through).  Zero per-frame cost
+    // when off — _renderDebugOverlay early-returns on this._debugOn.
+    this._debugOn  = false;
+    this._debugGfx = this.add.graphics().setDepth(19).setVisible(false);
+    this._debugText = this.add.text(8, 8, '', {
+      fontFamily: 'monospace, Courier', fontSize: '11px',
+      color: '#FFFFFF', backgroundColor: 'rgba(0,0,0,0.55)',
+      padding: { x: 5, y: 4 },
+    }).setDepth(19).setScrollFactor?.(0).setVisible(false);
+    this._debugLegend = this.add.text(8, SCREEN_H - 108, '', {
+      fontFamily: 'monospace, Courier', fontSize: '10px',
+      color: '#FFFFFF', backgroundColor: 'rgba(0,0,0,0.55)',
+      padding: { x: 5, y: 3 },
+    }).setDepth(19).setScrollFactor?.(0).setVisible(false);
+    this._debugLegend.setText([
+      'RED   collision rect (base band)',
+      'YEL   render AABB',
+      'OLV   culled by renderer',
+      'CYN   sprite anchor',
+      'LIME  player trapezoid (chassis)',
+      'ORG   NPC AABB',
+      'MAG   tunnel mouth',
+    ].join('\n'));
+
     // ── Player sprite ─────────────────────────────────────────────────
     // Sprite sits ~120 px above the bottom of the screen so there is visible
     // road *below* the car — the apparent "behind the car" view the player
     // asked for.
-    // Use the player's provided car image if loaded; otherwise the procedural texture.
-    const playerTex = this.textures.exists('car_player') ? 'car_player' : 'player_car';
-    // Player car sits above all world sprites (which now share the 7.0–9.5
-    // depth band based on z-distance) but below HUD/overlay layers (≥10).
+    // Per-vehicle PNGs land via `spriteBack` (rear view of the player's
+    // car).  Vehicles without a back-PNG fall back to the procedural
+    // `car_player` texture + a vehicle tint.
+    const _vehSpriteBack = _veh?.spriteBack;
+    const playerTex = (_vehSpriteBack && this.textures.exists(_vehSpriteBack))
+      ? _vehSpriteBack
+      : (this.textures.exists('car_player') ? 'car_player' : 'player_car');
     this.playerSprite = this.add.image(SCREEN_W / 2, SCREEN_H - 130, playerTex)
-      // Bottom-anchored like NPC cars — getVehicleProjection().sy is the
-      // road-contact point, so origin (0.5, 1) puts the sprite's tires
-      // on that point cleanly without an arbitrary half-height fudge.
       .setOrigin(0.5, 1)
       .setDepth(9.95);
+    this._applyPlayerSpriteDisplaySize();
+    // Apply vehicle tint ONLY when falling back to the procedural texture
+    // (per-vehicle PNGs already carry their own colour).
     if (playerTex === 'car_player') {
-      // 25% smaller than before per request (was 120×75 → now 90×56).
-      this.playerSprite.setDisplaySize(90, 56);
-    } else {
-      this.playerSprite.setScale(1.7 * 0.75);
-    }
-    // Vehicle tint — placeholder colour-coding until per-vehicle sprite
-    // art lands.  Beater is left untinted (its tan is already set in
-    // the catalog but we skip multiply-tint so the original art shows).
-    {
-      const _vehTint = VEHICLES[this.player.vehicleId]?.tint;
+      const _vehTint = _veh?.tint;
       if (_vehTint && this.player.vehicleId !== 'beater') {
         this.playerSprite.setTint(_vehTint);
       }
@@ -349,12 +559,38 @@ export class GameScene extends Phaser.Scene {
     // iterator reached anything past mid-range, so distant blocks never got
     // sprites and buildings appeared to "pop in" only when the player was
     // ~100 feet away.
+    // Pool sized to the realistic per-frame visible sprite count
+    // (post min-size cull below).  Mobile GPUs can't batch sprites
+    // with mismatched textures, so each unique building texture is a
+    // draw call — keeping the active count down is the single biggest
+    // perf win for scenery-heavy regions.
     this._sceneSpritePool = [];
-    for (let i = 0; i < 600; i++) {
-      const s = this.add.image(0, 0, 'building_1')
+    for (let i = 0; i < 400; i++) {
+      const s = this.add.image(0, 0, 'codex_bellevue_skyline')
         .setOrigin(0.5, 1).setDepth(7.5).setVisible(false);
       this._sceneSpritePool.push(s);
     }
+
+    // (No Plane/Mesh 3D pool for the Bellevue strip — Phaser's mesh
+    // perspective doesn't align with the road's pseudo-3D projection,
+    // so attempts at a true road-parallel quad produced broken visuals.
+    // The strip renders as a regular face-on billboard via the scene
+    // sprite pool; perspective should be baked into the source PNG.)
+    this._strip3dPool = [];
+
+    // ── City horizon strips ───────────────────────────────────────────
+    // Per-city wide images that sit at the horizon line like the
+    // mountains do — they parallax slightly with player.x and drift
+    // down slightly as the player progresses through the city.
+    // Updated each frame by _renderHorizonStrips().
+    this._horizonStripL = this.add.image(0, 0, 'codex_bellevue_roadside_strip')
+      .setOrigin(0.5, 1)            // anchor at bottom-center so it sits on the horizon line
+      .setDepth(5.7)                // above road graphics (~5), below scenery sprites (7.5)
+      .setVisible(false);
+    this._horizonStripR = this.add.image(0, 0, 'codex_bellevue_roadside_strip')
+      .setOrigin(0.5, 1)
+      .setDepth(5.7)
+      .setVisible(false);
 
     // ── Input ─────────────────────────────────────────────────────────
     this.cursors = this.input.keyboard?.createCursorKeys();
@@ -367,6 +603,20 @@ export class GameScene extends Phaser.Scene {
     this.keyQ     = this.input.keyboard?.addKey('Q');
     this.keySpace = this.input.keyboard?.addKey('SPACE');
     this.keyEnter = this.input.keyboard?.addKey('ENTER');
+
+    // Shift+L toggles left/right-handed HUD layout — temporary until
+    // the phone-menu has an interactive widget for it.  Forces a scene
+    // restart so all HUD elements re-bind to the new mirror state.
+    this._handednessHandler = (ev) => {
+      if (ev.key !== 'L' && ev.key !== 'l') return;
+      if (!ev.shiftKey) return;
+      const save = this.registry.get('save');
+      const cur = save?.get?.('settings.handedness', 'right');
+      save?.set?.('settings.handedness', cur === 'left' ? 'right' : 'left');
+      this.scene.restart();
+    };
+    this.input.keyboard?.on('keydown', this._handednessHandler);
+    this.events.once('shutdown', () => this.input.keyboard?.off('keydown', this._handednessHandler));
 
     // ── DEV WARP — REMOVE BEFORE RELEASE ──────────────────────────────
     // Digit 1-9 jumps the player to a predefined mile marker so verification
@@ -412,6 +662,45 @@ export class GameScene extends Phaser.Scene {
     this.events.once('destroy',  () => this.input.keyboard?.off('keydown', this._devWarpHandler));
     // ── /DEV WARP ─────────────────────────────────────────────────────
 
+    // F3 toggles the debug overlay.  Matches the dev-warp pattern so
+    // it auto-detaches on scene shutdown / destroy.
+    // F4 toggles camera lateral tracking — the camera-follows-player
+    // behavior (default) keeps the road centered on the player's view
+    // but makes roadside scenery appear to slide away when the player
+    // drifts to the opposite lane.  Disable to keep the camera fixed
+    // at world X=0 so scenery stays put and the player visibly slides
+    // across the road instead.  Tested side-by-side via this key.
+    this._cameraToggleHandler = (ev) => {
+      if (ev.code !== 'F4' && ev.key !== 'F4') return;
+      ev.preventDefault?.();
+      if (this.road) {
+        this.road._cameraTracksPlayer = this.road._cameraTracksPlayer === false;
+        const mode = this.road._cameraTracksPlayer === false ? 'CENTERED' : 'TRACKS PLAYER';
+        this._showPopup?.(`Camera: ${mode}`, '#FFCC00');
+      }
+    };
+    this.input.keyboard?.on('keydown', this._cameraToggleHandler);
+    this.events.once('shutdown', () => this.input.keyboard?.off('keydown', this._cameraToggleHandler));
+    this.events.once('destroy',  () => this.input.keyboard?.off('keydown', this._cameraToggleHandler));
+
+    this._debugToggleHandler = (ev) => {
+      if (ev.code !== 'F3' && ev.key !== 'F3') return;
+      ev.preventDefault?.();
+      this._debugOn = !this._debugOn;
+      this._debugGfx?.setVisible(this._debugOn);
+      this._debugText?.setVisible(this._debugOn);
+      this._debugLegend?.setVisible(this._debugOn);
+      if (!this._debugOn) {
+        this._debugGfx?.clear();
+        if (this._debugTexLabels) {
+          for (const t of this._debugTexLabels) t.setVisible(false);
+        }
+      }
+    };
+    this.input.keyboard?.on('keydown', this._debugToggleHandler);
+    this.events.once('shutdown', () => this.input.keyboard?.off('keydown', this._debugToggleHandler));
+    this.events.once('destroy',  () => this.input.keyboard?.off('keydown', this._debugToggleHandler));
+
     this._setupTouch();
     this._setupTilt();
     // Detach the window-level deviceorientation listener if the scene
@@ -425,7 +714,8 @@ export class GameScene extends Phaser.Scene {
     this.gameTime        = 0;
     // Party clock — counts down from Difficulty.partyClockSec() until
     // hitting 0.  Pullman finish before 0 → ON TIME (cash bonus).
-    this._partyClockSec  = Difficulty.partyClockSec();
+    this._partyClockSec    = Difficulty.partyClockSec();
+    this._partyClockSecMax = this._partyClockSec;    // read by the phone-menu clock UI
     this.lastSegIdx      = 0;
     this.popupTimer      = 0;
     this.explosions      = [];
@@ -517,6 +807,13 @@ export class GameScene extends Phaser.Scene {
             this._lastCheckpoint     = null;
             this._odometer           = 0;
             this.score               = 0;
+            // Wipe Custom-mode opt-ins so a Custom run's noPolice /
+            // noNpcDamage / starting stars can't bleed into the fresh
+            // Normal/Easy/Hard run that follows.  init() also resets
+            // these, but explicit clear here makes the intent obvious.
+            this._customFlags       = { noNpcDamage: false, noPolice: false };
+            this._customStartStars  = null;
+            this._customStartLevels = null;
             if (this.player) this.player.position = 0;
             // Reset HP to the current vehicle's max so the player
             // starts fresh, not at whatever durability they crashed at.
@@ -531,30 +828,32 @@ export class GameScene extends Phaser.Scene {
     );
     this._pauseObjects.push(startOverBtn.bg, startOverBtn.txt);
 
-    // ── Pause menu: 🗺 MAP, 🚗 GARAGE, 🏆 ACHIEVEMENTS icon buttons ──────
-    // Sit on the SAME row as the steering picker (y=14) — three small
-    // icons left of the picker, all within the hudMult slot.  Bottom
-    // of the pause overlay is reserved for primary actions
-    // (START OVER / FROM CHECKPOINT).
-    const iconRowY = 0;           // top of icon — same baseline as picker
-    const iconSize = 28;
-    const iconGap  = 6;
-    const iconStartX = 10;
+    // ── 🗺 MAP + 🚗 GARAGE icon buttons ──────────────────────────────
+    // Positioned in a row JUST RIGHT of the rear-view mirror (swapped
+    // from the left side per UX request — music cluster moved to the
+    // left).  Same 56-px size + dark-gray fill + cyan stroke as the
+    // music buttons so the whole top bar reads as one unified cluster.
+    const MIRROR_RIGHT = SCREEN_W / 2 + 130;
+    const iconRowY = 2;                       // mirror top
+    const iconSize = 56;                      // mirror height
+    // 1-px gap matches the tighter spacing applied to the music
+    // cluster on the left side of the mirror.
+    const iconGap  = 1;
     const makeIconBtn = (px, glyph, onClick) => {
-      const bg = this.add.graphics().setDepth(62).setVisible(false);
+      const bg = this.add.graphics().setDepth(62);
       const draw = (alpha = 1) => {
         bg.clear();
         bg.fillStyle(0x222222, alpha);
-        bg.fillRoundedRect(px, iconRowY, iconSize, iconSize, 6);
-        bg.lineStyle(2, 0x66CCFF, 1);
-        bg.strokeRoundedRect(px + 0.5, iconRowY + 0.5, iconSize - 1, iconSize - 1, 6);
+        bg.fillRoundedRect(px, iconRowY, iconSize, iconSize, 10);
+        bg.lineStyle(3, 0x66CCFF, 1);
+        bg.strokeRoundedRect(px + 1.5, iconRowY + 1.5, iconSize - 3, iconSize - 3, 10);
       };
       draw(0.85);
       bg.setInteractive(new Phaser.Geom.Rectangle(px, iconRowY, iconSize, iconSize), Phaser.Geom.Rectangle.Contains);
       bg.input.cursor = 'pointer';
       const lbl = this.add.text(px + iconSize / 2, iconRowY + iconSize / 2, glyph, {
-        fontSize: '16px',
-      }).setOrigin(0.5).setDepth(63).setVisible(false);
+        fontSize: '32px',
+      }).setOrigin(0.5).setDepth(63);
       bg.on('pointerover', () => draw(1));
       bg.on('pointerout',  () => draw(0.85));
       bg.on('pointerdown', (ptr) => {
@@ -563,13 +862,20 @@ export class GameScene extends Phaser.Scene {
       });
       return [bg, lbl];
     };
-    const mapX = iconStartX;
+    // New layout — Mute sits immediately right of the mirror, then
+    // Map, then Garage further right.  (Wiper, when shown, sits
+    // beyond Garage; see music-cluster code above.)
+    const mapX = MIRROR_RIGHT + iconGap + iconSize + iconGap;   // past Mute
     const garX = mapX + iconSize + iconGap;
-    const achX = garX + iconSize + iconGap;
     const [mapBg, mapLbl] = makeIconBtn(mapX, '🗺', () => this._buildMapModal());
     const [garBg, garLbl] = makeIconBtn(garX, '🚗', () => this._buildGarageModal());
-    const [achBg, achLbl] = makeIconBtn(achX, '🏆', () => this._buildAchievementsModal());
-    this._pauseObjects.push(mapBg, mapLbl, garBg, garLbl, achBg, achLbl);
+    // Tracked via _hudObjects (always-visible HUD pool) instead of
+    // _pauseObjects so they survive the _togglePause visibility sweep.
+    this._hudObjects.push(mapBg, mapLbl, garBg, garLbl);
+    if (this._topRowButtons) {
+      this._topRowButtons.push({ id: 'map',    bg: mapBg, lbl: mapLbl, baseLeft: mapX, size: iconSize });
+      this._topRowButtons.push({ id: 'garage', bg: garBg, lbl: garLbl, baseLeft: garX, size: iconSize });
+    }
 
     const checkpointBtn = this._buildPauseButton(
       SCREEN_W / 2 + 110, buttonY, 200, 38, 'FROM CHECKPOINT',
@@ -590,29 +896,39 @@ export class GameScene extends Phaser.Scene {
     );
     this._pauseObjects.push(checkpointBtn.bg, checkpointBtn.txt);
 
-    // Pause-only secondary controls — anchored to the score-multiplier
-    // slot (hudMult lives at x=120, y=14) so they reuse that real estate
-    // while the run is paused.  hudMult is hidden in _togglePause so
-    // there's no overlap.
-    const PAUSE_COL_X    = 120;
-    const PAUSE_STEER_Y  = 14;
-    const PAUSE_VOL_Y    = 50;
-    const PAUSE_SLIDER_Y = 70;
-    const sliderY = PAUSE_SLIDER_Y;
-    this._pauseVolLabel = this.add.text(PAUSE_COL_X, PAUSE_VOL_Y,
+    // Music volume slider — sits centered just ABOVE the big PAUSED
+    // text.  PAUSED is at y = SCREEN_H * 0.32 (origin .5), so the
+    // slider tucks in just above the text's top edge.
+    const PAUSED_Y    = SCREEN_H * 0.32;
+    const sliderW     = 240, sliderH = 16;
+    const sliderL     = SCREEN_W / 2 - sliderW / 2;
+    const sliderY     = PAUSED_Y - 50;
+    const labelY      = sliderY - 22;
+    this._pauseVolLabel = this.add.text(SCREEN_W / 2, labelY,
       `MUSIC VOLUME  ${Math.round((this.audio?.volume ?? 0.32) * 100)}%`, {
-      fontSize: '12px', fontFamily: 'Impact, Arial Black, sans-serif',
+      fontSize: '14px', fontFamily: 'Impact, Arial Black, sans-serif',
       color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0, 0.5).setDepth(62).setVisible(false);
+    }).setOrigin(0.5).setDepth(62).setVisible(false);
     this._pauseObjects.push(this._pauseVolLabel);
 
-    const sliderW = 220, sliderH = 14;
-    const sliderL = PAUSE_COL_X;
     const sliderTrack = this.add.rectangle(sliderL, sliderY, sliderW, sliderH, 0x222222, 1)
       .setOrigin(0, 0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
       .setInteractive({ useHandCursor: true });
     const sliderFill = this.add.rectangle(sliderL, sliderY, sliderW * (this.audio?.volume ?? 0.32), sliderH, 0x44CC88, 1)
       .setOrigin(0, 0.5).setDepth(63).setVisible(false);
+    // Invisible "safe zone" wrapping the slider track + label area.
+    // Catches tap-near-misses as a UI tap (firing gameobjectdown) so
+    // tap-to-resume doesn't unpause the run when the player aims for
+    // the thin slider track and hits a few px off.  Same pointerdown
+    // handler that the track has, so dragging works from anywhere in
+    // the zone too.
+    const sliderSafeY = labelY - 14;
+    const sliderSafeH = (sliderY - sliderSafeY) + sliderH + 14;
+    const sliderSafeX = sliderL - 30;
+    const sliderSafeW = sliderW + 60;
+    const sliderSafe  = this.add.rectangle(sliderSafeX, sliderSafeY, sliderSafeW, sliderSafeH, 0x000000, 0)
+      .setOrigin(0, 0).setDepth(61).setVisible(false)
+      .setInteractive({ useHandCursor: true });
     const setVolFromX = (px) => {
       const t = Math.max(0, Math.min(1, (px - sliderL) / sliderW));
       if (this.audio) {
@@ -624,46 +940,15 @@ export class GameScene extends Phaser.Scene {
     };
     sliderTrack.on('pointerdown', (ptr) => setVolFromX(ptr.x));
     sliderTrack.on('pointermove', (ptr) => { if (ptr.isDown) setVolFromX(ptr.x); });
-    this._pauseObjects.push(sliderTrack, sliderFill);
+    sliderSafe.on('pointerdown',  (ptr) => setVolFromX(ptr.x));
+    sliderSafe.on('pointermove',  (ptr) => { if (ptr.isDown) setVolFromX(ptr.x); });
+    this._pauseObjects.push(sliderTrack, sliderFill, sliderSafe);
 
-    // ── Steering mode picker — sits in the slot vacated by hudMult ─────
-    const steerY      = PAUSE_STEER_Y;
-    const steerSwW    = 120;
-    const steerSwH    = 28;
-    const steerLbl = this.add.text(PAUSE_COL_X + steerSwW + 8, steerY, 'STEERING', {
-      fontSize: '15px', fontFamily: 'Impact, Arial Black, sans-serif',
-      color: '#FFFFFF', stroke: '#000000', strokeThickness: 4,
-    }).setOrigin(0, 0.5).setDepth(62).setVisible(false);
-    // 'flappy' shows as "TAP" in the picker — same internal key for save
-    // compatibility, but more descriptive in the UI.
-    const MODE_ORDER = ['flappy', 'classic', 'tilt'];
-    const MODE_LABELS = { classic: 'CLASSIC', tilt: 'TILT', flappy: 'TAP' };
-    const MODE_COLORS = { classic: 0x6688CC, tilt: 0x44CC88, flappy: 0xCC8844 };
-    const initMode = this._steeringMode();
-    const steerSwBg = this.add.rectangle(PAUSE_COL_X, steerY, steerSwW, steerSwH,
-      MODE_COLORS[initMode], 1)
-      .setOrigin(0, 0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    const steerSwTxt = this.add.text(PAUSE_COL_X + steerSwW / 2, steerY,
-      MODE_LABELS[initMode], {
-        fontSize: '16px', fontFamily: 'Impact, Arial Black, sans-serif',
-        color: '#000000',
-      }).setOrigin(0.5).setDepth(63).setVisible(false);
-    this._refreshSteeringBtn = () => {
-      const m = this._steeringMode();
-      steerSwBg.setFillStyle(MODE_COLORS[m] ?? 0x444444, 1);
-      steerSwTxt.setText(MODE_LABELS[m] ?? m.toUpperCase());
-    };
-    steerSwBg.on('pointerdown', (ptr) => {
-      ptr.event?.stopPropagation?.();
-      const cur = this._steeringMode();
-      const next = MODE_ORDER[(MODE_ORDER.indexOf(cur) + 1) % MODE_ORDER.length];
-      this._setSteeringMode(next);
-      // For tilt the registry write happens inside the async permission
-      // callback; for classic/flappy it's already set, so refresh now.
-      if (next !== 'tilt') this._refreshSteeringBtn();
-    });
-    this._pauseObjects.push(steerLbl, steerSwBg, steerSwTxt);
+    // Steering-mode picker removed from the pause menu — the iPhone
+    // home-screen widget (Tap / Tilt / L-R Steer) is now the
+    // canonical place to pick it.  _refreshSteeringBtn is kept as a
+    // no-op so any leftover callers don't break.
+    this._refreshSteeringBtn = () => {};
 
     this._hudObjects.push(this._pauseGfx, ...this._pauseObjects);
 
@@ -693,6 +978,14 @@ export class GameScene extends Phaser.Scene {
         }
         this._customStartLevels = null;
       }
+      // Custom-mode starting stars also reapply on death-respawn — the
+      // resume path zeroed stars above, but a Custom run that began
+      // with 3★ should respawn at 3★, not 0★.  _startGameplay only
+      // runs on the fresh-game path, so we have to seed here too.
+      if (typeof this._customStartStars === 'number' && this.cops) {
+        this.cops.stars     = this._customStartStars;
+        this.cops.starTimer = 4;
+      }
       this.damage?.reset?.();
       // Skip the title overlay so the player drops straight back in.
       this._awaitingStart = false;
@@ -708,6 +1001,13 @@ export class GameScene extends Phaser.Scene {
       if (rs) {
         this.player.position = rs.t * (ROUTE_SEGS * SEG_LENGTH);
         this.score           = this._resumeScore || 0;
+        // Forward warp burns gas equal to the trip skipped — same as
+        // if the player had actually driven those miles.  Gas can go
+        // straight to empty on long warps (intentional: refuel at the
+        // destination's rest stop before driving on).
+        if (this._warpedForward && this.player) {
+          this.player.gasMi = Math.max(0, (this.player.gasMi ?? 0) - rs.mileage);
+        }
         // Seed the "last checkpoint" so a crash before reaching the next
         // CHECKPOINT still offers "Start at Bellevue" (or whichever stop
         // they just left), instead of falling all the way back to Seattle.
@@ -862,11 +1162,21 @@ export class GameScene extends Phaser.Scene {
               this.player.gasMi    = Math.round(newVeh.rangeMi * 0.5);   // half tank
               if (this.damage?.setMax)        this.damage.setMax(newVeh.hp);
               if (this.damage?.setDurability) this.damage.setDurability(newVeh.hp);
-              // Apply the new tint to the player sprite immediately so
-              // the player visibly sees the swap on resume.
+              // Apply the new sprite (or fall back to tint) immediately
+              // so the player visibly sees the swap on resume.
               if (this.playerSprite) {
-                if (newId === 'beater') this.playerSprite.clearTint();
-                else if (newVeh.tint)   this.playerSprite.setTint(newVeh.tint);
+                this.playerSprite.clearTint();
+                const _newBack = newVeh.spriteBack;
+                if (_newBack && this.textures.exists(_newBack)) {
+                  this.playerSprite.setTexture(_newBack);
+                  this._applyPlayerSpriteDisplaySize();
+                } else {
+                  this.playerSprite.setTexture('car_player');
+                  this._applyPlayerSpriteDisplaySize();
+                  if (newVeh.tint && newId !== 'beater') {
+                    this.playerSprite.setTint(newVeh.tint);
+                  }
+                }
               }
               this._strandedShown = false;
             }
@@ -918,13 +1228,15 @@ export class GameScene extends Phaser.Scene {
     // main cam → world only; uiCam → HUD only.
     this._worldObjects.push(
       ...[
-        this.roadGfx, this.ghostGfx, this.propsGfx, this.tunnelGfx, this.signGfx, this.overlayGfx, this.vignetteGfx,
+        this.roadGfx, this.ghostGfx, this.propsGfx, this.bridgeFrontGfx, this.tunnelFacadeGfx, this.tunnelGfx, this._tunnelMaskGfx, ...this._signGfxPool, this._explosionGfx, this.overlayGfx, this.vignetteGfx,
         this.hudFlashGfx, this.playerSprite,
         this._copLightGfx,
         ...this._carSpritePool,
         ...this._drugSpritePool,
         this._drugHaloGfx,
         ...this._sceneSpritePool,
+        ...(this._strip3dPool ?? []),
+        this._horizonStripL, this._horizonStripR,
         ...(this._carGhostPool ?? []),
         ...(this._drugGhostPool ?? []),
       ].filter(Boolean),
@@ -957,8 +1269,28 @@ export class GameScene extends Phaser.Scene {
       return false;
     };
 
+    // Tap-to-resume — Phaser fires `gameobjectdown` BEFORE the
+    // scene-level `pointerdown` for any interactive object that was
+    // hit.  We set a one-shot flag in that handler; the scene-level
+    // pointerdown handler then checks it to know whether the tap
+    // landed on a UI button (skip resume) or on the open road
+    // (toggle pause off).
+    this.input.on('gameobjectdown', () => { this._uiTapBlocker = true; });
     this.input.on('pointerdown', (p) => {
-      if (this._modalOpen) return;
+      if (this._paused) {
+        const onUI = !!this._uiTapBlocker;
+        this._uiTapBlocker = false;
+        // Belt-and-suspenders: even if gameobjectdown didn't fire in
+        // time (Phaser event ordering can race on Graphics-based
+        // interactive objects), any tap landing in the top-button
+        // band keeps the game paused so the music / pause / map /
+        // garage buttons stay usable mid-pause.
+        if (onUI || p.y < 64) return;
+        this._togglePause();
+        return;
+      }
+      this._uiTapBlocker = false;
+      if (this._anyModalOpen()) return;
       // While the title is up, taps must hit one of the explicit
       // difficulty buttons — don't latch any steer/F12 flags from
       // anywhere else on screen, so the player isn't accidentally
@@ -968,12 +1300,27 @@ export class GameScene extends Phaser.Scene {
       // HUD drug bars (custom mode) — let the bar drag handler own
       // this pointer without also veering the car.
       if (overDrugBar(p)) return;
-      // Top-right UI cluster + right-edge weapon stack — initial tap
-      // must NOT start on these zones (so buttons work), but once a
-      // valid steer-tap has started, the player can drag across them.
-      const overTopButtons = p.y < 60 && p.x > SCREEN_W - 230;
-      const overWeaponCol  = p.x > SCREEN_W - 70 && p.y > 50;
-      if (overTopButtons || overWeaponCol) return;
+      // Top-row UI band + weapon stack — initial tap must NOT
+      // start on these zones (so buttons work), but once a valid
+      // steer-tap has started, the player can drag across them.
+      // The entire top band (y < 64) hosts the Pause / FF / Genre /
+      // Mirror / Mute / Map / Garage cluster — taps there should
+      // never latch a steer.  The weapon stack sits on whichever
+      // edge is the player's dominant thumb (left when _leftHanded).
+      const overTopButtons = p.y < 64;
+      const overWeaponCol  = this._leftHanded
+        ? (p.x < 80  && p.y > 50)
+        : (p.x > SCREEN_W - 80 && p.y > 50);
+      // If the gesture STARTS on a button band, suppress steering
+      // for the entire down-up cycle.  Without this, classic-mode
+      // pointermove would re-evaluate x-position on every finger
+      // jitter and latch a turn while the player is just holding
+      // Pause / FF / Genre.
+      if (overTopButtons || overWeaponCol) {
+        this._noSteerThisGesture = true;
+        return;
+      }
+      this._noSteerThisGesture = false;
       // Tap mode: ANY tap in the play area = action.  Latch sticky —
       // once on, stays on until pointerup, regardless of where the
       // finger drags afterward.
@@ -993,11 +1340,20 @@ export class GameScene extends Phaser.Scene {
       this._touchLeft  = false;
       this._touchRight = false;
       this._touchF12   = false;
-      this._tapLatchValid = false;
+      this._tapLatchValid    = false;
+      this._noSteerThisGesture = false;
     });
     this.input.on('pointermove', (p) => {
-      if (this._modalOpen) return;
+      if (this._anyModalOpen()) return;
       if (!p.isDown) return;
+      // No-steer-this-gesture — set when the down-event landed on a
+      // top-row button or weapon column.  Suppresses move-tracked
+      // steering until pointerup so holding a button doesn't latch a
+      // turn.
+      if (this._noSteerThisGesture) {
+        this._touchLeft = this._touchRight = false;
+        return;
+      }
       // While dragging a drug bar, never steer.
       if (this._draggingDrugId) {
         this._touchLeft = this._touchRight = false;
@@ -1223,7 +1579,13 @@ export class GameScene extends Phaser.Scene {
     return { left: !!chosen?.left, right: !!chosen?.right };
   }
   _isBrake() { return this._touchBrake || !!this.cursors?.down.isDown || !!this.wasd?.down.isDown; }
-  _isBoost() { return this._touchBoost || !!this.cursors?.up.isDown   || !!this.wasd?.up.isDown; }
+  _isBoost() {
+    // No boost while the accel pedal's charge is empty — the pedal's
+    // own update auto-toggles _touchBoost off, but a keyboard hold
+    // would otherwise still ramp up the speed.
+    if ((this._accelCharge ?? 100) <= 0) return false;
+    return this._touchBoost || !!this.cursors?.up.isDown || !!this.wasd?.up.isDown;
+  }
 
   // ─── Intro cinematic ─────────────────────────────────────────────────
   // Camera starts looking straight up (full sky) and tilts down to road.
@@ -1394,6 +1756,8 @@ export class GameScene extends Phaser.Scene {
   // ─── Update loop ──────────────────────────────────────────────────────
   update(time, delta) {
     const rawDt = delta / 1000;
+    // Reset the per-frame F12-fire gate (see _useTopF12 for the why).
+    this._f12FiredThisFrame = false;
 
     // Title-screen state: render the gameplay road and the player car at
     // idle, but freeze score/odometer/spawning. Tap or Enter/Space starts
@@ -1419,6 +1783,49 @@ export class GameScene extends Phaser.Scene {
         // Tap anywhere off-menu fires the cursor's action.
         this.input.once('pointerdown', (ptr) => {
           if (!this._awaitingStart) return;
+          // Skip when the player is in the iPhone portrait menu —
+          // taps on song rows, modal buttons, etc. shouldn't also
+          // launch the run.  The orientation check is the cleanest
+          // gate: any touch while in portrait is a phone-menu touch.
+          if (window.innerHeight > window.innerWidth) {
+            this._anyKeyAttached = false;
+            return;
+          }
+          // Also skip when an HTML phone-menu modal is open (which can
+          // happen in landscape if the lock chip is engaged) so taps
+          // on those don't auto-fire the cursor either.
+          // HTML phone-menu modals can keep their `.open` class after
+          // rotating back to landscape while the whole #phone-menu is
+          // CSS-hidden.  Treat only *visible* modals as blockers; a
+          // stale hidden music modal should not swallow gameplay taps.
+          const phoneModalVisible = (id) => {
+            const el = document.getElementById(id);
+            if (!el?.classList?.contains('open')) return false;
+            const menu = document.getElementById('phone-menu');
+            const menuVisible = !!menu && getComputedStyle(menu).display !== 'none';
+            const modalVisible = getComputedStyle(el).display !== 'none';
+            return menuVisible && modalVisible;
+          };
+          const phoneMusicOpen = phoneModalVisible('phone-music');
+          const phoneAchOpen   = phoneModalVisible('phone-achievements');
+          const phoneMapOpen   = phoneModalVisible('phone-map');
+          const phoneGarOpen   = phoneModalVisible('phone-garage');
+          if (phoneMusicOpen || phoneAchOpen || phoneMapOpen || phoneGarOpen) {
+            this._anyKeyAttached = false;
+            return;
+          }
+          // Any modal (map / garage / achievements) swallows the tap.
+          // If a modal is open, OR was just closed by this same
+          // pointerdown (close button handler runs FIRST and destroys
+          // the modal before hitTestPointer can see it), bail and
+          // re-arm — the player is dismissing a modal, not asking to
+          // start a race.
+          if (this._mapModalOpen          || this._mapModalJustClosed
+           || this._garageModalOpen       || this._garageModalJustClosed
+           || this._achievementsModalOpen || this._achievementsModalJustClosed) {
+            this._anyKeyAttached = false;
+            return;
+          }
           const hits = this.input.hitTestPointer?.(ptr) ?? [];
           const onUI = hits.some(o => o?.input?.enabled);
           if (!onUI) fireCursor();
@@ -1455,11 +1862,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Game time + party clock tick from the moment the car starts
-    // moving forward (scene load for both fresh starts and checkpoint
-    // resumes).  i-frame crash freezes still suspend movement; the
-    // timer ticks through them because the player is on the clock.
-    this.gameTime += rawDt;
-    if (this._partyClockSec > 0) this._partyClockSec = Math.max(0, this._partyClockSec - rawDt);
+    // moving forward.  Fresh runs sit in a frozen "ready" state until
+    // the first tap (_awaitingFirstGameTap); skip the tick there so
+    // the clock genuinely pauses pre-input — matches the documented
+    // ready-state behavior and keeps the run timer honest.
+    if (!this._awaitingFirstGameTap) {
+      this.gameTime += rawDt;
+      if (this._partyClockSec > 0) this._partyClockSec = Math.max(0, this._partyClockSec - rawDt);
+    }
     // Checkpoint-resume steer-lock: any raw input (key or touch)
     // clears the lock so the player regains control.  The lock is set
     // in the _resumeFromStop / _resumeFromPosition init branches.
@@ -1580,7 +1990,9 @@ export class GameScene extends Phaser.Scene {
     {
       const mile = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
       const wiperActive = (this.gameTime ?? 0) < (this._wiperUntil ?? 0);
-      this.effects.update(rawDt, this.drugs, this.cameras.main, { mile, wiperActive });
+      if (!this._perf?.noEffects) {
+        this.effects.update(rawDt, this.drugs, this.cameras.main, { mile, wiperActive });
+      }
       // Show the wiper HUD button only while it's actually raining.
       const showWiper = Weather.isRain(mile);
       if (this.hudWiperBtn) this.hudWiperBtn.setVisible(showWiper);
@@ -1743,8 +2155,12 @@ export class GameScene extends Phaser.Scene {
     this._odometer = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
 
     // ── Gas decrement (in odometer miles per frame) ──────────────────
+    // Custom mode is sandbox — no gas burn, no tow-truck stranding,
+    // no fuel-management to worry about.  Score-eligible modes still
+    // bleed gas + strand on empty.
+    const _isCustom = Difficulty.mode?.() === 'custom';
     const _odoDelta = Math.max(0, this._odometer - _odoPrev);
-    if (_odoDelta > 0 && this.player.gasMi > 0) {
+    if (!_isCustom && _odoDelta > 0 && this.player.gasMi > 0) {
       this.player.gasMi = Math.max(0, this.player.gasMi - _odoDelta);
       if (this.player.gasMi <= 0 && !this._strandedShown) {
         this._strandedShown = true;
@@ -1951,6 +2367,39 @@ export class GameScene extends Phaser.Scene {
       this.registry.set('drugProgress', this.drugs.snapshotProgress());
     }
 
+    // ── Accel pedal charge ────────────────────────────────────────────
+    // 5 min full → 0 when held, 20 min 0 → full when released.  Hits
+    // 0 → boost auto-toggles off so the pedal visual matches state.
+    {
+      const ACCEL_DRAIN_PER_SEC  = 100 / (5 * 60);
+      const ACCEL_REFILL_PER_SEC = 100 / (20 * 60);
+      if (this._isBoost()) {
+        this._accelCharge = Math.max(0, (this._accelCharge ?? 100) - ACCEL_DRAIN_PER_SEC * rawDt);
+        if (this._accelCharge <= 0 && this._touchBoost) {
+          this._touchBoost = false;
+          this._refreshPedals?.();
+        }
+      } else if ((this._accelCharge ?? 100) < 100) {
+        this._accelCharge = Math.min(100, (this._accelCharge ?? 0) + ACCEL_REFILL_PER_SEC * rawDt);
+      }
+    }
+
+    // Handedness live-mirror — when the iPhone-menu hand button flips
+    // _leftHanded mid-run, statically-placed HUD text (HP, Mi/gas)
+    // needs its x + origin re-applied so it follows the weapon column
+    // to the opposite edge.  Only fires when the flag actually changes
+    // so we don't touch Phaser display state every frame.
+    if (this._appliedLeftHanded !== this._leftHanded) {
+      const lh = !!this._leftHanded;
+      const x  = lh ? 80 : (SCREEN_W - 80);
+      const ox = lh ? 0 : 1;
+      if (this.hudHP)        { this.hudHP.x        = x; this.hudHP.setOrigin(ox, 0.5); }
+      if (this.hudGas)       { this.hudGas.x       = x; this.hudGas.setOrigin(ox, 0.5); }
+      if (this.hudHPDamage)  { this.hudHPDamage.setOrigin(ox, 0.5); }
+      this._applyTopRowHandedness?.();
+      this._appliedLeftHanded = this._leftHanded;
+    }
+
     // ── Render ────────────────────────────────────────────────────────
     this._renderFrame();
     this._renderHUD();
@@ -1961,14 +2410,17 @@ export class GameScene extends Phaser.Scene {
     const p = this.player;
 
     // Speed: cruise at 120 mph by default. Holding UP boosts toward 140; holding
-    // DOWN slows toward 60. Cocaine pickups raise both top and cruise by 5 mph each.
+    // DOWN slows toward 60. Cocaine pickups raise both top and cruise by 4 mph each.
+    // Meth pickups also raise top + cruise by 4 mph each — without this, _displayMPH
+    // shows the meth boost on the dial but the car never actually accelerates to it.
     // NOS tier (per-vehicle accessory) adds +5 mph per tier to BOTH cruise
     // and boost (3 tiers max → +15 mph at full).
     const cokeBonus = this.drugs.getCocaineSpeedBonusMPH?.() ?? 0;
+    const methBonus = this.drugs.getMethSpeedBonusMPH?.() ?? 0;
     const nosTier   = this._vehicleAccessories?.().nos ?? 0;
     const nosBonus  = nosTier * 5;
-    const cruiseMph = 120 + cokeBonus + nosBonus;
-    const boostMph  = 140 + cokeBonus + nosBonus;
+    const cruiseMph = 120 + cokeBonus + methBonus + nosBonus;
+    const boostMph  = 140 + cokeBonus + methBonus + nosBonus;
     const slowMph   = 60;
     const mphToUnits = (mph) => MAX_SPEED * (mph / 120);
 
@@ -1986,7 +2438,8 @@ export class GameScene extends Phaser.Scene {
 
     // Out of gas — coast to 0.  Multiplies targetSpeed by 0 so the
     // BRAKE/ACCEL ramp brings the car down at its normal deceleration.
-    if (this.player.gasMi <= 0) targetSpeed = 0;
+    // Empty-tank stall — skipped in custom mode (no gas requirement).
+    if (Difficulty.mode?.() !== 'custom' && this.player.gasMi <= 0) targetSpeed = 0;
 
     // Grade physics — subtle climb/descent effect on top speed.  Uphill
     // shaves a few mph off the cruise; downhill adds a few.  Uses the
@@ -2180,17 +2633,43 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // ── Left-only water rail (West Seattle approach, mile 0-1) ──────
+    // waterLeft segments paint water on the LEFT flank only.  Hard-clamp
+    // the player so they can't drive into the bay; the right shoulder
+    // stays normal off-road grass for the residential frontage.
+    if (seg?.waterLeft && !seg?.water && !seg?.bridge) {
+      const RAIL = 1.05;
+      if (p.x < -RAIL) {
+        p.x        = -RAIL;
+        p.steerVelocity = Math.max(0, p.steerVelocity) * 0.4;
+        p.xImpulse = (p.xImpulse < 0 ? -p.xImpulse * 0.5 : p.xImpulse);
+        p.speed    = Math.max(p.speed * 0.92, MAX_SPEED * 0.45);
+      }
+    }
+
     // ── Tunnel wall clamp ──────────────────────────────────────────
     // Inside the tunnel, concrete walls flank the road — the player
-    // can't drive THROUGH them.  Rail set ~1' inside the wall face
-    // (normalized lane-units): rumble extends to ±1.125, the wall
-    // starts just past that, and 1 ft ≈ 0.033 lane-units, so clamp at
-    // ±1.10 so the car can hug the rumble but not chip the concrete.
-    // Bridge clamp — same hard-rail behaviour as the tunnel.  The West
-    // Seattle Bridge has tall concrete railings on both sides; you
-    // shouldn't be able to drive over them into the Duwamish below.
-    if (seg?.bridge) {
+    // can't drive THROUGH them.  The visual tunnel now leaves a narrow
+    // shoulder between fog line and wall, so the scrape rail sits just
+    // beyond the lane edge instead of directly on top of the fog line.
+    // Bridge / water clamp — same hard-rail behaviour as the tunnel.
+    // The West Seattle Bridge has tall concrete railings on both sides;
+    // you shouldn't be able to drive over them into the Duwamish.  Also
+    // applies to bridge-APPROACH segments flagged `water: true` (no
+    // land on the sides yet — the road is on a causeway over water),
+    // otherwise the normal ±2.8 off-road clamp lets the player drift
+    // off the causeway and float on the water surface.
+    if (seg?.bridge || seg?.water) {
       const BRIDGE_RAIL = 0.95;
+      // Bridge rail = same scrape behavior as the tunnel: clamp the
+      // car against the rail AND apply 3 HP/sec continuous damage
+      // while the player is pressed against it.  Uses dt-scaled
+      // damage instead of a per-hit + i-frame so the rate is exactly
+      // 3 HP/second regardless of frame rate.
+      const _hittingBridgeRail = Math.abs(p.x) > BRIDGE_RAIL;
+      if (_hittingBridgeRail) {
+        this._applyDamage(3 * dt, 'bridge_rail');
+      }
       if (p.x > BRIDGE_RAIL) {
         p.x = BRIDGE_RAIL;
         p.steerVelocity = Math.min(0, p.steerVelocity) * 0.4;
@@ -2203,30 +2682,64 @@ export class GameScene extends Phaser.Scene {
         p.speed    = Math.max(p.speed * 0.92, MAX_SPEED * 0.45);
       }
     }
+    // One-sided water clamps — Lake Washington approach (water on LEFT,
+    // land on RIGHT for Mercer Island), and the mirror case.  Only
+    // restricts the WATER side; the land side stays subject to the
+    // normal off-road clamp so the player can still pull onto the
+    // shoulder / driveway.
+    else if (seg?.waterLeft) {
+      const BRIDGE_RAIL = 0.95;
+      if (p.x < -BRIDGE_RAIL) {
+        this._applyDamage(3 * dt, 'bridge_rail');
+        p.x = -BRIDGE_RAIL;
+        p.steerVelocity = Math.max(0, p.steerVelocity) * 0.4;
+        p.xImpulse = (p.xImpulse < 0 ? -p.xImpulse * 0.5 : p.xImpulse);
+        p.speed    = Math.max(p.speed * 0.92, MAX_SPEED * 0.45);
+      }
+    }
+    else if (seg?.waterRight) {
+      const BRIDGE_RAIL = 0.95;
+      if (p.x > BRIDGE_RAIL) {
+        this._applyDamage(3 * dt, 'bridge_rail');
+        p.x = BRIDGE_RAIL;
+        p.steerVelocity = Math.min(0, p.steerVelocity) * 0.4;
+        p.xImpulse = (p.xImpulse > 0 ? -p.xImpulse * 0.5 : p.xImpulse);
+        p.speed    = Math.max(p.speed * 0.92, MAX_SPEED * 0.45);
+      }
+    }
     if (seg?.tunnel) {
-      // Tunnel-wall slams now trigger the structural-crash respawn
-      // (explosion + reset to center + 4-second i-frames) instead of
-      // the old soft bounce — matches the tree / building / parked-car
-      // behavior so the player can't grind along the concrete and
-      // bleed HP indefinitely.
-      const TUNNEL_RAIL = 0.95;
-      const _nowTun = this.time?.now ?? 0;
-      if (Math.abs(p.x) > TUNNEL_RAIL && _nowTun >= this._invincibleUntil) {
-        this._triggerSceneryRespawn(null);
-      } else if (p.x > TUNNEL_RAIL) {
+      // Tunnel-wall scrape — same model as the bridge rail now.
+      // 3 HP/SECOND continuous (dt-scaled) instead of the old
+      // 3 HP per 350ms i-frame (which was effectively ~8.5 HP/sec).
+      // No explosion, no center-respawn, no speed halving — just
+      // bleed HP while pressed against the wall.
+      const TUNNEL_RAIL = 1.18;
+      const hitting = Math.abs(p.x) > TUNNEL_RAIL;
+      if (hitting) {
+        this._applyDamage(3 * dt, 'tunnel_wall');
+        // Throttle the popup so it doesn't flicker every frame.
+        const _nowTun = this.time?.now ?? 0;
+        if (_nowTun >= (this._tunnelScrapeUntil ?? 0)) {
+          this._showPopup?.('🧱 WALL!', '#FFAA22');
+          this._tunnelScrapeUntil = _nowTun + 800;
+        }
+      }
+      if (p.x > TUNNEL_RAIL) {
         p.x = TUNNEL_RAIL;
         p.steerVelocity = Math.min(0, p.steerVelocity) * 0.4;
+        p.xImpulse      = Math.min(0, p.xImpulse ?? 0);
       } else if (p.x < -TUNNEL_RAIL) {
         p.x = -TUNNEL_RAIL;
         p.steerVelocity = Math.max(0, p.steerVelocity) * 0.4;
+        p.xImpulse      = Math.max(0, p.xImpulse ?? 0);
       }
     }
     // Off-road: gradually cap speed rather than multiplying each frame.
     // EXCEPT — if the player is on the painted exit ramp asphalt, it
     // counts as paved road and the slowdown is suppressed.  Range goes
-    // out to x=4.0 (was 2.5) so even deep swerves into the ramp area
+    // out to x=4.9 so the widened, farther-diverging ramp stays drivable
     // still qualify and don't grind the car to a halt.
-    const onRamp = (seg?.rampStrength ?? 0) > 0 && p.x > 1 && p.x < 4.0;
+    const onRamp = (seg?.rampStrength ?? 0) > 0 && p.x > 1 && p.x < 4.9;
     if (Math.abs(p.x) > 1 && !onRamp) {
       const depth     = clamp((Math.abs(p.x) - 1) / 1.5, 0, 1);
       const maxSpeed  = MAX_SPEED * lerp(OFFROAD_SLOW, 0.15, depth);
@@ -2267,7 +2780,21 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    p.x = clamp(p.x, -2.8, 2.8);
+    // Lateral clamp: ±2.8 normally, extended on exit ramps so the
+    // player can reach all the way past the ramp's outer edge (4.30)
+    // and into the city skyline buildings sitting at CITY_BUILDING_SETBACK
+    // (5.9).  Building collision band starts just beyond the ramp, so player
+    // needs to reach at least p.x = 4.5 to start triggering crashes.
+    // Clamp lerps with rampStrength: 2.8 normal → 6.5 at full ramp, so
+    // the player can drift past the ramp's outer edge and crash into
+    // the building structures.
+    const _segsForClamp  = this.road?.segments;
+    const _segIdxClamp   = _segsForClamp
+      ? Math.floor(p.position / SEG_LENGTH) % _segsForClamp.length
+      : 0;
+    const _rampStrength  = _segsForClamp?.[_segIdxClamp]?.rampStrength ?? 0;
+    const _maxX = 2.8 + _rampStrength * 3.7;   // 2.8 → 6.5 across full ramp
+    p.x = clamp(p.x, -_maxX, _maxX);
 
     // Advance
     // World-units position: full speed so the road scrolls fast and the game
@@ -2289,9 +2816,18 @@ export class GameScene extends Phaser.Scene {
       p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
     }
 
-    // Visual lean — follows steer velocity so it lingers after key release
+    // Visual lean — follows steer velocity so it lingers after key release.
+    // Centered-camera mode (F4 toggle) also shifts the sprite by the
+    // player's lane offset × the road's projected half-width at the
+    // player's depth — because the road no longer slides under the
+    // camera, the sprite has to visibly move across lanes itself.
     const leanDir = p.steerVelocity / (TURN_SPEED || 1);  // normalised -1..1
-    const targetX = SCREEN_W / 2 - leanDir * 22;
+    let targetX = SCREEN_W / 2 - leanDir * 22;
+    if (this.road?._cameraTracksPlayer === false) {
+      const proj = this.road?.sampleSurface?.(PLAYER_VIRTUAL_Z, 0, { allowClipped: true });
+      const roadHalfW = proj?.roadHalfW ?? (SCREEN_W * 0.25);
+      targetX += p.x * roadHalfW;
+    }
     p.screenX     = lerp(p.screenX ?? SCREEN_W / 2, targetX, 0.12);
     if (this.playerSprite) {
       // ── Player sprite — X + angle only ────────────────────────────
@@ -2302,7 +2838,7 @@ export class GameScene extends Phaser.Scene {
       // Keeping X here because p.screenX is input/physics-driven, not
       // road-derived.
       const DEFAULT_W = 78, DEFAULT_H = 49;
-      this.playerSprite.setDisplaySize(DEFAULT_W, DEFAULT_H);
+      this._applyPlayerSpriteDisplaySize(DEFAULT_W, DEFAULT_H);
       this.playerSprite.x = p.screenX;
       this.playerSprite.angle = leanDir * 6;
       // Crash i-frame blink — 7 Hz alpha toggle so the player can see
@@ -2361,12 +2897,12 @@ export class GameScene extends Phaser.Scene {
       shroomPulseUnits = Math.sin(this._shroomTime * 2 * Math.PI / 0.75) * pulseAmpUnits * ramp;
     }
     // ── Rx NPC speed shift — cumulative per pickup ──────────────────
-    // +/-7 mph per Rx pickup applied as a uniform additive shift.
-    // Same-direction cars (positive speed) get faster (more positive);
-    // oncoming cars (negative speed) shift toward zero (slower magnitude).
+    // +7 mph per Rx pickup, applied sign-aware so oncoming traffic
+    // slows in magnitude (shift TOWARD zero) and same-direction speeds
+    // up, without ever flipping a car's direction.  Without the sign
+    // clamp, ≥ 15 Rx pickups (~+105 mph shift) would push slow oncoming
+    // cars past zero into positive (reverse-direction) territory.
     const rxShiftUnits = MAX_SPEED * (this.drugs?.getRxNpcSpeedShiftMPH?.() ?? 0) / 120;
-
-    const npcSpeedShift = shroomPulseUnits + rxShiftUnits;
 
     for (const t of this.traffic) {
       if (t.crashed) {
@@ -2393,17 +2929,34 @@ export class GameScene extends Phaser.Scene {
           effSpeed = other.speed;
         }
       }
-      // Apply shroom-pulse + Rx shift uniformly to every NPC.  Cars stay
-      // in their lanes; only their forward speed modulates.
-      effSpeed += npcSpeedShift;
+      // Shroom pulse — small ±10 mph oscillation, safe to add raw.
+      effSpeed += shroomPulseUnits;
+      // Rx shift — apply IN the direction of travel so oncoming cars
+      // slow toward zero (don't reverse) and forward cars accelerate.
+      // Clamp at 0 in the original direction so the car never crosses.
+      if (rxShiftUnits !== 0 && t.speed !== 0) {
+        const sgn = t.speed > 0 ? 1 : -1;
+        const shifted = effSpeed + sgn * rxShiftUnits;
+        // If the sign flipped (oncoming slowed past zero), pin at 0.
+        if ((sgn > 0 && shifted < 0) || (sgn < 0 && shifted > 0)) {
+          effSpeed = 0;
+        } else {
+          effSpeed = shifted;
+        }
+      }
       t.position += effSpeed * dt;
     }
     for (let i = this.traffic.length - 1; i >= 0; i--) {
       const t = this.traffic[i];
       const dist = t.position - this.player.position;
       const crashedDone = t.crashed && t.crashTimer <= 0;
-      // Despawn far behind, OR far past the visible horizon (DRAW_DIST × SEG_LENGTH).
-      if (crashedDone || dist < -2000 || dist > 80000) {
+      // Despawn forward past visible horizon (DRAW_DIST × SEG_LENGTH).
+      // Backward despawn used to be -2000 — but the rear-view mirror
+      // looks back ~36 000 units (MIRROR_FAR_Z) so we need to keep cars
+      // alive until they're actually past the mirror's vanishing point.
+      // dist = t.position - player.position; vz = (player+3000) - t.position;
+      // vz = 36000 → dist = -33000.  Use -35000 with a small buffer.
+      if (crashedDone || dist < -35000 || dist > 80000) {
         this.traffic.splice(i, 1);
       }
     }
@@ -2467,7 +3020,18 @@ export class GameScene extends Phaser.Scene {
     // `car_back_<set>` for same-direction traffic (player sees the rear)
     // and `car_front_<set>` for oncoming traffic (player sees the nose).
     // colorSet === 'police' is reserved for cops.
-    const COLOR_SETS = ['blue', 'blue2', 'green', 'grey', 'orange', 'red', 'red2', 'white', 'white2', 'truck_blue'];
+    const COLOR_SETS = [
+      'codex_beater',
+      'codex_suv4x4',
+      'codex_used_truck',
+      'codex_new_truck',
+      'codex_ev_truck',
+      'codex_sports_car',
+      'codex_bestla_roadster',
+      'npc_hatchback',
+      'npc_minivan',
+      'npc_wagon',
+    ];
     const colorSet = isCop
       ? 'police'
       : COLOR_SETS[(Math.random() * COLOR_SETS.length) | 0];
@@ -2560,28 +3124,230 @@ export class GameScene extends Phaser.Scene {
         'cop_random_parked',   // parked roadside cops count as structures
       ]);
       let _scenicHit = false;
-      // di range 0..14 — matches the pickup-collection loop above.
-      // The car's virtual Z is ~3000 (PLAYER_VIRTUAL_Z), so trees /
-      // buildings register as "at the car" when their projected screen-Y
-      // lands inside the car sprite's vertical band, which happens 10-15
-      // segments ahead due to perspective.
-      for (let di = 0; di <= 14 && !_scenicHit; di++) {
+      // PIXEL-BOUNDS COLLISION — replaces the older world-offset band.
+      // We compute the SAME screen rectangle the renderer would draw for
+      // each nearby sprite, then AABB-check against the player car's
+      // rendered rectangle.  If the boxes overlap on screen, it's a
+      // collision — exactly matching what the player sees.
+      // Player hitbox = TRAPEZOID matching the rear 3/4 view.  Wider at
+      // the bottom (bumper, closest to camera), narrower at the top
+      // (hood, recedes into screen).  Vertical range = lower half of
+      // the chassis (where the road plane meets the car).  Road-plane
+      // scenery sits with its BASE on the road surface near the
+      // bumper — the car's ROOF never crashes into a house, only the
+      // chassis does.  Origin is (0.5, 1), so sprite.y = bottom edge.
+      const playerDisplayW = this.playerSprite?.displayWidth  ?? 78;
+      const playerDisplayH = this.playerSprite?.displayHeight ?? 49;
+      const playerCx       = this.playerSprite?.x ?? SCREEN_W / 2;
+      const playerSpriteY  = this.playerSprite?.y ?? (SCREEN_H - 130);
+      const playerBotY     = playerSpriteY;                      // back bumper
+      const playerTopY     = playerSpriteY - playerDisplayH * 0.5;  // mid-chassis
+      const playerBotHalfW = playerDisplayW * 0.45;               // bumper width
+      const playerTopHalfW = playerDisplayW * 0.30;               // hood width (narrower)
+      // Trapezoid-vs-rect overlap.  The trapezoid widens linearly from
+      // playerTopY to playerBotY; the widest extent within the
+      // overlap-Y-range is at the LARGEST overlapping Y.  Test X
+      // overlap at that Y.
+      const trapHitsRect = (spL, spR, spT, spB) => {
+        const yT = Math.max(spT, playerTopY);
+        const yB = Math.min(spB, playerBotY);
+        if (yB < yT) return false;
+        const t = (yB - playerTopY) / Math.max(1, playerBotY - playerTopY);
+        const halfW = playerTopHalfW + (playerBotHalfW - playerTopHalfW) * t;
+        return !(spR < playerCx - halfW || spL > playerCx + halfW);
+      };
+      // Bounding AABB for legacy code paths that still need a rect.
+      const playerL = playerCx - playerBotHalfW;
+      const playerR = playerCx + playerBotHalfW;
+      const playerT = playerTopY;
+      const playerB = playerBotY;
+      const sceneryLookahead = Math.ceil(PLAYER_VIRTUAL_Z / SEG_LENGTH) + 18;
+      for (let di = 0; di <= sceneryLookahead && !_scenicHit; di++) {
         const idx = (segIdx + di) % this.road.segments.length;
         const seg = this.road.segments[idx];
         if (!seg?.sprites) continue;
         for (const sp of seg.sprites) {
           if (!SCENERY_TYPES.has(sp.type)) continue;
           if (sp.collected) continue;
-          // Lateral overlap — rely purely on dX so any side can fire.
-          const dX = Math.abs(sp.offset - p.x);
-          if (dX > 0.45) continue;            // ~half a lane wide hitbox
+          if (sp.collidable === false) continue;
+          // Use the sprite's RENDERED offset (matches what the renderer
+          // shows on screen).  Mirror the renderer's MAX(profile.minOffset,
+          // sp.visualMinOffset) logic — earlier these were out of sync,
+          // making the collision check the building at a different
+          // offset than where it actually rendered.
+          let visualOffset = sp.offset ?? 0;
+          const profileForOff = SCENERY_IMAGE_PROFILES[sp.texKey];
+          if (sp.type === 'building' || sp.type === 'house') {
+            const profileMin = profileForOff?.minOffset ?? 0;
+            const spriteMin  = sp.visualMinOffset ?? (sp.type === 'house' ? 2.35 : 2.15);
+            const minOffset  = Math.max(profileMin, spriteMin);
+            const sign = visualOffset >= 0 ? 1 : -1;
+            visualOffset = sign * Math.max(Math.abs(visualOffset), minOffset);
+          }
+          const isCitySkyline = (sp.visualMinOffset ?? 0) >= 4.5;
           const relZ = di * SEG_LENGTH + SEG_LENGTH / 2;
-          const proj = this.road.getVehicleProjection(relZ, sp.offset);
+          let proj = this.road.sampleSurface?.(
+            relZ,
+            visualOffset,
+            (sp.type === 'building' || sp.type === 'house') ? { allowClipped: true } : undefined,
+          );
           if (!proj) continue;
-          if (proj.sy < carTop - 6)  continue;
-          if (proj.sy > carBot + 24) continue;
+          // Approximate the sprite's screen size using the renderer's
+          // formulas.  For buildings/houses, the renderer uses
+          //   targetH = proj.sw * heightMult  (heightMult ≈ 6.0 for skyline,
+          //                                    falls back to sizeMult * baseH/baseW)
+          //   targetW = targetH * baseW/baseH
+          //   both × heightBoost (3.0 for skyline)
+          // For trees/landmarks/cops/shrubs, sizeMult-based.
+          const profile = SCENERY_IMAGE_PROFILES[sp.texKey];
+          const tex = sp.texKey ? this.textures.get(sp.texKey)?.source?.[0] : null;
+          const baseW = tex?.width  ?? sp.baseW ?? 800;
+          const baseH = tex?.height ?? sp.baseH ?? 800;
+          const heightBoost = sp.heightBoost ?? 1;
+          let targetW, targetH;
+          if (profile?.heightMult) {
+            targetH = proj.sw * profile.heightMult;
+            targetW = targetH * (baseW / baseH);
+          } else if (profile?.widthMult) {
+            targetW = proj.sw * profile.widthMult;
+            targetH = targetW * (baseH / baseW);
+          } else {
+            // Generic sizeMult fallback — mirrors _renderSceneSprites
+            const sizeMult = sp.type === 'landmark' ? 5.5
+                          : (sp.type === 'tree' || sp.type === 'shrub') ? 2.0
+                          : 2.6;
+            targetW = proj.sw * sizeMult;
+            targetH = targetW * (baseH / baseW);
+          }
+          targetW *= heightBoost;
+          targetH *= heightBoost;
+          // CRITICAL: apply the same maxW/maxH shrink cap the renderer
+          // uses (see _renderSceneSprites).  Without this the collision
+          // bbox was the uncapped target size — for close West Seattle
+          // homes with heightMult 6 + baseW 5400, that produced
+          // collision rectangles ~4× wider than the visible sprite, so
+          // the player crashed before reaching the white line at the
+          // road edge.  Mirroring the exact renderer math here keeps
+          // the hitbox in lockstep with what's actually drawn.
+          const isCopRand = sp.copEncounter === true;
+          const isTree    = sp.type === 'tree' || sp.type === 'cactus' || sp.type === 'palm' || sp.type === 'shrub';
+          const maxW = profile?.maxW
+            ?? (isCopRand ? SCREEN_W * 0.18 : isTree ? SCREEN_W * 0.20 : SCREEN_W * 0.42);
+          const maxH = profile?.maxH
+            ?? (isCopRand ? SCREEN_H * 0.18
+              : isTree ? SCREEN_H * 0.44
+              : sp.type === 'house' ? SCREEN_H * 0.36
+              : SCREEN_H * 0.68);
+          const shrink = Math.min(
+            1,
+            (maxW * heightBoost) / Math.max(1, targetW),
+            (maxH * heightBoost) / Math.max(1, targetH),
+          );
+          targetW *= shrink;
+          targetH *= shrink;
+          if (sp.rampClearance && proj.roadHalfW > 1) {
+            // Mirror renderer: scale push to actual rampStrength.
+            // Threshold matches renderer (0.30) so hitbox tracks paint.
+            const rs = seg.rampStrength ?? 0;
+            if (rs > 0.30) {
+              const sign = visualOffset >= 0 ? 1 : -1;
+              const tEdge = rs * rs * (3 - 2 * rs);
+              const rampOuterEdge = 1 + 3.30 * tEdge;
+              const neededOffset = rampOuterEdge + 0.30;
+              if (Math.abs(visualOffset) < neededOffset) {
+                visualOffset = sign * neededOffset;
+                const shifted = this.road.sampleSurface?.(
+                  relZ,
+                  visualOffset,
+                  (sp.type === 'building' || sp.type === 'house') ? { allowClipped: true } : undefined,
+                );
+                if (!shifted) continue;
+                proj = shifted;
+              }
+              // Mirror renderer's screen-space adjust so the hitbox
+              // tracks the visibly-shifted home.
+              const screenSign = visualOffset >= 0 ? 1 : -1;
+              proj.sx += 80 * screenSign;
+              targetW *= 0.88;
+              targetH *= 0.88;
+            }
+          }
+          // Mirror renderer's SCENERY_ROAD_CLEARANCE push: if the
+          // projected sprite half-width + 2-car-length buffer would
+          // intrude into the road, shove it outward so the bbox lands
+          // exactly where the player sees it.  Skipped for cops (random
+          // shoulder spawns), West Seattle homes (authored setbacks),
+          // city skyline (authored 4.5+ setbacks), and rampClearance
+          // sprites (already pushed + screen-shifted above).
+          const isWsHome = typeof sp.texKey === 'string'
+            && sp.texKey.startsWith('west_seattle_');
+          if (!isCopRand && !isWsHome && !isCitySkyline
+              && !sp.rampClearance && proj.roadHalfW > 1) {
+            const sign = visualOffset >= 0 ? 1 : -1;
+            const clearPx = proj.sw * SCENERY_ROAD_CLEARANCE_CAR_LENGTHS;
+            const neededOffset = 1 + (targetW * 0.5 + clearPx) / proj.roadHalfW;
+            if (Math.abs(visualOffset) < neededOffset) {
+              visualOffset = sign * neededOffset;
+              const shifted = this.road.sampleSurface?.(
+                relZ,
+                visualOffset,
+                (sp.type === 'building' || sp.type === 'house') ? { allowClipped: true } : undefined,
+              );
+              if (!shifted) continue;
+              proj = shifted;
+            }
+          }
+          // Per-type collisionWidthFraction.  A flat 0.65 was too wide
+          // for residential houses (West Seattle / Mercer Island use
+          // the same wide home PNGs at offset ~2.05 right next to the
+          // road) — that caused the "crashes before the white line"
+          // bug.  Tall narrow Bellevue towers genuinely fill most of
+          // their PNG, so they get a wider band and remain reachable.
+          // House PNGs have ~30% transparent padding on each side around
+          // the actual building art, so a 0.30 fraction overshoots into
+          // empty pixels.  0.22 lines the red collision rect up with
+          // the visible building edges (verified via debug overlay).
+          // West Seattle / Mercer Island photo homes are spawned as
+          // type='building' (not 'house') but share the same padded PNGs,
+          // so they need the same narrow 0.22 — without this they keep
+          // hitting empty padding pixels and read as phantom crashes
+          // (the "home pulls away at the last second but I still crash"
+          // ~25 % of West Seattle drive-bys).
+          const isPhotoHome = typeof sp.texKey === 'string'
+            && sp.texKey.startsWith('west_seattle_');
+          const collisionWidthFraction = sp.type === 'house' ? 0.22
+                                       : isPhotoHome         ? 0.22
+                                       : sp.type === 'shrub' ? 0.50
+                                       : sp.type === 'tree'  ? 0.40
+                                       : isCitySkyline       ? 0.90
+                                       : 0.65;
+          // Sprite anchor is bottom-center (origin 0.5, 1.0) — see pool
+          // init.  Collision rect width = visible art via collisionWidthFraction.
+          const spL = proj.sx - targetW * 0.5 * collisionWidthFraction;
+          const spR = proj.sx + targetW * 0.5 * collisionWidthFraction;
+          // Collision rect HEIGHT — only the bottom band for structures.
+          // A real building can only be hit at its base (road plane),
+          // not its roof.  Using the full sprite height meant the
+          // collision column extended all the way to the top of a
+          // 200-px tower, and any X-overlap with the player anywhere
+          // along that column counted as a hit — even when the
+          // building's base was nowhere near the player's screen Y.
+          // That was the "moves out of the way" / phantom-hit bug.
+          // Clamping to a bottom band lets the trapOverlap test
+          // require actual base-of-building / chassis proximity.
+          const isStructureColl = (sp.type === 'building' || sp.type === 'house');
+          const collisionBandH = isStructureColl ? Math.max(18, Math.min(targetH, targetH * 0.22, 110)) : targetH;
+          const spT = proj.sy - collisionBandH;
+          const spB = proj.sy;
+          // (Debug viz now lives in _renderDebugOverlay — toggle F3.)
+          // Trapezoid-vs-rect test.  Replaces the old horizontal-only
+          // check + house Y gate — the trapezoid math naturally
+          // requires vertical proximity (the building's base must
+          // project into the chassis Y range to overlap), without the
+          // false-positive band the AABB caused for tall sprites.
+          if (!trapHitsRect(spL, spR, spT, spB)) continue;
           _scenicHit = true;
-          this._triggerSceneryRespawn(proj);
+          this._triggerSceneryRespawn(proj, sp.damage ?? 10);
           break;
         }
       }
@@ -2828,8 +3594,71 @@ export class GameScene extends Phaser.Scene {
     let checkpointLabel = 'Current';
     let noNpcDamage = false;
     let noPolice    = false;
+    // Sub-difficulty picked WITHIN Custom mode — Custom keeps its
+    // no-score / no-clock vibe but inherits damage / cop / traffic
+    // multipliers from whichever of E/N/H the player picks.  Default
+    // to whatever was last saved.
+    let customSub = Difficulty.customSub?.() ?? 'normal';
 
     let yCursor = panelY + 32;
+
+    // ── Sub-difficulty picker (custom mode only) ──────────────────
+    // Three small buttons "EASY / NORMAL / HARD" tucked between the
+    // title and the drug sliders.  Picking one updates the modal's
+    // local `customSub` state; the choice is committed on START.
+    if (mode === 'custom') {
+      const subBtnW = 86, subBtnH = 22, subGap = 8;
+      const subRowW = subBtnW * 3 + subGap * 2;
+      const subRowX = SCREEN_W / 2 - subRowW / 2;
+      const subBtnY = yCursor;   // FROZEN — used by subRefresh closure
+      const subLabel = this.add.text(panelX + 12, subBtnY + subBtnH / 2,
+        'GAMEPLAY:', {
+          fontSize: '11px', fontFamily: 'Impact, "Arial Black", sans-serif',
+          color: '#AAA', stroke: '#000', strokeThickness: 2,
+        }).setOrigin(0, 0.5).setDepth(D + 2);
+      objs.push(subLabel);
+      const subBtns = [];
+      const subRefresh = () => {
+        subBtns.forEach(({ id, bg, lbl, x }) => {
+          const on = id === customSub;
+          // Use the frozen subBtnY — yCursor will have advanced past
+          // this row by the time the player taps a button, so the
+          // redraw must reference its original Y, not whatever the
+          // outer cursor has reached.
+          bg.clear();
+          bg.fillStyle(on ? 0x44CCFF : 0x222222, 1);
+          bg.fillRoundedRect(x, subBtnY, subBtnW, subBtnH, 6);
+          bg.lineStyle(2, on ? 0xFFFFFF : 0x888888, 1);
+          bg.strokeRoundedRect(x + 0.5, subBtnY + 0.5, subBtnW - 1, subBtnH - 1, 6);
+          lbl.setColor(on ? '#000' : '#DDD');
+          // Drop the black text stroke on the selected button — the
+          // black-on-cyan reads cleanly without it, and the outline
+          // muddies the highlight against the bright fill.
+          lbl.setStroke('#000', on ? 0 : 2);
+        });
+      };
+      ['easy', 'normal', 'hard'].forEach((id, i) => {
+        const bx = subRowX + i * (subBtnW + subGap);
+        const bg = this.add.graphics().setDepth(D + 2);
+        bg.setInteractive(new Phaser.Geom.Rectangle(bx, subBtnY, subBtnW, subBtnH),
+          Phaser.Geom.Rectangle.Contains);
+        bg.input.cursor = 'pointer';
+        const lbl = this.add.text(bx + subBtnW / 2, subBtnY + subBtnH / 2,
+          id.toUpperCase(), {
+          fontSize: '13px', fontFamily: 'Impact, "Arial Black", sans-serif',
+          color: '#DDD', stroke: '#000', strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(D + 3);
+        bg.on('pointerdown', (ptr) => {
+          ptr.event?.stopPropagation?.();
+          customSub = id;
+          subRefresh();
+        });
+        subBtns.push({ id, bg, lbl, x: bx });
+        objs.push(bg, lbl);
+      });
+      subRefresh();
+      yCursor += subBtnH + 8;
+    }
 
     // ── Checkpoint picker (restart mode only) ────────────────────
     if (mode === 'restart') {
@@ -3123,6 +3952,7 @@ export class GameScene extends Phaser.Scene {
         checkpointPos, checkpointLabel,
         noNpcDamage, noPolice,
         startStars,
+        customSub,
       });
     });
 
@@ -3229,8 +4059,15 @@ export class GameScene extends Phaser.Scene {
           if (this.damage?.setDurability) this.damage.setDurability(v.hp);
         }
         if (this.playerSprite) {
-          if (vid === 'beater') this.playerSprite.clearTint();
-          else if (v.tint)     this.playerSprite.setTint(v.tint);
+          this.playerSprite.clearTint();
+          const backTex = v.spriteBack;
+          if (backTex && this.textures.exists(backTex)) {
+            this.playerSprite.setTexture(backTex);
+          } else {
+            this.playerSprite.setTexture('car_player');
+            if (vid !== 'beater' && v.tint) this.playerSprite.setTint(v.tint);
+          }
+          this._applyPlayerSpriteDisplaySize();
         }
         // Close + re-open so the new "✓ DRIVING" mark renders.
         this._closeGarageModal(objs);
@@ -3264,6 +4101,12 @@ export class GameScene extends Phaser.Scene {
     for (const o of list) o.destroy?.();
     this._garageModalObjs = null;
     this._garageModalOpen = false;
+    // Mirror of the map-modal fix: the title's scene-level pointerdown
+    // handler runs AFTER this close destroys the close button, so it
+    // sees "no UI hit" and would otherwise fire the cursor.  Flag the
+    // just-closed state for a frame so the handler bails instead.
+    this._garageModalJustClosed = true;
+    this.time?.delayedCall?.(50, () => { this._garageModalJustClosed = false; });
   }
 
   /** Build a scrollable Achievements page modal — full grid showing
@@ -3458,6 +4301,11 @@ export class GameScene extends Phaser.Scene {
       this._achievementsModalOpen = false;
       this.input.off('wheel', onWheel);
       objs.forEach(o => o?.destroy?.());
+      // Same "just closed" flag as the map/garage close — keeps the
+      // title's scene-level pointerdown handler from interpreting the
+      // dismissal tap as a START.
+      this._achievementsModalJustClosed = true;
+      this.time?.delayedCall?.(50, () => { this._achievementsModalJustClosed = false; });
     };
     scrim.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
@@ -3674,13 +4522,14 @@ export class GameScene extends Phaser.Scene {
       this._showPopup(label, isHeadOn ? '#FF2222' : '#FF8800');
       this._applyDamage(isHeadOn ? 3 + impact.severity * 3 : 1 + impact.severity * 2, isHeadOn ? 'head_on' : 'traffic');
       if (isHeadOn) {
-        // Spin / roll the player car to the center and grant 2-second
-        // i-frame.  All subsequent damage is absorbed during the
-        // blink, so chaining a head-on into a tree or another NPC
-        // costs only the first hit.
-        this.player.x        = 0;
+        // Spin / roll the player car to the difficulty-appropriate
+        // recovery lane and grant 2-second i-frame.  All subsequent
+        // damage is absorbed during the blink, so chaining a head-on
+        // into a tree or another NPC costs only the first hit.
+        this.player.x             = this._postCrashLaneX();
         this.player.steerVelocity = 0;
-        this.player.speed   *= 0.5;
+        this.player.xImpulse      = 0;
+        this.player.speed        *= 0.5;
         this._invincibleUntil = Math.max(this._invincibleUntil ?? 0,
           (this.time?.now ?? 0) + 2000);
       }
@@ -3770,11 +4619,12 @@ export class GameScene extends Phaser.Scene {
       this.cops.addStar(0.5);                  // head-on with oncoming cop
       this.effects.triggerShake(440 + impact.severity * 360, 0.015 + impact.severity * 0.012);
       this._applyDamage((3 + impact.severity * 3) * damageMul, 'cop_head_on');
-      // Same spin-to-center + 2-sec i-frame as NPC head-on — chained
-      // damage during the blink is fully absorbed.
-      this.player.x        = 0;
+      // Same spin-to-recovery-lane + 2-sec i-frame as NPC head-on —
+      // chained damage during the blink is fully absorbed.
+      this.player.x             = this._postCrashLaneX();
       this.player.steerVelocity = 0;
-      this.player.speed   *= 0.5;
+      this.player.xImpulse      = 0;
+      this.player.speed        *= 0.5;
       this._invincibleUntil = Math.max(this._invincibleUntil ?? 0,
         (this.time?.now ?? 0) + 2000);
       const headons = this.cops.registerHeadOn();
@@ -3912,19 +4762,47 @@ export class GameScene extends Phaser.Scene {
    *  Tap-mode players who let the car drift into a tree can survive a
    *  few impacts before HP runs out instead of being instantly stuck
    *  in a collide-loop. */
-  _triggerSceneryRespawn(proj) {
-    const sx = proj?.sx ?? (this.playerSprite?.x ?? SCREEN_W / 2);
-    const sy = proj?.sy ?? (this.playerSprite?.y ?? SCREEN_H - 130);
+  /** Lane the player respawns into after any crash (scenery hit, head-on
+   *  with an NPC, head-on with a cop, checkpoint-warp-after-death).
+   *  Difficulty picks the lane on a sliding "more dangerous = closer to
+   *  oncoming" scale.  Custom mode reads its sub-difficulty.
+   *    Easy   →  +0.75  (far-right lane, safest)
+   *    Normal →  +0.25  (player-direction inner lane)
+   *    Hard   →  -0.25  (oncoming inner lane — into traffic)            */
+  _postCrashLaneX() {
+    const m = Difficulty.mode?.();
+    const sub = (m === 'custom') ? (Difficulty.customSub?.() ?? 'normal') : m;
+    if (sub === 'easy') return  0.75;
+    if (sub === 'hard') return -0.25;
+    return 0.25;
+  }
+
+  _triggerSceneryRespawn(proj, damage = 10) {
+    // Spawn explosion at the PLAYER'S car position (the actual impact
+    // point), not at the building's projected center.
+    const sx = this.playerSprite?.x ?? SCREEN_W / 2;
+    const sy = this.playerSprite?.y ?? SCREEN_H - 130;
     const sw = proj?.sw ?? 80;
     this._spawnExplosion(sx, sy, sw);
-    // Damage BEFORE setting the invincibility window so this hit still
-    // counts (otherwise the new gate in _applyDamage would absorb it).
-    this._applyDamage(20, 'scenery_crash');
-    // Snap back to road centre + halve speed so the player isn't
-    // immediately re-clipping the same tree at full velocity.
-    this.player.x        = 0;
-    this.player.speed   *= 0.5;
+    // Speed-scaled crash damage: a 35 mph nudge into a wall shouldn't
+    // cost the same as a full-speed crash.  Scale linearly with the
+    // car's current speed: a stopped car takes ~30% of base damage
+    // (so collision still hurts), a full-speed crash takes 100%.
+    // 35 mph ≈ 0.29 of MAX_SPEED → scaled damage ≈ 0.3 + 0.7 * 0.29 = 0.5
+    // → 5 HP on a 10 HP base, instead of the previous 10 HP flat.
+    const speedRatio = Math.max(0, Math.min(1, this.player.speed / MAX_SPEED));
+    const scaledDamage = damage * (0.30 + 0.70 * speedRatio);
+    this._applyDamage(scaledDamage, 'scenery_crash');
+    // Snap back to the difficulty-appropriate recovery lane + halve
+    // speed so the player isn't immediately re-clipping the same tree
+    // at full velocity.  Clearing xImpulse + steerVelocity is critical
+    // when the crash happened far off-road; otherwise the leftover
+    // lateral momentum would shove the freshly-respawned car back
+    // outside the asphalt within a frame or two.
+    this.player.x             = this._postCrashLaneX();
+    this.player.speed        *= 0.5;
     this.player.steerVelocity = 0;
+    this.player.xImpulse      = 0;
     this._invincibleUntil = (this.time?.now ?? 0) + 2500;
     this._showPopup?.('💥 CRASH — recover!', '#FF4444');
   }
@@ -4079,19 +4957,29 @@ export class GameScene extends Phaser.Scene {
       this._showPopup(`🤝 NICE FOLKS!\n+$${bonus}, sobered up`, '#88FFCC');
       return;
     }
-    // ── 14% — party favor: random non-OD drug bar filled to 90% ──────
+    // ── 14% — party favor: random non-OD drug bar filled to 90% + cash ──
     if (r < 0.70) {
       const safeDrugs = [DRUGS.ALCOHOL, DRUGS.WEED, DRUGS.SHROOMS, DRUGS.LSD]
         .filter(id => this.drugs.isUnlocked?.(id));
+      // Cash bonus is mixed in regardless — the favor isn't just chemical.
+      const bonus = Math.round(PTS_HITCH * this._scoreMult() * 0.5);
+      this.score += bonus;
       if (safeDrugs.length) {
         const drug = safeDrugs[(Math.random() * safeDrugs.length) | 0];
+        // Set level directly (90 % skips the 12 %-per-hit ramp), but also
+        // bump maxReached + pickupCounts so the unlock gates and addiction
+        // tracking fire as if the player had pickup()'d up to it.  Without
+        // these the favor was silently inert for downstream unlocks.
         this.drugs.levels[drug] = 0.90;
+        if ((this.drugs.maxReached?.[drug] ?? 0) < 0.90) {
+          this.drugs.maxReached[drug] = 0.90;
+        }
+        this.drugs.pickupCounts[drug] = (this.drugs.pickupCounts[drug] ?? 0) + 1;
+        this.drugs._checkUnlocks?.(0);
         const label = DRUG_CONFIG?.[drug]?.label ?? drug.toUpperCase();
-        this._showPopup(`🤝 PARTY FAVOR!\n${label}  →  90%`, '#88FFCC');
+        this._showPopup(`🤝 PARTY FAVOR!\n${label} → 90%, +$${bonus}`, '#88FFCC');
       } else {
-        // Nothing unlocked yet — fall back to a small cash bonus.
-        const bonus = Math.round(PTS_HITCH * this._scoreMult() * 0.5);
-        this.score += bonus;
+        // Nothing unlocked yet — cash-only fallback.
         this._showPopup(`🤝 GAVE YOU\n+$${bonus}`, '#88FFCC');
       }
       return;
@@ -4107,7 +4995,9 @@ export class GameScene extends Phaser.Scene {
     if (r < 0.95) {
       const tokens = this.cops.f12Tokens;
       let stolen = null;
-      if (tokens.length) {
+      // Custom mode → weapons are infinite, so robbers can't steal them.
+      // Still apply the cash penalty so the event has stakes.
+      if (tokens.length && Difficulty.mode?.() !== 'custom') {
         const idx = (Math.random() * tokens.length) | 0;
         stolen = tokens[idx];
         tokens.splice(idx, 1);
@@ -4178,6 +5068,19 @@ export class GameScene extends Phaser.Scene {
     return map[baseType] ?? baseType;
   }
 
+  /** Single source of truth for "is ANY modal up?" so scene-level
+   *  pointer handlers can early-out without latching steering / F12
+   *  state behind the modal.  Individual modals (popup, map, garage,
+   *  slider, achievements) flip their own flags; the global pointerdown
+   *  / pointermove paths read them through here. */
+  _anyModalOpen() {
+    return !!(this._modalOpen
+           || this._mapModalOpen
+           || this._garageModalOpen
+           || this._sliderModalOpen
+           || this._achievementsModalOpen);
+  }
+
   /** Currently selected weapon slot, falling back to the last token in
    *  inventory if the player hasn't cycled yet (preserves legacy behavior). */
   _currentWeaponSlot() {
@@ -4228,6 +5131,38 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  /** Mirror every top-row button (Pause, FF, Genre, Mute, Map,
+   *  Garage, Wiper) around SCREEN_W/2 when handedness flips, so the
+   *  whole row visually swaps sides along with the weapon column +
+   *  HP/Mi readouts.  Called from update() when _leftHanded changes
+   *  and from the end of _buildHUD for the initial state. */
+  _applyTopRowHandedness() {
+    if (!this._topRowButtons?.length) return;
+    const lh  = !!this._leftHanded;
+    const top = 2;
+    for (const btn of this._topRowButtons) {
+      const x = lh ? btn.baseLeft : (SCREEN_W - btn.baseLeft - btn.size);
+      const isPause = btn.id === 'pause';
+      const lit = isPause && this._paused;
+      btn.bg.clear();
+      btn.bg.fillStyle(lit ? 0x44CCFF : 0x222222, lit ? 0.95 : 0.85);
+      btn.bg.fillRoundedRect(x, top, btn.size, btn.size, 10);
+      btn.bg.lineStyle(3, lit ? 0xFFEE00 : 0x66CCFF, 1);
+      btn.bg.strokeRoundedRect(x + 1.5, top + 1.5, btn.size - 3, btn.size - 3, 10);
+      if (btn.lbl) btn.lbl.x = x + btn.size / 2;
+      if (btn.bg.input) {
+        btn.bg.input.hitArea = new Phaser.Geom.Rectangle(x, top, btn.size, btn.size);
+      }
+    }
+    // hudRadio (station name label) sits under the Genre button — keep
+    // it anchored to whichever side Genre is now on.
+    const g = this._topRowButtons.find(b => b.id === 'genre');
+    if (g && this.hudRadio) {
+      const x = lh ? g.baseLeft : (SCREEN_W - g.baseLeft - g.size);
+      this.hudRadio.x = x + g.size / 2;
+    }
+  }
+
   /** Toggle paused state.  Used by both the SPACE key and the on-screen
    *  ⏸ button in the upper-right corner. */
   _togglePause() {
@@ -4241,6 +5176,13 @@ export class GameScene extends Phaser.Scene {
       for (const o of this._pauseObjects) o.setVisible?.(this._paused);
     } else {
       this._pauseText?.setVisible?.(this._paused);
+    }
+    // Pause button visual — lit cyan when paused so the player can
+    // see at a glance that the run is on hold.  drawPause is the
+    // Graphics-redraw helper attached by _buildHUD.
+    if (this._redrawPauseBtn) this._redrawPauseBtn(0.85, this._paused);
+    if (this._pauseLblRef) {
+      this._pauseLblRef.setColor(this._paused ? '#000000' : '#FFFFFF');
     }
     // Score-multiplier ("combination") is hidden while paused so the
     // pause controls sitting in its slot aren't crowded.
@@ -4449,8 +5391,13 @@ export class GameScene extends Phaser.Scene {
             this._resumeFromSavedSnapshot?.(snapHere);
           } else if (inCustom) {
             // Custom-mode sandbox warp — fresh start at that stop.
+            // Mark as a forward warp so the gas tank deducts the trip
+            // distance (mile 0 → rs.mileage) on init.
+            const curMile = (this.player?.position ?? 0)
+              / (ROUTE_SEGS * SEG_LENGTH) * TOTAL_ROUTE_MILES;
             this.scene.start('Game', {
               resumeFromStop: rs.id, resumeScore: 0, resumeStars: 0,
+              warpForward: rs.mileage > curMile,
             });
           }
         });
@@ -4497,6 +5444,8 @@ export class GameScene extends Phaser.Scene {
     for (const o of list) o?.destroy?.();
     this._mapModalObjs = null;
     this._mapModalOpen = false;
+    this._mapModalJustClosed = true;
+    this.time?.delayedCall?.(50, () => { this._mapModalJustClosed = false; });
   }
 
   /** Pause-menu button factory mirroring GameOverScene._makeButton. */
@@ -4529,6 +5478,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   _useTopF12() {
+    // Per-frame double-fire gate.  Both the key/touch path AND the
+    // inventory-icon `pointerdown` can call this same frame (e.g. tap
+    // icon while holding F).  Without the gate the player burns two
+    // tokens for one intent.  Reset to false at the top of each
+    // update() pass so legitimate next-frame fires still work.
+    if (this._f12FiredThisFrame) return;
+    this._f12FiredThisFrame = true;
     const slot = this._currentWeaponSlot();
     if (!slot) return;
     const base = this._baseWeaponType(slot);
@@ -4538,7 +5494,13 @@ export class GameScene extends Phaser.Scene {
       // Weapons are infinite-use, but each fire has a 25% chance of
       // attracting a wanted star (witnesses, gunshot acoustic flags,
       // etc).  Custom mode bypasses since cops are typically off there.
-      if (Math.random() < 0.25 && Difficulty.mode?.() !== 'custom') {
+      // Disguise + spike_strip don't make noise / aren't violent toward
+      // a target, so they don't roll the heat — disguise especially
+      // shouldn't re-add a star on the exact tap that zeroed them.
+      const isHeatlessWeapon = (base === 'disguise' || base === 'spike_strip');
+      if (!isHeatlessWeapon
+          && Math.random() < 0.25
+          && Difficulty.mode?.() !== 'custom') {
         this.cops.addStar?.(1);
         this._showPopup?.('🚓 +1 STAR — heard the shot', '#FF6644');
       }
@@ -4628,6 +5590,55 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Update the geometry-mask shape used to stencil tunnelGfx (the
+   * interior walls/ceiling render).
+   *
+   *   • Approaching the tunnel from outside: mask = the mouth-opening
+   *     rectangle published by Road._drawTunnelFacade.  The interior
+   *     can only paint inside that rectangle — it physically cannot
+   *     leak past the facade or houses around the mouth.
+   *   • Inside the tunnel: mask = full screen.  Interior walls render
+   *     normally everywhere.
+   *   • Otherwise (no tunnel in sight): mask is empty → interior
+   *     draws nothing.
+   *
+   * GeometryMask uses the mask Graphics' alpha shape as a stencil;
+   * the Graphics itself is invisible (setVisible(false) in init).
+   */
+  _updateTunnelMask() {
+    const mg = this._tunnelMaskGfx;
+    if (!mg) return;
+    mg.clear();
+    const segs = this.road?.segments;
+    if (!segs?.length) return;
+    const segIdx = ((Math.floor(this.player.position / SEG_LENGTH)) % segs.length + segs.length) % segs.length;
+    const inTunnel = !!segs[segIdx]?.tunnel;
+    const firstTunnelN = this.road?._firstTunnelN ?? -1;
+    // Full-screen mask cases — interior walls should render unrestricted:
+    //   • Inside the tunnel (walls fill the view)
+    //   • Very close to the mouth (firstTunnelN < EMB_MIN_DIST = 30):
+    //     Road.js skips the facade entirely at that distance to avoid
+    //     painting over the road in front of the player, which leaves
+    //     the mouth rect null.  Without a fallback, the mask would be
+    //     empty and the per-segment tunnel shell (walls/ceiling)
+    //     wouldn't render at all — you'd see the road projecting past
+    //     the tunnel position with nothing covering it.  Going
+    //     full-screen here lets the per-segment walls draw normally
+    //     and overlay the road as intended.
+    const closeApproach = firstTunnelN >= 0 && firstTunnelN < 30;
+    if (inTunnel || closeApproach) {
+      mg.fillStyle(0xffffff, 1);
+      mg.fillRect(-200, -200, SCREEN_W + 400, SCREEN_H + 400);
+      return;
+    }
+    const r = this.road?._tunnelMouthRect;
+    if (!r) return;  // no tunnel in view → empty mask → no interior render
+    // Approaching tunnel from a distance — clip interior to mouth only.
+    mg.fillStyle(0xffffff, 1);
+    mg.fillRect(r.x, r.y, r.w, r.h);
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────
   _renderFrame() {
     const progress = this.player.position / (ROUTE_SEGS * SEG_LENGTH);
@@ -4642,17 +5653,271 @@ export class GameScene extends Phaser.Scene {
         shroomsBar:   this.drugs?.get?.(DRUGS.SHROOMS) ?? 0,
       },
       this.propsGfx,
+      this.bridgeFrontGfx,
     );
 
-    this._renderSceneSprites();   // buildings + trees from images
+    this._renderHorizonStrips();    // opaque Bellevue approach strip
+    if (!this._perf?.noSprites) {
+      this._renderSceneSprites();   // buildings + trees from images
+    }
     this._renderVehicles();
     this._renderDrugSprites();
+    this.road.renderTunnelFacade(this.tunnelFacadeGfx);
+    // Update the tunnel interior mask BEFORE rendering the interior.
+    // The facade pass (above) publishes road._tunnelMouthRect.
+    this._updateTunnelMask();
     this.road.renderTunnelOverlay(this.tunnelGfx);
-    this.road.renderSignOverlay(this.signGfx);
+    this.road.renderSignOverlay(this._signGfxPool);
     this._renderSignText();       // text labels on top of green/brown signs
     this._renderSignDecals();     // hwy-shield + brand-logo images on signs
     this._renderExplosions();
+    this._renderDebugOverlay();
 
+  }
+
+  // ── DEBUG OVERLAY ───────────────────────────────────────────────────
+  // Visualizes the four systems we keep getting confused between:
+  //  1. RENDER bbox — yellow stroke — what _renderSceneSprites draws
+  //  2. COLLISION bbox — red stroke — what _updatePhysics tests
+  //  3. Sprite anchor — cyan dot — proj.sx, proj.sy from sampleSurface
+  //  4. Player AABB — lime stroke — the player rect collision uses
+  //  + tunnel mouth rect (magenta), NPC AABBs (orange).
+  // The render + collision rects use the SAME math as the live systems
+  // (copied below), so any divergence between this overlay and the
+  // actual on-screen sprite means the live systems disagree too.
+  _renderDebugOverlay() {
+    if (!this._debugOn || !this._debugGfx) return;
+    const g = this._debugGfx;
+    g.clear();
+    // Recycle the tex-key labels pool — same trick as sign overlay.
+    if (!this._debugTexLabels) this._debugTexLabels = [];
+    for (const t of this._debugTexLabels) t.setVisible(false);
+    let labelI = 0;
+    const ensureLabel = () => {
+      if (labelI < this._debugTexLabels.length) {
+        return this._debugTexLabels[labelI++];
+      }
+      const t = this.add.text(0, 0, '', {
+        fontFamily: 'monospace', fontSize: '9px',
+        color: '#00FFFF', backgroundColor: 'rgba(0,0,0,0.55)',
+        padding: { x: 2, y: 1 },
+      }).setDepth(19).setOrigin(0, 0);
+      this._debugTexLabels.push(t);
+      labelI++;
+      return t;
+    };
+
+    // ── Player TRAPEZOID hitbox (mirrors live scenery collision) ──
+    const playerDisplayW = this.playerSprite?.displayWidth  ?? 78;
+    const playerDisplayH = this.playerSprite?.displayHeight ?? 49;
+    const pcx = this.playerSprite?.x ?? SCREEN_W / 2;
+    const pSpriteY = this.playerSprite?.y ?? (SCREEN_H - 130);
+    const pBotY = pSpriteY;
+    const pTopY = pSpriteY - playerDisplayH * 0.5;
+    const pBotHalfW = playerDisplayW * 0.45;
+    const pTopHalfW = playerDisplayW * 0.30;
+    g.lineStyle(2, 0x00FF66, 1);
+    g.strokePoints([
+      { x: pcx - pBotHalfW, y: pBotY },
+      { x: pcx + pBotHalfW, y: pBotY },
+      { x: pcx + pTopHalfW, y: pTopY },
+      { x: pcx - pTopHalfW, y: pTopY },
+    ], true);
+
+    // ── Tunnel mouth rect ──
+    const tm = this.road?._tunnelMouthRect;
+    if (tm) {
+      g.lineStyle(2, 0xFF00FF, 0.9);
+      g.strokeRect(tm.x, tm.y, tm.w, tm.h);
+    }
+
+    // ── Scenery sprites: render bbox (yellow) + collision bbox (red) ──
+    const segs = this.road?.segments;
+    let sceneryCount = 0;
+    let collidableCount = 0;
+    let culledCount = 0;
+    if (segs?.length) {
+      const startSeg = Math.floor(this.player.position / SEG_LENGTH);
+      const SCENERY_TYPES = new Set([
+        'tree', 'building', 'house', 'shrub', 'landmark', 'cop_random_parked',
+      ]);
+      const firstTunnelN = this.road?._firstTunnelN ?? -1;
+      const tunnelMouthRect = this.road?._tunnelMouthRect ?? null;
+      // Walk same range _renderSceneSprites uses but cap at 200 segs to
+      // keep overlay cost bounded.
+      for (let n = 0; n <= 200; n++) {
+        const seg = segs[(startSeg + n) % segs.length];
+        if (!seg?.sprites) continue;
+        const pastTunnel = firstTunnelN >= 0 && n > firstTunnelN;
+        for (const sp of seg.sprites) {
+          if (!sp.texKey && !sp.copEncounter) continue;
+          if (sp.collected || sp.isCollectible) continue;
+          const isStructure = sp.type === 'building' || sp.type === 'house';
+          // Mirror the renderer's past-tunnel cull.
+          const culledByTunnel = pastTunnel && isStructure;
+          const profile = SCENERY_IMAGE_PROFILES[sp.texKey];
+
+          // Mirror renderer minOffset logic
+          let visualOffset = sp.offset ?? 0;
+          if (isStructure) {
+            const profileMin = profile?.minOffset ?? 0;
+            const spriteMin  = sp.visualMinOffset ?? (sp.type === 'house' ? 2.35 : 2.15);
+            const minOffset  = Math.max(profileMin, spriteMin);
+            const sign = visualOffset >= 0 ? 1 : -1;
+            visualOffset = sign * Math.max(Math.abs(visualOffset), minOffset);
+          }
+          const relZ = n * SEG_LENGTH + SEG_LENGTH / 2;
+          const proj = this.road.sampleSurface?.(
+            relZ, visualOffset,
+            isStructure ? { allowClipped: true } : undefined,
+          );
+          if (!proj || proj.sw < 0.5) continue;
+
+          // Mirror renderer sizing
+          const tex = sp.texKey ? this.textures.get(sp.texKey)?.source?.[0] : null;
+          const baseW = tex?.width  ?? 800;
+          const baseH = tex?.height ?? 800;
+          const heightBoost = sp.heightBoost ?? 1;
+          const isTree = sp.type === 'tree' || sp.type === 'shrub';
+          const isLandmark = sp.type === 'landmark';
+          const isCopRand = sp.copEncounter === true;
+          const sizeMult = sp.sizeMult
+            ?? (isCopRand ? 1.4 : isLandmark ? 5.5 : isTree ? 2.0 : 2.6);
+          let targetW, targetH;
+          if (profile?.heightMult) {
+            targetH = proj.sw * profile.heightMult;
+            targetW = targetH * (baseW / baseH);
+          } else {
+            targetW = proj.sw * (profile?.widthMult ?? sizeMult);
+            targetH = targetW * (baseH / baseW);
+          }
+          targetW *= heightBoost; targetH *= heightBoost;
+          const maxW = profile?.maxW
+            ?? (isCopRand ? SCREEN_W * 0.18 : isTree ? SCREEN_W * 0.20 : SCREEN_W * 0.42);
+          const maxH = profile?.maxH
+            ?? (isCopRand ? SCREEN_H * 0.18
+              : isTree ? SCREEN_H * 0.44
+              : sp.type === 'house' ? SCREEN_H * 0.36
+              : SCREEN_H * 0.68);
+          const shrink = Math.min(
+            1,
+            (maxW * heightBoost) / Math.max(1, targetW),
+            (maxH * heightBoost) / Math.max(1, targetH),
+          );
+          targetW *= shrink; targetH *= shrink;
+
+          const renderL = proj.sx - targetW * 0.5;
+          const renderT = proj.sy - targetH;
+          // Mirror the renderer's tunnel mouth-overlap cull (only
+          // active for buildings within ±100 segs of the tunnel).
+          let culledByMouth = false;
+          if (!culledByTunnel && tunnelMouthRect && isStructure
+              && firstTunnelN >= 0 && Math.abs(n - firstTunnelN) <= 100) {
+            const r = tunnelMouthRect;
+            culledByMouth = renderL < r.x + r.w
+                         && renderL + targetW > r.x
+                         && renderT < r.y + r.h
+                         && renderT + targetH > r.y;
+          }
+          const culled = culledByTunnel || culledByMouth;
+          // Yellow render bbox — solid when drawn, dashed/dim when culled.
+          if (culled) {
+            g.lineStyle(1, 0x888800, 0.35);   // dim olive = renderer skipped this sprite
+            culledCount++;
+          } else {
+            g.lineStyle(1, 0xFFFF00, 0.8);
+            sceneryCount++;
+          }
+          g.strokeRect(renderL, renderT, targetW, targetH);
+          // Cyan anchor dot (= proj.sy, the road plane at this sprite's segment).
+          g.fillStyle(0x00FFFF, 1);
+          g.fillCircle(proj.sx, proj.sy, 3);
+          // Tex-key label so we can identify which PNG is floating /
+          // misaligned.  Only label structures and only when on-screen.
+          if (isStructure && sp.texKey && proj.sx > -50 && proj.sx < SCREEN_W + 50
+              && proj.sy > -50 && proj.sy < SCREEN_H + 50) {
+            const lbl = ensureLabel();
+            lbl.setText(sp.texKey).setPosition(proj.sx + 4, proj.sy + 4).setVisible(true);
+          }
+
+          // Red collision bbox — only when sprite is collidable + scenery type
+          if (sp.collidable !== false && SCENERY_TYPES.has(sp.type)) {
+            const isCitySkyline = (sp.visualMinOffset ?? 0) >= 4.5;
+            const isPhotoHome = typeof sp.texKey === 'string'
+              && sp.texKey.startsWith('west_seattle_');
+            const collisionWidthFraction = sp.type === 'house' ? 0.22
+                                         : isPhotoHome         ? 0.22
+                                         : sp.type === 'shrub' ? 0.50
+                                         : sp.type === 'tree'  ? 0.40
+                                         : isCitySkyline       ? 0.90
+                                         : 0.65;
+            const collL = proj.sx - targetW * 0.5 * collisionWidthFraction;
+            const collR = proj.sx + targetW * 0.5 * collisionWidthFraction;
+            // Structures use a bottom-band collision rect (only the
+            // base of the building can crash into the chassis).
+            const isStructureColl = sp.type === 'building' || sp.type === 'house';
+            const collisionBandH = isStructureColl ? Math.max(18, Math.min(targetH, targetH * 0.22, 110)) : targetH;
+            const collT = proj.sy - collisionBandH;
+            g.lineStyle(2, 0xFF0000, 0.85);
+            g.strokeRect(collL, collT, collR - collL, collisionBandH);
+            collidableCount++;
+          }
+        }
+      }
+    }
+
+    // ── NPC AABBs (orange) ──
+    let npcCount = 0;
+    if (this.traffic?.length) {
+      for (const car of this.traffic) {
+        if (!car.alive) continue;
+        const relZ = car.position - this.player.position;
+        if (relZ < -800 || relZ > 60000) continue;
+        const proj = this.road.getVehicleProjection?.(relZ, car.laneOffset ?? 0);
+        if (!proj) continue;
+        const halfX = proj.sw * 0.42;
+        const npcH  = proj.sw * (40 / 64) * 0.85;
+        g.lineStyle(2, 0xFFA800, 0.9);
+        g.strokeRect(proj.sx - halfX, proj.sy - npcH, halfX * 2, npcH);
+        npcCount++;
+      }
+    }
+
+    // ── Text readout ──
+    const mile = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+    const t = Math.min(this.player.position / (ROUTE_SEGS * SEG_LENGTH), 0.999);
+    const palette = getPaletteAtProgress(t);
+    const region = palette?.name ?? '?';
+    const speedUnits = this.player?.speed ?? 0;
+    const mph = Math.round(speedUnits / 100);
+    const px = this.player?.x ?? 0;
+    const firstTunnelN = this.road?._firstTunnelN ?? -1;
+    const seg = segs?.[Math.floor(this.player.position / SEG_LENGTH) % (segs?.length ?? 1)];
+    const onBridge = !!(seg?.bridge || seg?.water);
+    const inTunnel = !!(seg?.tunnel);
+    this._debugText.setText([
+      `MILE ${mile.toFixed(2)} / ${TOTAL_ROUTE_MILES}  region=${region}`,
+      `x=${px.toFixed(3)}  pos=${Math.round(this.player.position)}  ${mph} mph`,
+      `scenery=${sceneryCount} (coll=${collidableCount}, culled=${culledCount})  npc=${npcCount}`,
+      `tunnel: firstN=${firstTunnelN}  bridge=${onBridge}  inTunnel=${inTunnel}`,
+      `camera: ${this.road?._cameraTracksPlayer === false ? 'CENTERED (F4)' : 'TRACKS PLAYER (F4)'}`,
+      `iframe=${Math.max(0, this._invincibleUntil - (this.time?.now ?? 0)).toFixed(0)}ms`,
+    ].join('\n'));
+  }
+
+  _applyPlayerSpriteDisplaySize(targetW = 78, fallbackH = 49) {
+    if (!this.playerSprite) return;
+    const texKey = this.playerSprite.texture?.key;
+    const procedural = !texKey || texKey === 'car_player' || texKey === 'player_car';
+    if (procedural) {
+      this.playerSprite.setDisplaySize(targetW, fallbackH);
+      return;
+    }
+    const src = this.textures.get(texKey)?.getSourceImage?.();
+    const tw = src?.width || targetW;
+    const th = src?.height || fallbackH;
+    const ratio = tw > 0 ? th / tw : fallbackH / targetW;
+    this.playerSprite.setDisplaySize(targetW, targetW * ratio);
   }
 
   /** Resolve the right texture key for a car based on its colorSet and
@@ -4695,7 +5960,11 @@ export class GameScene extends Phaser.Scene {
     if (this.playerSprite?.visible !== false) {
       const surf = this.road?.sampleSurface?.(PLAYER_VIRTUAL_Z, 0, { allowClipped: true });
       if (surf && Number.isFinite(surf.sy)) {
-        this.playerSprite.y = surf.sy;
+        // +17 px nudges the player car down so its tires read as
+        // touching the asphalt instead of hovering above it.  The
+        // bottom-of-screen sample point hits the road plane a couple
+        // pixels above where the car art's contact line sits.
+        this.playerSprite.y = surf.sy + 17;
       }
     }
 
@@ -4740,11 +6009,13 @@ export class GameScene extends Phaser.Scene {
       // a *closer* sprite always paints over a *farther* one regardless of
       // type. Without this, cars (formerly depth 9) painted through any
       // building (depth 7.5) sitting between them and the camera.
-      // In-tunnel cars need to clear the tunnelGfx overlay (depth 9.82) so
-      // the wall structure doesn't paint over them — bump above 9.82 but
-      // below signGfx (9.86) so signs still draw on top.
+      // Tunnel walls/ceiling live on tunnelGfx at depth 9.82 and must
+      // occlude traffic outside the tunnel opening. Keep in-tunnel cars
+      // just below that overlay; the tunnel geometry leaves the roadway
+      // open, so legitimate lane traffic stays visible while cars behind
+      // the wall/ceiling get masked.
       const baseDepth = 9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5;
-      const depth = inTunnel ? Math.max(baseDepth, 9.84) : baseDepth;
+      const depth = inTunnel ? Math.min(baseDepth, 9.80) : baseDepth;
       s.setPosition(proj.sx, proj.sy)
         .setDisplaySize(targetW, targetH)
         .setTint(color)
@@ -4828,7 +6099,8 @@ export class GameScene extends Phaser.Scene {
     // selling the "shadow detached from car" dissociation cue.  Up to
     // 4 px at peak ket bar.
     if (shadowG && this.playerSprite?.visible !== false) {
-      const PW = 78, PH = 49;
+      const PW = this.playerSprite.displayWidth  || 78;
+      const PH = this.playerSprite.displayHeight || 49;
       const shW = PW * 0.82;
       const shH = Math.max(2, PH * 0.18);
       const phys2 = this.effects?.getPhysics?.(this.drugs);
@@ -4838,8 +6110,13 @@ export class GameScene extends Phaser.Scene {
       // modes (classic / tilt / flappy).
       const leanDir = (this.player?.steerVelocity ?? 0) / (TURN_SPEED || 1);
       const shadowAngle = -leanDir * Phaser.Math.DegToRad(4);
+      // Lift the shadow up ~10 px so it paints UNDER THE TIRES, not
+      // below the sprite's transparent-padding bottom edge.  Without
+      // the lift the car art reads as floating with a detached
+      // shadow puddle below it.
+      const SHADOW_LIFT = 10;
       shadowG.save();
-      shadowG.translateCanvas(this.playerSprite.x + drift, this.playerSprite.y);
+      shadowG.translateCanvas(this.playerSprite.x + drift, this.playerSprite.y - SHADOW_LIFT);
       shadowG.rotateCanvas(shadowAngle);
       shadowG.fillStyle(0x000000, 0.40);
       shadowG.fillEllipse(0, 0, shW, shH);
@@ -4921,24 +6198,130 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Bellevue approach strip: opaque distant city frontage that starts
+   * tiny on the horizon around mile 13 and grows until Bellevue is passed.
+   * The actual close/solid buildings still come from _renderSceneSprites.
+   */
+  _renderHorizonStrips() {
+    const stripL = this._horizonStripL;
+    const stripR = this._horizonStripR;
+    if (!stripL || !stripR) return;
+    const hide = () => {
+      stripL.setVisible(false);
+      stripR.setVisible(false);
+    };
+
+    const mile = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+    const city = {
+      enterMile: 13.0,
+      exitMile: 16.0,
+      leftKey:  'codex_bellevue_roadside_strip',
+      rightKey: 'codex_bellevue_roadside_strip',
+    };
+    if (mile < city.enterMile || mile > city.exitMile) {
+      hide();
+      return;
+    }
+
+    const segs = this.road?.segments;
+    if (segs?.length) {
+      const idx = ((Math.floor(this.player.position / SEG_LENGTH) % segs.length) + segs.length) % segs.length;
+      if (segs[idx]?.tunnel) {
+        hide();
+        return;
+      }
+    }
+
+    let leftEdge = null;
+    let rightEdge = null;
+    for (let step = 5; step < 80; step += 5) {
+      const relZ = (DRAW_DIST - step) * SEG_LENGTH;
+      leftEdge  = this.road.sampleSurface?.(relZ, -1.05, { allowClipped: true });
+      rightEdge = this.road.sampleSurface?.(relZ, +1.05, { allowClipped: true });
+      if (leftEdge && rightEdge) break;
+    }
+    if (!leftEdge || !rightEdge) {
+      hide();
+      return;
+    }
+
+    const span = Math.max(0.001, city.exitMile - city.enterMile);
+    const t = clamp((mile - city.enterMile) / span, 0, 1);
+    const ease = t * t * (3 - 2 * t);
+    const scale = 0.035 + 0.33 * ease;
+    const groundY = Math.max(leftEdge.sy, rightEdge.sy) + 8 + 42 * ease;
+    const outward = 8 + 110 * ease;
+
+    if (stripL.texture?.key !== city.leftKey && this.textures.exists(city.leftKey)) {
+      stripL.setTexture(city.leftKey);
+    }
+    if (stripR.texture?.key !== city.rightKey && this.textures.exists(city.rightKey)) {
+      stripR.setTexture(city.rightKey);
+    }
+
+    stripL
+      .setOrigin(1, 1)
+      .setPosition(leftEdge.sx - outward, groundY)
+      .setScale(scale)
+      .setAlpha(1)
+      .setDepth(5.7)
+      .setVisible(true);
+    stripR
+      .setOrigin(0, 1)
+      .setPosition(rightEdge.sx + outward, groundY)
+      .setScale(scale)
+      .setAlpha(1)
+      .setDepth(5.7)
+      .setVisible(true);
+  }
+
   _renderSceneSprites() {
     const pool = this._sceneSpritePool;
     if (!pool?.length) return;
+    const planePool = this._strip3dPool ?? [];
     const segs = this.road.segments;
     if (!segs?.length) return;
     const playerPos = this.player.position;
     const startSeg  = Math.floor(playerPos / SEG_LENGTH);
     let used = 0;
+    let usedPlanes = 0;
 
-    // Iterate NEAR → FAR so close scenery gets pool slots first. Depth is
-    // set per-sprite (closer = higher depth) so paint order still works.
-    // The pool is now 600 wide which gives enough headroom for a far-horizon
-    // pass to also land — distant buildings shrink correctly as the player
-    // approaches instead of popping into existence at close range.
-    for (let n = 0; n <= 380 && used < pool.length; n++) {
+    // Iterate NEAR → FAR so close scenery gets pool slots first.
+    // Depth is set per-sprite (closer = higher depth) so paint order
+    // still works.  Iteration extended to 1000 segments per user
+    // direction — far skyline + city blocks are now visible.  The
+    // size cull below still skips sub-1.5-px specks so the work per
+    // frame doesn't balloon.
+    // Tunnel-area building cull, two layers:
+    //
+    //   (a) PAST-tunnel cull (cheap, by segment): any building whose
+    //       segment sits past the first visible tunnel is fully
+    //       hidden by the facade anyway, so skip outright.
+    //
+    //   (b) MOUTH-OVERLAP cull (per-sprite, by screen rect): the
+    //       trickier case.  Houses NEAR the tunnel project to
+    //       screen positions where their sprite bounding box
+    //       overlaps the mouth opening rectangle.  Even with
+    //       correct depth ordering, the PNG's transparent padding
+    //       around the building structure would let the tunnel
+    //       interior show through.  This check is the real fix —
+    //       it works regardless of segment distance, catching
+    //       large/tall sprites that overlap the mouth from
+    //       further out than a fixed segment buffer would cover.
+    //
+    // (a) is done here; (b) needs the projected size, so it runs
+    // after `targetW/targetH` are computed below.
+    const firstTunnelN = (this.road?._firstTunnelN ?? -1);
+    const tunnelMouthRect = this.road?._tunnelMouthRect ?? null;
+    for (let n = 0; n <= 1000 && used < pool.length; n++) {
       const seg = segs[(startSeg + n) % segs.length];
       if (!seg?.sprites) continue;
+      const pastTunnel = firstTunnelN >= 0 && n > firstTunnelN;
       for (const sp of seg.sprites) {
+        // Skip building/house sprites past the tunnel mouth — fully
+        // occluded by the facade.  Collectibles, signs, and tunnel-
+        // interior sprites still render.
+        if (pastTunnel && (sp.type === 'building' || sp.type === 'house')) continue;
         // Random roadside cop encounters — pick the appropriate police
         // texture (left/right side for parked, back for driving) and let
         // the rest of the pool placement logic handle scaling.
@@ -4960,15 +6343,92 @@ export class GameScene extends Phaser.Scene {
         if (sp.isCollectible) continue;
         const useTexKey = copTexKey ?? sp.texKey;
         if (!this.textures.exists(useTexKey)) continue;
+        // Far-sprite perspective scaling.  sampleSurface() clamps
+        // positions past DRAW_DIST (380) to the horizon projection, so
+        // without intervention every sprite past DRAW_DIST shares the
+        // SAME horizon-size + horizon-position.  Two visible artifacts
+        // come from this:
+        //   (a) Pop-in: sprites snap from horizon-size to real-size
+        //       the moment n crosses DRAW_DIST.
+        //   (b) Drift: while clamped, the lateral position is the
+        //       horizon road-center + horizon-roadHalfW * offset, so
+        //       it tracks the horizon's curve sway rather than each
+        //       sprite's true per-segment position.  Visually the
+        //       sprite "drifts sideways with the curve" then snaps
+        //       to its real position at the DRAW_DIST boundary.
+        // Fix: apply a manual 1/n perspective falloff (size + lateral
+        // anchor toward vanishing point) for sprites past DRAW_DIST.
+        // Applied to cranes (huge — visible across the bay) and
+        // West Seattle homes (the user noticed the mid-distance snap
+        // on the right-side frontage row).
+        // NOT applied to general buildings/houses elsewhere — an
+        // earlier blanket attempt made other regions' mid-distance
+        // rows look gappy.  Add per-region opt-ins if needed.
+        const isCrane = typeof useTexKey === 'string' && useTexKey.startsWith('codex_ws_crane_');
+        const isWestSeattleHome = typeof useTexKey === 'string'
+          && useTexKey.startsWith('west_seattle_');
+        // Space Needle — visible from far west (West Seattle Bridge)
+        // looking ahead toward downtown.  Treated like the cranes
+        // (extended draw distance + 1/n perspective falloff).
+        const isSpaceNeedle = useTexKey === 'space_needle';
+        const isCitySkyline = (sp.visualMinOffset ?? 0) >= 4.5;
+        const usesFarPerspective = isCrane || isWestSeattleHome || isSpaceNeedle;
+        const farDistScale = (usesFarPerspective && n > DRAW_DIST) ? DRAW_DIST / n : 1;
+        if ((isCrane || isSpaceNeedle) && n > DRAW_DIST * 6) continue;
+        const profile = SCENERY_IMAGE_PROFILES[useTexKey];
         const relZ = n * SEG_LENGTH + SEG_LENGTH / 2;
         let visualOffset = sp.offset;
-        if (sp.type === 'building' || sp.type === 'house') {
+        const isStructure = sp.type === 'building' || sp.type === 'house';
+        if (isStructure) {
+          // Use MAX(profile.minOffset, sp.visualMinOffset).  Previously
+          // this was `profile?.minOffset ?? sp.visualMinOffset` — a
+          // ?? chain that returned profile.minOffset whenever it
+          // existed (even small values like 2.05), so the renderer
+          // was drawing Bellevue skyline buildings at offset ~2.05
+          // even though the spawn set a larger CITY_BUILDING_SETBACK
+          // via sp.visualMinOffset.  Collision was using
+          // sp.visualMinOffset directly, so the renderer and the
+          // collision disagreed on where the building actually was —
+          // you saw the building near the road but couldn't crash
+          // into it.  Now both pick the LARGER constraint so the
+          // setback always wins when it's higher than the profile
+          // floor.
+          const profileMin = profile?.minOffset ?? 0;
+          const spriteMin  = sp.visualMinOffset ?? (sp.type === 'house' ? 2.35 : 2.15);
+          const minOffset  = Math.max(profileMin, spriteMin);
           const sign = visualOffset >= 0 ? 1 : -1;
-          visualOffset = sign * Math.max(Math.abs(visualOffset), 2.15);
+          visualOffset = sign * Math.max(Math.abs(visualOffset), minOffset);
         }
-        const proj = this.road.getVehicleProjection(relZ, visualOffset);
-        if (!proj || proj.sw < 0.6) continue;
-        if (used >= pool.length) break;
+        // Buildings/houses: pass allowClipped so curve-clipped far
+        // segments still return a projection.  sampleSurface() normally
+        // returns null when its sampled segment is marked invisible
+        // (off-screen due to road curve), which dropped ENTIRE rows of
+        // far-side houses the moment a mild curve entered the visible
+        // range.  This was the West Seattle "row disappears after you
+        // drive a bit" bug — at mile 0 the road is straight so the
+        // horizon sample stays visible, but past mile 0 even tiny
+        // curvature flagged the horizon sample as clipped and every
+        // building past DRAW_DIST returned null.  With allowClipped we
+        // get a projection regardless; Phaser handles off-screen sprites
+        // naturally and pool capacity (300) is plenty for the count.
+        let proj = this.road.sampleSurface?.(
+          relZ, visualOffset,
+          isStructure ? { allowClipped: true } : undefined
+        );
+        // Min on-screen size cull.  Default 1.5 px for general scenery;
+        // buildings/houses drop to 0.5 px so a continuous house row
+        // remains as small specks at the horizon instead of vanishing
+        // mid-distance.  Per-sprite override via `minRenderSw` still
+        // wins (used by skyline reveals that should fade in late).
+        const minRenderSw = sp.minRenderSw ?? (isStructure ? 0.5 : 1.5);
+        if (!proj || proj.sw < minRenderSw) continue;
+        if (used >= pool.length) {
+          // Track pool exhaustion across frames so it's visible in F3
+          // (and audit logs).  Bellevue + skyline + cycle + cranes can
+          // realistically push the 400-slot pool when density is high.
+          this._sceneSpritePoolExhausted = (this._sceneSpritePoolExhausted ?? 0) + 1;
+          break;
+        }
         const s = pool[used++];
         if (s.texture.key !== useTexKey) s.setTexture(useTexKey);
         const tex = this.textures.get(useTexKey).source[0];
@@ -4980,24 +6440,161 @@ export class GameScene extends Phaser.Scene {
         const isTree     = sp.type === 'tree' || sp.type === 'cactus' || sp.type === 'palm' || sp.type === 'shrub';
         const isLandmark = sp.type === 'landmark';
         const isCopRand  = sp.copEncounter === true;
-        const sizeMult   = isCopRand ? 1.4
-                         : isLandmark ? 5.5
-                         : isTree ? 2.0
-                         : 2.6;
-        const targetW    = proj.sw * sizeMult;
-        const targetH    = targetW * (baseH / baseW);
+        const sizeMult   = sp.sizeMult
+                         ?? (isCopRand ? 1.4
+                           : isLandmark ? 5.5
+                           : isTree ? 2.0
+                           : 2.6);
+        const heightBoost = sp.heightBoost ?? 1;
+        let targetW;
+        let targetH;
+        if (profile?.heightMult) {
+          targetH = proj.sw * profile.heightMult;
+          targetW = targetH * (baseW / baseH);
+        } else {
+          targetW = proj.sw * (profile?.widthMult ?? sizeMult);
+          targetH = targetW * (baseH / baseW);
+        }
+        targetW *= heightBoost;
+        targetH *= heightBoost;
+        // Cranes past DRAW_DIST: shrink linearly with 1/n perspective
+        // so they read as small distant objects, not horizon-sized
+        // cutouts.  Also pull screen X toward the vanishing point by
+        // the same factor — sampleSurface uses sx = roadCenterX +
+        // roadHalfW * laneOffset, so the lateral component (roadHalfW
+        // * visualOffset) is what needs to scale.  Without this,
+        // cranes would shrink in place but stay at their DRAW_DIST-
+        // projected X, then "creep" outward toward their true world
+        // position as they cross DRAW_DIST.
+        if (usesFarPerspective && farDistScale < 1) {
+          targetW *= farDistScale;
+          targetH *= farDistScale;
+          if (proj.roadHalfW) {
+            proj.sx -= proj.roadHalfW * visualOffset * (1 - farDistScale);
+          }
+        }
+        const maxW = profile?.maxW
+          ?? (isCopRand ? SCREEN_W * 0.18 : isTree ? SCREEN_W * 0.20 : SCREEN_W * 0.42);
+        const maxH = profile?.maxH
+          ?? (isCopRand ? SCREEN_H * 0.18
+            : isTree ? SCREEN_H * 0.44
+            : sp.type === 'house' ? SCREEN_H * 0.36
+            : SCREEN_H * 0.68);
+        const shrink = Math.min(1, (maxW * heightBoost) / Math.max(1, targetW), (maxH * heightBoost) / Math.max(1, targetH));
+        targetW *= shrink;
+        targetH *= shrink;
+        if (sp.rampClearance && proj.roadHalfW > 1) {
+          // Push only as far as THIS segment's actual ramp footprint —
+          // the ramp peels open gradually over ~1 mi (low rampStrength
+          // = no visible ramp yet), so a fixed 4.6 push moves houses
+          // off-screen across most of the window where they should
+          // still render at their normal setback.  Match Road.js's
+          // smoothstep so visualOffset clears the ramp's outer edge.
+          // Threshold 0.30 (was 0.40): at rs=0.35 the ramp paint already
+          // reaches ~1.99 units — a home at the spawn baseOff (2.05) is
+          // visually tangent to the ramp's outer edge, which read as
+          // "house in the gore" on screenshots.  Pushing from 0.30 keeps
+          // a small clearance band.
+          const rs = seg.rampStrength ?? 0;
+          if (rs > 0.30) {
+            const sign = visualOffset >= 0 ? 1 : -1;
+            const tEdge = rs * rs * (3 - 2 * rs);
+            const rampOuterEdge = 1 + 3.30 * tEdge;   // matches Road.js (gap 2.05 + width 1.25)
+            const neededOffset = rampOuterEdge + 0.30;
+            if (Math.abs(visualOffset) < neededOffset) {
+              visualOffset = sign * neededOffset;
+              const shifted = this.road.sampleSurface?.(
+                relZ, visualOffset,
+                isStructure ? { allowClipped: true } : undefined
+              );
+              if (!shifted) continue;
+              proj = shifted;
+            }
+            // Small screen-space nudge so ramp homes clear the
+            // shoulder/sidewalk without flying off into horizon-distance.
+            // Sign-aware: each side pushes outward.
+            const screenSign = visualOffset >= 0 ? 1 : -1;
+            proj.sx += 80 * screenSign;
+            targetW *= 0.88;
+            targetH *= 0.88;
+          }
+        }
+        // West Seattle homes and city skyline buildings use authored
+        // setbacks and must NOT be pushed by the dynamic
+        // road-clearance rule below.  That rule recomputes a per-frame
+        // "needed offset" based on projected road half-width and
+        // sprite width. For Bellevue towers this made the buildings
+        // visibly "dip" away from the car right before collision.
+        // rampClearance sprites are also excluded — they already got
+        // their own gore-clearance push above (including a +80 px
+        // screen-space nudge) and a second re-sample here would drop
+        // the proj.sx adjust on the floor.
+        if (!isCopRand && !isWestSeattleHome && !isCitySkyline
+            && !sp.rampClearance && proj.roadHalfW > 1) {
+          const sign = visualOffset >= 0 ? 1 : -1;
+          const clearPx = proj.sw * SCENERY_ROAD_CLEARANCE_CAR_LENGTHS;
+          const neededOffset = 1 + (targetW * 0.5 + clearPx) / proj.roadHalfW;
+          if (Math.abs(visualOffset) < neededOffset) {
+            visualOffset = sign * neededOffset;
+            const shifted = this.road.sampleSurface?.(
+              relZ, visualOffset,
+              isStructure ? { allowClipped: true } : undefined
+            );
+            if (!shifted) continue;
+            proj = shifted;
+          }
+        }
+        // (b) MOUTH-OVERLAP cull — only applies to buildings/houses
+        // whose SEGMENT is close to the tunnel in world space (within
+        // ~100 segs ≈ 0.05 mi).  Earlier this fired on ANY building
+        // whose screen bounding box happened to touch the mouth rect,
+        // which killed distant Mercer Island houses that project near
+        // the horizon (right where the tunnel mouth also projects)
+        // even though they're 0.2+ mi closer than the tunnel.  Now
+        // the cull is bounded: a house 0.3 mi before the tunnel
+        // stays visible (it doesn't visually overlap the mouth
+        // structure-wise, only at the horizon edge), while a house
+        // ~50 segs before the tunnel — whose PNG padding actually
+        // touches the mouth opening at the same screen position —
+        // gets culled to prevent see-through.
+        const nearTunnelWorld = firstTunnelN >= 0
+          && Math.abs(n - firstTunnelN) <= 100;
+        if (tunnelMouthRect && nearTunnelWorld
+            && (sp.type === 'building' || sp.type === 'house')) {
+          const bx1 = proj.sx - targetW / 2;
+          const bx2 = proj.sx + targetW / 2;
+          const by1 = proj.sy - targetH;
+          const by2 = proj.sy;
+          const r = tunnelMouthRect;
+          const overlaps = bx1 < r.x + r.w
+                        && bx2 > r.x
+                        && by1 < r.y + r.h
+                        && by2 > r.y;
+          if (overlaps) {
+            used--;                // release the pool slot we took
+            s.setVisible(false);
+            continue;
+          }
+        }
         // Unified depth scheme — see _renderVehicles. Buildings/trees and
         // cars now share one band so a car between camera and a near
         // building correctly paints in front of the further building.
         // (Reuses relZ from above — was computed twice unnecessarily.)
-        const depth = 9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5;
+        // Per-sprite renderDepth override (e.g., cranes use a low depth
+        // so the bridge's water/structure paints over them, making the
+        // bridge act as an occluder); fall back to the depth ramp.
+        const depth = sp.renderDepth ?? (9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5);
         s.setPosition(proj.sx, proj.sy)
           .setDisplaySize(targetW, targetH)
+          .setY(proj.sy + targetH * (profile?.groundDrop ?? 0))
           .setDepth(depth)
+          .setAlpha(1)
           .setVisible(true);
       }
     }
     for (let i = used; i < pool.length; i++) pool[i].setVisible(false);
+    for (let i = usedPlanes; i < planePool.length; i++) planePool[i].setVisible(false);
+    this._renderedSpriteCount = used;
   }
 
   /** Paint actual letters on the green / brown highway signs.  The Road
@@ -5114,9 +6711,12 @@ export class GameScene extends Phaser.Scene {
 
         const cx   = proj.sx;
         const topY = proj.sy - signH;
-        // Same depth ramp as scenery sprites so signs sort correctly
-        // against trees / buildings / cars at the same relZ.
-        const depth = 9.9;
+        // Per-sign dynamic depth — mirrors the scene-sprite ramp so
+        // closer trees/buildings naturally occlude distant sign text
+        // (previously fixed at 9.9 which forced sign text above ALL
+        // scenery, producing "see signs through homes").  +0.12 keeps
+        // sign text just above its sign frame (frame uses +0.10).
+        const depth = (9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5) + 0.12;
 
         if (t === 'rest_sign') {
           // White text directly on the green face — header + distance row.
@@ -5139,7 +6739,9 @@ export class GameScene extends Phaser.Scene {
           const town  = String(sp.townName ?? '').toUpperCase();
           // exitLabel is the WSDOT-style sign label ("Exit 7B", "WA-262",
           // "US-195 S", "Airport Rd") — falls back to legacy exitNum/mileage.
-          const exitLbl = String(sp.exitLabel ?? sp.exitNum ?? `EXIT ${sp.mileage ?? ''}`).toUpperCase();
+          // Strip any decimals from the fallback (mileage 9.5 → "EXIT 10").
+          const _miNum  = (sp.mileage != null) ? Math.round(sp.mileage) : '';
+          const exitLbl = String(sp.exitLabel ?? sp.exitNum ?? `EXIT ${_miNum}`).toUpperCase();
           // Real-highway sign format: yellow REST STOP plaque on top, the
           // exit label + town below.  Highway-shield badge in the top-left
           // of the green face is overlaid as an Image by _renderSignDecals.
@@ -5191,7 +6793,8 @@ export class GameScene extends Phaser.Scene {
           }
         } else if (t === 'mileage_sign') {
           const town  = String(sp.townName ?? '').toUpperCase();
-          const mileN = String(sp.mileage  ?? '');
+          // Mileage rounded — sign labels never display decimals.
+          const mileN = (sp.mileage != null) ? String(Math.round(sp.mileage)) : '';
           // Two rows kept INSIDE the green face.
           if (mileN) place(`MILE ${mileN}`, '#FFFFFF', cx, topY + signH * 0.16,
                 signW * 0.18, signW * 0.78, depth);
@@ -5264,25 +6867,33 @@ export class GameScene extends Phaser.Scene {
 
         const cx   = proj.sx;
         const topY = proj.sy - signH;
-        const depth = 9.92;            // just above sign text (9.9)
+        // Per-sign dynamic depth — mirrors the sign-text ramp so
+        // shield/brand decals sit just above their sign text at the
+        // same world distance, and closer scenery still occludes
+        // distant decals.  +0.14 keeps decals just above their text
+        // (text uses +0.12; frame uses +0.10).
+        const depth = (9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5) + 0.14;
 
         if (sp.type === 'exit_sign_green' && sp.hwyKey) {
-          // Highway shield sits on the left edge of the green face,
-          // vertically centered through the EXIT label row.  Sized
-          // to ~24% of sign height (was 32%) so the I-90 / WA-26 / etc.
-          // shields fit fully inside the green face instead of clipping
-          // off the left edge.
+          // Highway shield anchored to the UPPER-LEFT corner of the
+          // green face — fully INSIDE the sign rather than half off
+          // the left edge.  place() centres the image at (badgeX,
+          // badgeY), so we shift it inward by half the badge size
+          // plus a small pad (4% of sign width / height) so the
+          // shield sits tight to the corner without touching the
+          // sign's outer border.
           const badgeSize = signH * 0.24;
-          const badgeX    = cx - signW * 0.50;
-          const badgeY    = topY + signH * 0.28;
+          const padX      = signW * 0.04;
+          const padY      = signH * 0.04;
+          const badgeX    = cx - signW * 0.5 + badgeSize * 0.5 + padX;
+          const badgeY    = topY + badgeSize * 0.5 + padY;
           place(sp.hwyKey, badgeX, badgeY, badgeSize, badgeSize, depth);
         } else if (sp.type === 'amenities_sign' && sp.signKey) {
-          // Pre-baked "SHOPPING - NEXT RIGHT" PNG — preserve the source
-          // 1277:840 ≈ 1.52:1 aspect ratio so the artwork isn't stretched.
-          // Centered inside the white frame painted by Road.js's case
-          // 'amenities_sign' (frame top = topY - signW*0.04, height
-          // signW*0.87 → frame center is topY + signW*0.395).
-          const pngW   = signW * 1.20;
+          // Pre-baked "SHOPPING - NEXT RIGHT" PNG — preserve the
+          // source 1277:840 ≈ 1.52:1 aspect.  Bumped from 1.20→1.55
+          // so the brand logos fill more of the white frame and are
+          // readable from approach distance.
+          const pngW   = signW * 1.55;
           const pngH   = pngW / 1.52;          // preserve source aspect
           const pngCy  = topY + signW * 0.395; // center of white frame
           place(sp.signKey, cx, pngCy, pngW, pngH, depth);
@@ -5386,22 +6997,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   _renderExplosions() {
+    // Fire/star bursts go on the high-depth _explosionGfx layer (9.96)
+    // so they paint OVER buildings, vehicles, and signs — visible
+    // regardless of what the player crashed into.  Smoke/wreck trails
+    // still use the older path (roadGfx for some smoke, _smokeGfx for
+    // standalone puffs) since those are meant to drift behind/around
+    // the scene rather than over it.
+    const fireG = this._explosionGfx ?? this.roadGfx;
+    if (this._explosionGfx) this._explosionGfx.clear();
     const g = this.roadGfx;
+    const smokeG = this._smokeGfx;
+    if (smokeG) smokeG.clear();
+    const t = this.gameTime ?? 0;
     for (const exp of this.explosions) {
       const prog  = exp.timer / exp.maxTimer;  // 0→1
       const alpha = 1 - prog;
       // ── Gunshot star — small white burst with 4 short spokes. ─────
       if (exp.kind === 'star') {
         const s = exp.sw * (0.5 + prog * 0.4);
-        g.fillStyle(0xFFFFFF, alpha * 0.95);
+        fireG.fillStyle(0xFFFFFF, alpha * 0.95);
         // Cross
-        g.fillTriangle(exp.sx - s * 0.6, exp.sy,         exp.sx, exp.sy - s * 0.25, exp.sx, exp.sy + s * 0.25);
-        g.fillTriangle(exp.sx + s * 0.6, exp.sy,         exp.sx, exp.sy - s * 0.25, exp.sx, exp.sy + s * 0.25);
-        g.fillTriangle(exp.sx, exp.sy - s * 0.6,         exp.sx - s * 0.25, exp.sy, exp.sx + s * 0.25, exp.sy);
-        g.fillTriangle(exp.sx, exp.sy + s * 0.6,         exp.sx - s * 0.25, exp.sy, exp.sx + s * 0.25, exp.sy);
+        fireG.fillTriangle(exp.sx - s * 0.6, exp.sy,         exp.sx, exp.sy - s * 0.25, exp.sx, exp.sy + s * 0.25);
+        fireG.fillTriangle(exp.sx + s * 0.6, exp.sy,         exp.sx, exp.sy - s * 0.25, exp.sx, exp.sy + s * 0.25);
+        fireG.fillTriangle(exp.sx, exp.sy - s * 0.6,         exp.sx - s * 0.25, exp.sy, exp.sx + s * 0.25, exp.sy);
+        fireG.fillTriangle(exp.sx, exp.sy + s * 0.6,         exp.sx - s * 0.25, exp.sy, exp.sx + s * 0.25, exp.sy);
         // Centre highlight
-        g.fillStyle(0xFFFFAA, alpha * 0.95);
-        g.fillCircle(exp.sx, exp.sy, s * 0.18);
+        fireG.fillStyle(0xFFFFAA, alpha * 0.95);
+        fireG.fillCircle(exp.sx, exp.sy, s * 0.18);
         continue;
       }
       // ── Wreck — actual car sprite spinning + smoke trail. ─────────
@@ -5426,28 +7048,36 @@ export class GameScene extends Phaser.Scene {
         g.fillCircle(exp.sx - r * 0.30,  exp.sy - h * 0.7 - prog * w * 0.7, r * 0.55);
         continue;
       }
-      // Smoke puffs: grey fluffy circle that drifts up and grows
+      // Smoke puffs: grey fluffy circle that drifts up + sways
+      // side-to-side, drawn into _smokeGfx (depth 9.97) so it sits
+      // above the player car rather than behind it.
       if (exp.smoke) {
         const r  = exp.sw * (0.4 + prog * 0.9);
         const yOff = -prog * exp.sw * 0.6;
-        g.fillStyle(0x666666, alpha * 0.55);
-        g.fillCircle(exp.sx, exp.sy + yOff, r * 1.05);
-        g.fillStyle(0x888888, alpha * 0.4);
-        g.fillCircle(exp.sx + r * 0.25, exp.sy + yOff - r * 0.2, r * 0.7);
-        g.fillStyle(0xAAAAAA, alpha * 0.3);
-        g.fillCircle(exp.sx - r * 0.2, exp.sy + yOff + r * 0.15, r * 0.55);
+        // Lateral sway — per-puff phase keeps adjacent puffs from
+        // sliding in unison.  Sway widens slightly with progress.
+        if (exp.swayPhase == null) exp.swayPhase = Math.random() * Math.PI * 2;
+        const sway = Math.sin(t * 3 + exp.swayPhase) * (10 + prog * 14);
+        const cx = exp.sx + sway;
+        const drawG = smokeG ?? g;
+        drawG.fillStyle(0x666666, alpha * 0.55);
+        drawG.fillCircle(cx, exp.sy + yOff, r * 1.05);
+        drawG.fillStyle(0x888888, alpha * 0.4);
+        drawG.fillCircle(cx + r * 0.25, exp.sy + yOff - r * 0.2, r * 0.7);
+        drawG.fillStyle(0xAAAAAA, alpha * 0.3);
+        drawG.fillCircle(cx - r * 0.2, exp.sy + yOff + r * 0.15, r * 0.55);
         continue;
       }
       const radius = prog * exp.sw * 2.2;
-      g.fillStyle(0xFF8800, alpha * 0.85);
-      g.fillCircle(exp.sx, exp.sy, radius * 1.5);
-      g.fillStyle(0xFFFF44, alpha * 0.9);
-      g.fillCircle(exp.sx, exp.sy, radius * 0.85);
-      g.fillStyle(0xFFFFFF, alpha * 0.6);
-      g.fillCircle(exp.sx, exp.sy, radius * 0.35);
+      fireG.fillStyle(0xFF8800, alpha * 0.85);
+      fireG.fillCircle(exp.sx, exp.sy, radius * 1.5);
+      fireG.fillStyle(0xFFFF44, alpha * 0.9);
+      fireG.fillCircle(exp.sx, exp.sy, radius * 0.85);
+      fireG.fillStyle(0xFFFFFF, alpha * 0.6);
+      fireG.fillCircle(exp.sx, exp.sy, radius * 0.35);
       // Smoke ring
-      g.fillStyle(0x444444, alpha * 0.3);
-      g.fillCircle(exp.sx, exp.sy - radius * 0.4, radius * 0.9);
+      fireG.fillStyle(0x444444, alpha * 0.3);
+      fireG.fillCircle(exp.sx, exp.sy - radius * 0.4, radius * 0.9);
     }
   }
 
@@ -5466,28 +7096,42 @@ export class GameScene extends Phaser.Scene {
   _buildHUD() {
     const d = 20;
 
+    // Handedness helpers — when `_leftHanded`, mirror x-coordinates and
+    // origin-x anchors so the right-side stack (HP, gas, speed,
+    // weapons) lands on the left and the drug bars land on the right.
+    // Music controls, score/clock/dist, and centre HUD stay put.
+    const lh  = !!this._leftHanded;
+    const mx  = (x) => lh ? (SCREEN_W - x) : x;
+    const mox = (o) => lh ? (1 - o) : o;
+
     // ── TOP-LEFT: Time → Cash → Distance (top-down stack) ──────────────
     // Whole left column shifted down a few pixels so it doesn't crowd
     // the screen edge.  Time sits above the dollar amount per user spec.
-    this.hudPartyClock = this.add.text(10, 14, '⏱  --:--', {
+    // Party clock + dollars stack above the drug bars, on whichever
+    // side the drug bars sit (right edge in left-handed mode, left
+    // edge otherwise) — they share the same column.
+    this.hudPartyClock = this.add.text(mx(10), 14, '⏱  --:--', {
       fontSize: '13px', fontFamily: IMPACT,
       color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0, 0).setDepth(d);
-    this.hudScore = this.add.text(10, 32, '$0', {
+    }).setOrigin(mox(0), 0).setDepth(d);
+    this.hudScore = this.add.text(mx(10), 32, '$0', {
       fontSize: '22px', fontFamily: IMPACT,
       color: '#FFEE00', stroke: '#000000', strokeThickness: 5,
-    }).setDepth(d);
-    this.hudDist = this.add.text(10, 62, '0 MI', {
-      fontSize: '13px', fontFamily: IMPACT,
-      color: '#88DDFF', stroke: '#000000', strokeThickness: 3,
-    }).setDepth(d);
-    // Multiplier + active drug-combo badge — single inline line that
-    // reads "SNOW-CONE  ×3.5" or just "×3.5" if no combos are firing.
-    // Sits to the right of the time, same row.
-    this.hudMult = this.add.text(120, 14, '', {
+    }).setOrigin(mox(0), 0).setDepth(d);
+    // Multiplier sits directly UNDER the cash readout in the same
+    // top-left column.  Same x + origin as hudScore so they
+    // stack cleanly.
+    this.hudMult = this.add.text(mx(10), 60, '', {
       fontSize: '18px', fontFamily: IMPACT,
       color: '#44FF88', stroke: '#000000', strokeThickness: 4,
-    }).setDepth(d);
+    }).setOrigin(mox(0), 0).setDepth(d);
+    // Mileage moved to the bottom — sits just LEFT of the region
+    // label (centered at SCREEN_W/2, SCREEN_H - 8), right-aligned so
+    // it reads "8 MI · WASHINGTON" across the bottom centre.
+    this.hudDist = this.add.text(SCREEN_W / 2 - 6, SCREEN_H - 8, '0 MI', {
+      fontSize: '13px', fontFamily: IMPACT,
+      color: '#88DDFF', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(1, 1).setDepth(d);
 
     // ── TOP-CENTER: Region + stars ─────────────────────────────────────
     // Region/location label — bottom-center, just above the bottom edge.
@@ -5503,10 +7147,23 @@ export class GameScene extends Phaser.Scene {
 
     // Car HP readout — sits LEFT of the gun weapon icon (top-right
     // weapon column).  Starts green at 100, fades to red as it drops.
-    this.hudHP = this.add.text(SCREEN_W - 78, 76, '100 HP', {
+    // HP right-edge aligned with the gas-gauge text below it so the
+    // "HP" and "mi" units stack right-justified.  Pulled fully inboard
+    // of the weapon column (which spans SCREEN_W-67 → SCREEN_W-10) so
+    // neither text overlaps a weapon icon.
+    this.hudHP = this.add.text(mx(SCREEN_W - 80), 76, '100 HP', {
       fontSize: '28px', fontFamily: IMPACT,
       color: '#44FF44', stroke: '#000000', strokeThickness: 4,
-    }).setOrigin(1, 0.5).setDepth(d);
+    }).setOrigin(mox(1), 0.5).setDepth(d);
+
+    // Floating "-X" damage popup — appears just on the CENTER-of-screen
+    // side of HP for 1.5 s after each hit.  Positioned dynamically in
+    // the damage listener so it tracks the live HP text bounds.
+    this.hudHPDamage = this.add.text(0, 76, '', {
+      fontSize: '19px', fontFamily: IMPACT,
+      color: '#FF2244', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(mox(1), 0.5).setDepth(d).setVisible(false);
+    this._hpDamageUntil = 0;
 
     // ── Gas gauge (below HP, right edge) ─────────────────────────────
     // Two parts: a 28-px-wide PNG pump icon (ui_gas_full when above
@@ -5516,19 +7173,30 @@ export class GameScene extends Phaser.Scene {
     // setColor and this.hudGasIcon.setTexture.
     const _gasIconKey = this.textures.exists('ui_gas_full') ? 'ui_gas_full' : null;
     if (_gasIconKey) {
-      this.hudGasIcon = this.add.image(SCREEN_W - 14, 108, 'ui_gas_full')
-        .setOrigin(1, 0.5).setDepth(d).setDisplaySize(36, 36);
+      // Icon lives on the CENTER side of the gas text (i.e. LEFT of
+      // the right-aligned text in right-handed mode, RIGHT of the
+      // left-aligned text in left-handed mode) so it never tucks under
+      // the weapon column at the screen edge.  Initial x is a sensible
+      // default; _renderHUD repositions it each frame against the live
+      // text bounds so the gap stays tight regardless of digit count.
+      this.hudGasIcon = this.add.image(mx(SCREEN_W - 180), 108, 'ui_gas_full')
+        .setOrigin(0.5, 0.5).setDepth(d).setDisplaySize(36, 36);
     } else {
       this.hudGasIcon = null;
     }
-    // Text sits LEFT of the icon (origin (1, 0.5) right-aligned).  When
-    // the PNG is missing, render the legacy ⛽ emoji inline.
-    const _gasTextX = this.hudGasIcon ? SCREEN_W - 14 - 36 - 6 : SCREEN_W - 14;
-    this.hudGas = this.add.text(_gasTextX, 108,
+    // Text right edge sits at the same x as HP (SCREEN_W - 80) so the
+    // "HP" and "mi" units stack right-justified.  When the PNG is
+    // missing, fall back to the legacy ⛽ emoji inline.
+    this.hudGas = this.add.text(mx(SCREEN_W - 80), 108,
       this.hudGasIcon ? '--- mi' : '⛽ --- mi', {
         fontSize: '28px', fontFamily: IMPACT,
         color: '#44FF44', stroke: '#000000', strokeThickness: 4,
-      }).setOrigin(1, 0.5).setDepth(d);
+      }).setOrigin(mox(1), 0.5).setDepth(d);
+    // Accel-pedal charge bar — thin status bar that sits directly
+    // under the gas readout.  Width matches the gas text bounds
+    // (re-measured every frame in _renderHUD).  5 min full drain, 20
+    // min refill.
+    this.hudAccelBar = this.add.graphics().setDepth(d);
 
     // ── TOP-RIGHT: Speed (big) + radio ─────────────────────────────────
     // Speed colour matches the run's difficulty so the readout itself
@@ -5544,14 +7212,25 @@ export class GameScene extends Phaser.Scene {
       custom: { main: '#44CCFF', sub: '#88DDFF' },
     };
     const tones = speedTones[Difficulty.mode()] ?? speedTones.normal;
-    this.hudSpeed = this.add.text(SCREEN_W - 10, 4, '0', {
+    this.hudSpeed = this.add.text(mx(SCREEN_W - 10), 4, '0', {
       fontSize: '34px', fontFamily: IMPACT,
       color: tones.main, stroke: '#000000', strokeThickness: 6,
-    }).setOrigin(1, 0).setDepth(d);
-    const _mphSub = this.add.text(SCREEN_W - 10, 42, 'MPH', {
+    }).setOrigin(mox(1), 0).setDepth(d);
+    // Perf diagnostic readout — bottom-LEFT corner.  Shows live FPS +
+    // image-sprite count so we can quickly see which subsystem is
+    // tanking the frame.  Use URL params to disable subsystems:
+    //   ?nomirror  → skip rear-view glass paint
+    //   ?nosprites → skip image-based scenery (buildings + trees)
+    //   ?noeffects → skip drug effects pass
+    this.hudFPS = this.add.text(10, SCREEN_H - 26, '', {
+      fontSize: '11px', fontFamily: 'monospace',
+      color: '#00FF88', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0, 1).setDepth(d + 5);
+    this._hudObjects?.push(this.hudFPS);
+    const _mphSub = this.add.text(mx(SCREEN_W - 10), 42, 'MPH', {
       fontSize: '11px', fontFamily: IMPACT,
       color: tones.sub, stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(1, 0).setDepth(d);
+    }).setOrigin(mox(1), 0).setDepth(d);
     this._hudObjects?.push(_mphSub);
 
     // ── Party clock (top-center, below the radio name) ──────────────
@@ -5563,79 +7242,141 @@ export class GameScene extends Phaser.Scene {
     // the TOP-LEFT block.)
     this._hudObjects?.push(this.hudPartyClock);
 
-    // Mute button — same size as pause (32 px), immediately LEFT of it.
-    // Music HUD cluster pushed RIGHT toward the speedometer (which sits at
-    // SCREEN_W-10, ~50 px wide).  Pause/mute/note all 4 px apart in a tight
-    // group so they read as one control bar adjacent to the speed cluster.
-    const muteSize  = 44;
-    const muteRight = SCREEN_W - 123;
-    const muteTop   = 8;
-    this.hudMuteBtn = this.add.rectangle(muteRight, muteTop, muteSize, muteSize, 0x000000, 0.55)
-      .setOrigin(1, 0).setDepth(d + 3).setStrokeStyle(2, 0xFFFFFF)
-      .setInteractive({ useHandCursor: true });
-    this.hudMuteLbl = this.add.text(muteRight - muteSize / 2, muteTop + muteSize / 2, '🔊', {
-      fontSize: '28px', fontFamily: IMPACT, color: '#FFFFFF',
+    // ── Top-row buttons ─────────────────────────────────────────────
+    // Default (left-handed) layout, left → right:
+    //   Pause | FF | Genre | [Mirror] | Mute | Map | Garage | Wiper(*)
+    // When the player flips handedness, the whole row mirrors across
+    // SCREEN_W/2 — Pause moves to the right edge, Garage moves to the
+    // left, etc.  Each button registers itself in
+    // this._topRowButtons; _applyTopRowHandedness() re-runs the draw
+    // helper with the mirrored x on flip.
+    const muteSize       = 56;
+    const muteTop        = 2;
+    const MIRROR_LEFT_X  = SCREEN_W / 2 - 130;
+    const MIRROR_RIGHT_X = SCREEN_W / 2 + 130;
+    const TOP_GAP        = 1;
+    // _topRowButtons is initialised at the top of create() so the
+    // Map / Garage buttons created earlier can also register.
+    const registerTopBtn = (entry) => this._topRowButtons.push(entry);
+    // Mute sits IMMEDIATELY RIGHT of the mirror by default.
+    const muteLeft  = MIRROR_RIGHT_X + TOP_GAP;
+    const muteRight = muteLeft + muteSize;
+    this.hudMuteBtn = this.add.graphics().setDepth(62);
+    const drawMute = (alpha = 0.85) => {
+      this.hudMuteBtn.clear();
+      this.hudMuteBtn.fillStyle(0x222222, alpha);
+      this.hudMuteBtn.fillRoundedRect(muteLeft, muteTop, muteSize, muteSize, 10);
+      this.hudMuteBtn.lineStyle(3, 0x66CCFF, 1);
+      this.hudMuteBtn.strokeRoundedRect(muteLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
+    };
+    drawMute();
+    this.hudMuteBtn.setInteractive(new Phaser.Geom.Rectangle(muteLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
+    this.hudMuteBtn.input.cursor = 'pointer';
+    this.hudMuteLbl = this.add.text(muteLeft + muteSize / 2, muteTop + muteSize / 2, '🔊', {
+      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(d + 4);
+    }).setOrigin(0.5).setDepth(63);
+    this.hudMuteBtn.on('pointerover', () => drawMute(1));
+    this.hudMuteBtn.on('pointerout',  () => drawMute(0.85));
     this.hudMuteBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this.audio?.toggleMute?.();
       this.hudMuteLbl.setText(this.audio?.muted ? '🔇' : '🔊');
     });
     this._hudObjects?.push(this.hudMuteBtn, this.hudMuteLbl);
+    registerTopBtn({ id: 'mute', bg: this.hudMuteBtn, lbl: this.hudMuteLbl, baseLeft: muteLeft, size: muteSize });
 
-    // Music-note button (cycle station) — same size as mute, immediately
-    // LEFT of mute.  Tapping cycles to the next station.
-    const noteRight = muteRight - muteSize - 4;
-    this.hudNoteBtn = this.add.rectangle(noteRight, muteTop, muteSize, muteSize, 0x000000, 0.55)
-      .setOrigin(1, 0).setDepth(d + 3).setStrokeStyle(2, 0xFFFFFF)
-      .setInteractive({ useHandCursor: true });
-    this.hudNoteLbl = this.add.text(noteRight - muteSize / 2, muteTop + muteSize / 2, '🎵', {
-      fontSize: '28px', fontFamily: IMPACT, color: '#FFFFFF',
+    // Music-note button (GENRE — cycle station) — sits IMMEDIATELY
+    // LEFT of the mirror, third from the left in the new layout.
+    const noteRight = MIRROR_LEFT_X - TOP_GAP;
+    const noteLeft  = noteRight - muteSize;
+    this.hudNoteBtn = this.add.graphics().setDepth(62);
+    const drawNote = (alpha = 0.85) => {
+      this.hudNoteBtn.clear();
+      this.hudNoteBtn.fillStyle(0x222222, alpha);
+      this.hudNoteBtn.fillRoundedRect(noteLeft, muteTop, muteSize, muteSize, 10);
+      this.hudNoteBtn.lineStyle(3, 0x66CCFF, 1);
+      this.hudNoteBtn.strokeRoundedRect(noteLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
+    };
+    drawNote();
+    this.hudNoteBtn.setInteractive(new Phaser.Geom.Rectangle(noteLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
+    this.hudNoteBtn.input.cursor = 'pointer';
+    this.hudNoteLbl = this.add.text(noteLeft + muteSize / 2, muteTop + muteSize / 2, '🎵', {
+      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(d + 4);
+    }).setOrigin(0.5).setDepth(63);
+    this.hudNoteBtn.on('pointerover', () => drawNote(1));
+    this.hudNoteBtn.on('pointerout',  () => drawNote(0.85));
     this.hudNoteBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this.audio?.nextStation?.();
     });
     this._hudObjects?.push(this.hudNoteBtn, this.hudNoteLbl);
+    registerTopBtn({ id: 'genre', bg: this.hudNoteBtn, lbl: this.hudNoteLbl, baseLeft: noteLeft, size: muteSize });
 
     // Skip-track button — same size, immediately LEFT of the note button.
     // Tapping skips to the next song on real-track stations (Country,
     // EDM, Hip-Hop, Heavy Metal, Polka, Reggae, Mariachi, Pop, MK64).
     // No-op on procedural-only stations.
-    const skipRight = noteRight - muteSize - 4;
-    this.hudSkipBtn = this.add.rectangle(skipRight, muteTop, muteSize, muteSize, 0x000000, 0.55)
-      .setOrigin(1, 0).setDepth(d + 3).setStrokeStyle(2, 0xFFFFFF)
-      .setInteractive({ useHandCursor: true });
-    this.hudSkipLbl = this.add.text(skipRight - muteSize / 2, muteTop + muteSize / 2, '⏭', {
-      fontSize: '28px', fontFamily: IMPACT, color: '#FFFFFF',
+    // Skip / FAST-FORWARD — second from the left, between Pause and Genre.
+    const skipRight = noteRight - muteSize - TOP_GAP;
+    const skipLeft  = skipRight - muteSize;
+    this.hudSkipBtn = this.add.graphics().setDepth(62);
+    const drawSkip = (alpha = 0.85) => {
+      this.hudSkipBtn.clear();
+      this.hudSkipBtn.fillStyle(0x222222, alpha);
+      this.hudSkipBtn.fillRoundedRect(skipLeft, muteTop, muteSize, muteSize, 10);
+      this.hudSkipBtn.lineStyle(3, 0x66CCFF, 1);
+      this.hudSkipBtn.strokeRoundedRect(skipLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
+    };
+    drawSkip();
+    this.hudSkipBtn.setInteractive(new Phaser.Geom.Rectangle(skipLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
+    this.hudSkipBtn.input.cursor = 'pointer';
+    this.hudSkipLbl = this.add.text(skipLeft + muteSize / 2, muteTop + muteSize / 2, '⏭', {
+      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(d + 4);
+    }).setOrigin(0.5).setDepth(63);
+    this.hudSkipBtn.on('pointerover', () => drawSkip(1));
+    this.hudSkipBtn.on('pointerout',  () => drawSkip(0.85));
     this.hudSkipBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this.audio?.skipTrack?.();
     });
     this._hudObjects?.push(this.hudSkipBtn, this.hudSkipLbl);
+    registerTopBtn({ id: 'ff', bg: this.hudSkipBtn, lbl: this.hudSkipLbl, baseLeft: skipLeft, size: muteSize });
 
     // Wiper button — same size as the cluster, immediately LEFT of skip.
     // Hidden by default; only visible while it's raining.  Tapping it
     // sets `_wiperUntil = gameTime + 4`, suppressing windshield droplets
     // for 4 seconds (the wiper-sweep window).
-    const wiperRight = skipRight - muteSize - 4;
-    this.hudWiperBtn = this.add.rectangle(wiperRight, muteTop, muteSize, muteSize, 0x000000, 0.55)
-      .setOrigin(1, 0).setDepth(d + 3).setStrokeStyle(2, 0xFFFFFF)
-      .setInteractive({ useHandCursor: true })
-      .setVisible(false);
-    this.hudWiperLbl = this.add.text(wiperRight - muteSize / 2, muteTop + muteSize / 2, '🌧', {
-      fontSize: '24px', fontFamily: IMPACT, color: '#FFFFFF',
+    // Wiper — only visible when it's raining.  Tucked far RIGHT of
+    // everything (past Garage) so when it pops in it doesn't push
+    // existing buttons around.
+    const wiperRight = MIRROR_RIGHT_X + TOP_GAP + 4 * (muteSize + TOP_GAP);
+    const wiperLeft  = wiperRight - muteSize;
+    this.hudWiperBtn = this.add.graphics().setDepth(62).setVisible(false);
+    const drawWiper = (alpha = 0.85) => {
+      this.hudWiperBtn.clear();
+      this.hudWiperBtn.fillStyle(0x222222, alpha);
+      this.hudWiperBtn.fillRoundedRect(wiperLeft, muteTop, muteSize, muteSize, 10);
+      this.hudWiperBtn.lineStyle(3, 0x66CCFF, 1);
+      this.hudWiperBtn.strokeRoundedRect(wiperLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
+    };
+    drawWiper();
+    this.hudWiperBtn.setInteractive(new Phaser.Geom.Rectangle(wiperLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
+    this.hudWiperBtn.input.cursor = 'pointer';
+    this.hudWiperLbl = this.add.text(wiperLeft + muteSize / 2, muteTop + muteSize / 2, '🌧', {
+      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(d + 4).setVisible(false);
+    }).setOrigin(0.5).setDepth(63).setVisible(false);
+    this.hudWiperBtn.on('pointerover', () => drawWiper(1));
+    this.hudWiperBtn.on('pointerout',  () => drawWiper(0.85));
     this.hudWiperBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this._wiperUntil = (this.gameTime ?? 0) + 4;
     });
     this._hudObjects?.push(this.hudWiperBtn, this.hudWiperLbl);
+    registerTopBtn({ id: 'wiper', bg: this.hudWiperBtn, lbl: this.hudWiperLbl, baseLeft: wiperLeft, size: muteSize });
 
     // Custom-mode drug-slider button removed — drug levels are now set
     // by clicking/dragging the actual HUD drug bars directly when in
@@ -5703,7 +7444,7 @@ export class GameScene extends Phaser.Scene {
       // the mirror road.
       this._mirrorBuildingPool = [];
       for (let i = 0; i < 8; i++) {
-        const s = this.add.image(0, 0, 'building_1')
+        const s = this.add.image(0, 0, 'codex_bellevue_skyline')
           .setOrigin(0.5, 1)
           .setDepth(d - 3.6)        // beneath cars in z-order
           .setVisible(false)
@@ -5713,13 +7454,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Radio station name — sits just below the next-track + music-genre
-    // (note) buttons.  Centred under that pair so the label visually
-    // belongs to the controls that change it.  noteRight = SCREEN_W-171,
-    // skipRight = SCREEN_W-219; midpoint of the two button columns is
-    // ≈ SCREEN_W-217.  Tapping still cycles stations.
-    this.hudRadio = this.add.text(SCREEN_W - 217, 56, 'CLASSIC ROCK', {
-      fontSize: '17px', fontFamily: IMPACT,
+    // Radio station name — sits directly UNDER the Genre (note)
+    // button so the label visually belongs to the control that
+    // changes it.  Tap also cycles stations.
+    const radioCenterX = noteLeft + muteSize / 2;
+    const radioY       = muteTop + muteSize + 2;
+    this.hudRadio = this.add.text(radioCenterX, radioY, 'CLASSIC ROCK', {
+      fontSize: '14px', fontFamily: IMPACT,
       color: '#5DD4FF', stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5, 0).setDepth(d).setInteractive({ useHandCursor: true });
     this.hudRadio.on('pointerdown', (ptr) => {
@@ -5745,13 +7486,13 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5, 0).setDepth(d + 5);
 
     // ── Phone-only GAS + BRAKE pedals — TOGGLE buttons (tap once to turn
-    //    on, tap again to turn off).  Mutually exclusive.  Spread close
-    //    to the corners but kept inboard of the right-side weapons stack
-    //    + FIRE banner so they don't cover anything.
+    //    on, tap again to turn off).  Mutually exclusive.  Pulled
+    //    inboard so the ACCEL pedal sits FULLY clear of the weapon
+    //    column (now 66 px wide), with the BRAKE mirrored at the same
+    //    distance from the opposite edge.
     const PEDAL_W = 70, PEDAL_H = 50, PEDAL_Y = SCREEN_H - 8;
-    const BRAKE_X = 70;                       // close to left corner
-    // FIRE banner gone, so GAS can sit at the mirrored x position.
-    const GAS_X   = SCREEN_W - 70;
+    const BRAKE_X = 117;                      // 82 px inboard (matches GAS)
+    const GAS_X   = SCREEN_W - 117;           // fully left of the weapon stack
 
     const refreshGas   = () => this._gasBtn?.setFillStyle?.(this._touchBoost ? 0x55DD55 : 0x22AA22, this._touchBoost ? 0.95 : 0.55);
     const refreshBrake = () => this._brakeBtn?.setFillStyle?.(this._touchBrake ? 0xEE3333 : 0xCC2222, this._touchBrake ? 0.95 : 0.55);
@@ -5800,21 +7541,45 @@ export class GameScene extends Phaser.Scene {
     //    phones, also still triggered by SPACE.
     // Pause sits 4 px to the right of mute → tight cluster: Note 🎵 | Mute 🔊 | Pause ⏸
     // Right edge at SCREEN_W-75 leaves ~65 px to the speedometer.
-    const pauseSize = 44;
-    const pauseRight = SCREEN_W - 75;
-    const pauseTop   = 8;
-    const pauseBtn  = this.add.rectangle(pauseRight, pauseTop, pauseSize, pauseSize, 0x000000, 0.55)
-      .setOrigin(1, 0).setDepth(d + 3).setStrokeStyle(2, 0xFFFFFF)
-      .setInteractive({ useHandCursor: true });
-    const pauseLbl  = this.add.text(pauseRight - pauseSize / 2, pauseTop + pauseSize / 2, '⏸', {
-      fontSize: '28px', fontFamily: IMPACT, color: '#FFFFFF',
+    const pauseSize = 56;
+    // Pause is now the LEFTMOST top-row button — sits two slots left
+    // of the mirror, with FF + Genre between it and the mirror.
+    const pauseRight = (typeof skipLeft !== 'undefined')
+      ? (skipLeft - TOP_GAP)
+      : (SCREEN_W / 2 - 266);
+    const pauseLeft  = pauseRight - pauseSize;
+    const pauseTop   = 2;
+    const pauseBtn = this.add.graphics().setDepth(62);
+    // drawPause takes a "lit" flag — when paused, the fill goes cyan
+    // and the stroke goes bright yellow so the button reads as the
+    // active resume control.  _togglePause re-invokes this with the
+    // new state.
+    const drawPause = (alpha = 0.85, lit = false) => {
+      pauseBtn.clear();
+      pauseBtn.fillStyle(lit ? 0x44CCFF : 0x222222, lit ? 0.95 : alpha);
+      pauseBtn.fillRoundedRect(pauseLeft, pauseTop, pauseSize, pauseSize, 10);
+      pauseBtn.lineStyle(3, lit ? 0xFFEE00 : 0x66CCFF, 1);
+      pauseBtn.strokeRoundedRect(pauseLeft + 1.5, pauseTop + 1.5, pauseSize - 3, pauseSize - 3, 10);
+    };
+    drawPause();
+    pauseBtn.setInteractive(new Phaser.Geom.Rectangle(pauseLeft, pauseTop, pauseSize, pauseSize), Phaser.Geom.Rectangle.Contains);
+    pauseBtn.input.cursor = 'pointer';
+    const pauseLbl = this.add.text(pauseLeft + pauseSize / 2, pauseTop + pauseSize / 2, '⏸', {
+      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(d + 4);
+    }).setOrigin(0.5).setDepth(63);
+    pauseBtn.on('pointerover', () => drawPause(1, this._paused));
+    pauseBtn.on('pointerout',  () => drawPause(0.85, this._paused));
     pauseBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this._togglePause();
     });
+    // Store on `this` so _togglePause can light it up when paused.
+    this._pauseBtnRef     = pauseBtn;
+    this._pauseLblRef     = pauseLbl;
+    this._redrawPauseBtn  = drawPause;
     this._hudObjects?.push(pauseBtn, pauseLbl);
+    registerTopBtn({ id: 'pause', bg: pauseBtn, lbl: pauseLbl, baseLeft: pauseLeft, size: pauseSize });
 
     // ── REAR-COP indicator (cop behind the player; visible only when active)
     this.hudRearCop = this.add.text(SCREEN_W / 2, SCREEN_H - 32, '', {
@@ -5967,7 +7732,10 @@ export class GameScene extends Phaser.Scene {
     const resumeH    = 38;
     const resumeGap  = 10;                   // space between wheel and SAVED GAME chip
     const bottomPad  = 24;
-    const wheelX     = 24;
+    // Wheel anchors on the RIGHT side of the title screen (flipped from
+    // its old left-side home).  START button moves to the left to fill
+    // the vacated space.
+    const wheelX     = SCREEN_W - 24 - btnW;
     const resumeY    = SCREEN_H - resumeH - bottomPad;
     const wheelTopY  = resumeY - resumeGap - wheelHt;
     const btnY       = SCREEN_H - 90;        // legacy ref — used by other code paths
@@ -6008,19 +7776,12 @@ export class GameScene extends Phaser.Scene {
     // persisted choice.
     this._wheelCursor = current;
     // Helper: paint every wheel panel based on the cursor position.
-    // Active panel gets a thick yellow stroke (5 px) + the ◀ marker.
-    // Inactive panels get their own resting stroke color (white for the
-    // difficulty bars, grey for the SAVED GAME chip) at 2 px.
+    // Panel highlighting (yellow stroke + ▶ marker) was removed when
+    // tap-to-start replaced the two-step select-then-START flow.  The
+    // wheel cursor still exists silently — keyboard nav updates it so
+    // the blurb under the player car follows the keyboard selection.
     const refreshWheel = () => {
       const cursor = this._wheelCursor;
-      for (const id of Object.keys(this._titleWheelMap)) {
-        const entry = this._titleWheelMap[id];
-        const isOn  = id === cursor;
-        const sw    = isOn ? 5 : 2;
-        const sc    = isOn ? 0xFFEE00 : (entry.restStroke ?? 0xFFFFFF);
-        entry.bg._roundedBtnDraw?.(isOn ? 1.0 : 0.78, entry.fill, sw, sc);
-        entry.marker?.setVisible(isOn);
-      }
       const blurb = this._titlePanelInfo?.[cursor]?.blurb
                  ?? (cursor === 'saved' ? 'Resume from save code' : '');
       this._titleBlurbTxt?.setText(blurb);
@@ -6052,43 +7813,40 @@ export class GameScene extends Phaser.Scene {
     allModeIds.forEach((id, i) => {
       const cy   = wheelTopY + i * (btnH + gap);
       const info = PANEL_INFO[id] ?? { fill: 0x666666, label: id.toUpperCase(), blurb: '' };
-      const isActive = id === current;
-      const strokeColor = isActive ? 0xFFEE00 : 0xFFFFFF;
-      const strokeW     = isActive ? 5 : 2;
-      const baseAlpha   = isActive ? 1.0 : 0.78;
+      // Uniform panel styling — no more "selected" highlight (yellow
+      // stroke + ▶ marker) since tapping a panel now starts the run
+      // immediately.  All panels look identical at rest.
       const bg = makeRoundedBtn(
         wheelX, cy, btnW, btnH,
-        info.fill, strokeColor, strokeW, baseAlpha, info.fill,
+        info.fill, 0xFFFFFF, 2, 0.88, info.fill,
         () => {
-          // Tap moves the cursor (visual selection) to this panel.
-          // For Easy/Normal/Hard also persist the difficulty so the
-          // setting follows the highlight.  Custom + Saved Game are
-          // launched only when the player triggers START.
+          // Tap = commit + launch.  Set cursor + persist difficulty so
+          // _fireTitleCursor (and saved-state writers) see the choice,
+          // then fire it.  Re-seed the party clock from the NEW
+          // difficulty's partyClockSec so a player who taps Easy/Normal/
+          // Hard always starts the run with the matching timer (50/40/
+          // 30 min) — previously the clock initialised in _doCreate
+          // and never refreshed when the player changed mode on the
+          // title screen.
           this._wheelCursor = id;
           if (id !== 'custom') Difficulty.set(id, this.registry);
-          refreshWheel();
+          // Per-difficulty steering defaults — Easy uses the gentler
+          // L/R-half tap zones (classic); Normal uses the more
+          // demanding any-tap (flappy).  Hard and Custom leave the
+          // player's current steering pick alone.
+          if      (id === 'easy')   this._setSteeringMode?.('classic');
+          else if (id === 'normal') this._setSteeringMode?.('flappy');
+          this._partyClockSec    = Difficulty.partyClockSec();
+          this._partyClockSecMax = this._partyClockSec;
+          this._fireTitleCursor?.();
         },
       );
-      bg.removeAllListeners('pointerout');
-      bg.on('pointerout', () => refreshWheel());
-
-      // ◀ right-edge selection marker — only visible on the active panel.
-      // Sits just past the panel's right edge so it points back into the
-      // active selection (wheel is on the left side of the screen).
-      const marker = this.add.text(wheelX + btnW + 14, cy + btnH / 2, '◀', {
-        fontSize: '22px', fontFamily: 'Arial, sans-serif',
-        color: '#FFEE00', stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(d + 11).setVisible(isActive);
-
-      // Big bold label, vertically centered on the panel.  Blurb removed
-      // — it was crashing into the label and the colored panel + name is
-      // enough to communicate the choice.
       const lbl = this.add.text(wheelX + btnW / 2, cy + btnH / 2, info.label, {
         fontSize: '26px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
         color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
       }).setOrigin(0.5).setDepth(d + 11);
-      this._titleDifficultyBtns.push(bg, marker, lbl);
-      this._titleWheelMap[id] = { bg, marker, fill: info.fill };
+      this._titleDifficultyBtns.push(bg, lbl);
+      this._titleWheelMap[id] = { bg, fill: info.fill };
     });
 
     // Up/Down arrow keys cycle the wheel cursor through all 5 panels
@@ -6117,36 +7875,24 @@ export class GameScene extends Phaser.Scene {
     // include it.  Tap → opens code prompt directly; cursor-then-START
     // also opens the prompt.
     {
-      const rW = btnW;                       // align with wheel width
+      const rW = btnW;
       const rH = resumeH;
       const rX = wheelX;
       const rY = resumeY;
       const savedFill = 0x222222;
-      const isActive  = this._wheelCursor === 'saved';
       const bg = makeRoundedBtn(
         rX, rY, rW, rH,
-        savedFill, isActive ? 0xFFEE00 : 0xAAAAAA, isActive ? 5 : 2,
-        isActive ? 1.0 : 0.78, 0x333333,
-        () => {
-          this._wheelCursor = 'saved';
-          refreshWheel();
-          this._promptForCode(last?.code ?? '');
-        },
+        savedFill, 0xAAAAAA, 2, 0.88, 0x333333,
+        () => this._promptForCode(last?.code ?? ''),
       );
-      bg.removeAllListeners('pointerout');
-      bg.on('pointerout', () => refreshWheel());
-      const marker = this.add.text(rX + rW + 14, rY + rH / 2, '◀', {
-        fontSize: '22px', fontFamily: 'Arial, sans-serif',
-        color: '#FFEE00', stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(d + 11).setVisible(isActive);
       const lbl = this.add.text(rX + rW / 2, rY + rH / 2, '🔑 SAVED GAME', {
         fontSize: '16px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(d + 11);
       this._titleResume    = bg;
       this._titleResumeTxt = lbl;
-      this._titleDifficultyBtns.push(bg, marker, lbl);
-      this._titleWheelMap['saved'] = { bg, marker, fill: savedFill };
+      this._titleDifficultyBtns.push(bg, lbl);
+      this._titleWheelMap['saved'] = { bg, fill: savedFill };
     }
 
     // Shared "fire the cursor" dispatcher — used by the BIG START
@@ -6159,11 +7905,16 @@ export class GameScene extends Phaser.Scene {
       if (cur === 'custom') {
         this._buildDrugSliderModal({
           mode: 'custom',
-          onConfirm: ({ drugLevels, noNpcDamage, noPolice, startStars }) => {
+          onConfirm: ({ drugLevels, noNpcDamage, noPolice, startStars, customSub }) => {
             Difficulty.set('custom', this.registry);
+            if (customSub) Difficulty.setCustomSub(customSub, this.registry);
             this._customStartLevels = drugLevels;
             this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
             this._customStartStars = Math.max(0, Math.min(5, startStars ?? 0));
+            // Reset the party clock to Custom's setting (40 min by spec)
+            // so the run begins with a fresh countdown.
+            this._partyClockSec    = Difficulty.partyClockSec();
+            this._partyClockSecMax = this._partyClockSec;
             this._startGameplay();
           },
         });
@@ -6176,29 +7927,8 @@ export class GameScene extends Phaser.Scene {
       this._startGameplay();
     };
 
-    // ── Big green START button ───────────────────────────────────────
-    // Sized 180 × 64, slotted vertically between the "Seattle → Pullman"
-    // route text (y≈SCREEN_H*0.55 = 248) and the difficulty blurb under
-    // the car (y≈SCREEN_H-78 = 372) — centered at y≈310.  Right edge
-    // sits ~80 px from the screen edge so the button stops just left
-    // of where in-game weapon icons (right-edge stack) will render.
-    {
-      const startBtnW = 180;
-      const startBtnH = 64;
-      const startBtnX = SCREEN_W - 80 - startBtnW;
-      const startBtnY = Math.round(SCREEN_H * 0.55 + (SCREEN_H - 78 - SCREEN_H * 0.55) / 2 - startBtnH / 2);
-      const startBg = makeRoundedBtn(
-        startBtnX, startBtnY, startBtnW, startBtnH,
-        0x2E9D4E, 0xFFFFFF, 4, 1.0, 0x44B560,
-        () => this._fireTitleCursor?.(),
-      );
-      const startLbl = this.add.text(startBtnX + startBtnW / 2, startBtnY + startBtnH / 2,
-        '▶ START', {
-          fontSize: '28px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
-          color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
-        }).setOrigin(0.5).setDepth(d + 11);
-      this._titleDifficultyBtns.push(startBg, startLbl);
-    }
+    // (START button removed — selecting a difficulty panel now fires
+    // the run directly.  See the panel tap handler above.)
 
     // Stub _titleTap so the existing fade-out / hud-list code that
     // references it doesn't choke on undefined.
@@ -6206,105 +7936,10 @@ export class GameScene extends Phaser.Scene {
       fontSize: '1px',
     }).setOrigin(0.5).setDepth(d + 10).setVisible(false);
 
-    // Title-screen icon row sits JUST LEFT of the rear-view mirror
-    // (mirror is 260 px wide, centered: spans [SCREEN_W/2-130, SCREEN_W/2+130]).
-    // Order left→right: 🗺 MAP, 🚗 GARAGE, 🏆 TROPHY.  All 40×40 with
-    // 8 px gap.  Placing them here keeps the top-LEFT corner (where
-    // the score / multiplier / distance HUD lives) clear once gameplay
-    // starts.
-    const ICON_SIZE   = 40;
-    const ICON_GAP    = 8;
-    const ICON_ROW_W  = 3 * ICON_SIZE + 2 * ICON_GAP;
-    const MIRROR_LEFT = SCREEN_W / 2 - 130;
-    const ICON_BASE_X = MIRROR_LEFT - 12 - ICON_ROW_W;
-    const ICON_Y      = 12;
-
-    // 🏆 Achievements button — last in the row.
-    {
-      const aSize = ICON_SIZE;
-      const aX = ICON_BASE_X + 2 * (ICON_SIZE + ICON_GAP);
-      const aY = ICON_Y;
-      const aBg = this.add.graphics().setDepth(d + 10);
-      const drawA = (alpha = 1) => {
-        aBg.clear();
-        aBg.fillStyle(0x222222, alpha);
-        aBg.fillRoundedRect(aX, aY, aSize, aSize, 8);
-        aBg.lineStyle(2, 0xFFD700, 1);
-        aBg.strokeRoundedRect(aX + 0.5, aY + 0.5, aSize - 1, aSize - 1, 8);
-      };
-      drawA();
-      aBg.setInteractive(new Phaser.Geom.Rectangle(aX, aY, aSize, aSize), Phaser.Geom.Rectangle.Contains);
-      aBg.input.cursor = 'pointer';
-      const aLbl = this.add.text(aX + aSize / 2, aY + aSize / 2, '🏆', {
-        fontSize: '22px',
-      }).setOrigin(0.5).setDepth(d + 11);
-      aBg.on('pointerover', () => drawA(1));
-      aBg.on('pointerout',  () => drawA(0.85));
-      drawA(0.85);
-      aBg.on('pointerdown', (ptr) => {
-        ptr.event?.stopPropagation?.();
-        this._buildAchievementsModal();
-      });
-      this._titleDifficultyBtns.push(aBg, aLbl);
-    }
-
-    // 🚗 Garage button — middle of the row.
-    {
-      const gSize = ICON_SIZE;
-      const gX = ICON_BASE_X + 1 * (ICON_SIZE + ICON_GAP);
-      const gY = ICON_Y;
-      const gBg = this.add.graphics().setDepth(d + 10);
-      const drawG = (alpha = 1) => {
-        gBg.clear();
-        gBg.fillStyle(0x222222, alpha);
-        gBg.fillRoundedRect(gX, gY, gSize, gSize, 8);
-        gBg.lineStyle(2, 0x66CCFF, 1);
-        gBg.strokeRoundedRect(gX + 0.5, gY + 0.5, gSize - 1, gSize - 1, 8);
-      };
-      drawG();
-      gBg.setInteractive(new Phaser.Geom.Rectangle(gX, gY, gSize, gSize), Phaser.Geom.Rectangle.Contains);
-      gBg.input.cursor = 'pointer';
-      const gLbl = this.add.text(gX + gSize / 2, gY + gSize / 2, '🚗', {
-        fontSize: '22px',
-      }).setOrigin(0.5).setDepth(d + 11);
-      gBg.on('pointerover', () => drawG(1));
-      gBg.on('pointerout',  () => drawG(0.85));
-      drawG(0.85);
-      gBg.on('pointerdown', (ptr) => {
-        ptr.event?.stopPropagation?.();
-        this._buildGarageModal();
-      });
-      this._titleDifficultyBtns.push(gBg, gLbl);
-    }
-
-    // 🗺 Map button — first (leftmost) icon in the row.
-    {
-      const mSize = ICON_SIZE;
-      const mX = ICON_BASE_X;
-      const mY = ICON_Y;
-      const mBg = this.add.graphics().setDepth(d + 10);
-      const drawM = (alpha = 1) => {
-        mBg.clear();
-        mBg.fillStyle(0x222222, alpha);
-        mBg.fillRoundedRect(mX, mY, mSize, mSize, 8);
-        mBg.lineStyle(2, 0x66CCFF, 1);
-        mBg.strokeRoundedRect(mX + 0.5, mY + 0.5, mSize - 1, mSize - 1, 8);
-      };
-      drawM();
-      mBg.setInteractive(new Phaser.Geom.Rectangle(mX, mY, mSize, mSize), Phaser.Geom.Rectangle.Contains);
-      mBg.input.cursor = 'pointer';
-      const mLbl = this.add.text(mX + mSize / 2, mY + mSize / 2, '🗺', {
-        fontSize: '22px',
-      }).setOrigin(0.5).setDepth(d + 11);
-      mBg.on('pointerover', () => drawM(1));
-      mBg.on('pointerout',  () => drawM(0.85));
-      drawM(0.85);
-      mBg.on('pointerdown', (ptr) => {
-        ptr.event?.stopPropagation?.();
-        this._buildMapModal();
-      });
-      this._titleDifficultyBtns.push(mBg, mLbl);
-    }
+    // (Removed: title-screen 🗺 MAP / 🚗 GARAGE / 🏆 TROPHY icon row.
+    //  The always-visible 56-px MAP + GARAGE buttons to the left of
+    //  the mirror cover those two during gameplay AND the title, and
+    //  the trophy lives on the iPhone-menu trophy chip now.)
 
     // Legacy enter-code button removed.
     this._titleEnterCode    = null;
@@ -6324,7 +7959,7 @@ export class GameScene extends Phaser.Scene {
       // (reading 'isParent')".
       this._hudObjects.push(
         ...[
-          this.hudScore, this.hudMult, this.hudDist, this.hudRegion, this.hudStars, this.hudHP, this.hudGas, this.hudGasIcon,
+          this.hudScore, this.hudMult, this.hudDist, this.hudRegion, this.hudStars, this.hudHP, this.hudHPDamage, this.hudGas, this.hudGasIcon, this.hudAccelBar,
           this.hudSpeed, this.hudRadio, this.hudPopup,
           this.hudRearCop, this.hudRestStop, this.hudHelicopter, this.hudHelicopterImg,
           this._titleScrim, this._titleMain, this._titleSub, this._titleRoute, this._titleTap,
@@ -6427,10 +8062,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Top speed: 120 MPH base + 5 MPH per cocaine pickup (capped at OD)
-    const mph      = Math.round(this._displayMPH());
+    // Top speed: 120 MPH base + 5 MPH per cocaine pickup (capped at OD).
+    // ceil so a car actually rolling (< 0.5 mph) doesn't read as "0 MPH".
+    const rawMph   = this._displayMPH();
+    const mph      = rawMph > 0 && rawMph < 1 ? 1 : Math.round(rawMph);
     // Odometer: speed-derived at 4× time compression (120 mph → 120 mi/15 min)
-    const miles    = Math.round(this._odometer);
+    const milesRaw = this._odometer ?? 0;
+    const miles    = Math.floor(milesRaw);
     const palette  = getPaletteAtProgress(Math.min(progress, 0.999));
 
     this.hudScore.setText(`$${Math.round(this.score).toLocaleString()}`);
@@ -6446,6 +8084,12 @@ export class GameScene extends Phaser.Scene {
       const hp  = Math.max(0, Math.ceil(dur));
       const color = hp > 50 ? '#44FF44' : hp > 20 ? '#FFAA22' : '#FF2244';
       this.hudHP.setText(`${hp} HP`).setColor(color);
+    }
+    // Hide the floating "-X" damage popup once its 1.5-s window passes.
+    if (this.hudHPDamage?.visible && this._hpDamageUntil
+        && (this.time?.now ?? 0) >= this._hpDamageUntil) {
+      this.hudHPDamage.setVisible(false);
+      this._hpDamageUntil = 0;
     }
     // Gas gauge — miles remaining.  Green > 30, amber 30→10, red ≤ 10
     // with a slow blink (sin gate) so the low-fuel state is unmistakable.
@@ -6476,18 +8120,44 @@ export class GameScene extends Phaser.Scene {
             && this.textures.exists(wantKey)) {
           this.hudGasIcon.setTexture(wantKey);
         }
+        // Reposition icon on the CENTER-of-screen side of the gas
+        // text so it never tucks under the weapon column.  Right-
+        // handed: icon LEFT of text (centered on text's left edge).
+        // Left-handed: icon RIGHT of text (mirror).
+        const tb = this.hudGas.getBounds?.();
+        if (tb) {
+          const GAP = 6, ICON_HALF = 18;
+          this.hudGasIcon.x = this._leftHanded
+            ? (tb.right + GAP + ICON_HALF)
+            : (tb.left  - GAP - ICON_HALF);
+        }
       } else {
         this.hudGas.setText(gas <= 0 ? '⛽ EMPTY' : `⛽ ${gas} mi`).setColor(gColor);
       }
     }
-    // Combo name (most recently activated only) + multiplier inline.
-    // Format: "SNOW-CONE  ×3.5" or just "×3.5" when nothing's active.
-    // Stacked combos like "CROSS-FADED + CALIFORNIA SOBER" get
-    // collapsed to whichever one tripped most recently.
+    // Accel-pedal charge bar — thin status bar directly below the gas
+    // readout; width matches the live gas text bounds so it stretches
+    // with the readout no matter what's displayed ("EMPTY", "180 mi",
+    // etc.).  Colour shifts from green → amber → red as it depletes.
+    if (this.hudAccelBar && this.hudGas) {
+      const tb = this.hudGas.getBounds?.();
+      this.hudAccelBar.clear();
+      if (tb) {
+        const barH = 4;
+        const barY = tb.bottom + 2;
+        const barX = tb.left;
+        const barW = tb.width;
+        const pct  = Math.max(0, Math.min(1, (this._accelCharge ?? 100) / 100));
+        const fillColor = pct < 0.2 ? 0xFF4444 : (pct < 0.5 ? 0xFFAA00 : 0x44FF44);
+        this.hudAccelBar.fillStyle(0x222222, 0.7).fillRect(barX, barY, barW, barH);
+        this.hudAccelBar.fillStyle(fillColor, 0.95).fillRect(barX, barY, barW * pct, barH);
+      }
+    }
+    // Multiplier readout — just the number now ("×3.5"), no combo
+    // name.  Combos still drive the score multiplier underneath and
+    // still feed the Connoisseur achievement.
     const mult   = this._scoreMult();
     const combos = this.drugs.getActiveCombos?.() ?? [];
-    // Connoisseur achievement — track every named combo that fires
-    // during the run.  When the set covers DRUG_COMBOS in full, award.
     if (combos.length) {
       this._combosFiredThisRun = this._combosFiredThisRun ?? new Set();
       for (const c of combos) this._combosFiredThisRun.add(c.key);
@@ -6498,17 +8168,15 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (mult > 1 || combos.length) {
-      const top      = combos[0];   // most recent (DrugSystem already sorts)
-      const comboTxt = top ? `${top.label}  ` : '';
       const tierColor = mult >= 8 ? '#FF2244' : mult >= 5 ? '#FFAA22' : '#44FF88';
       this.hudMult
-        .setText(`${comboTxt}×${mult.toFixed(1)}`)
-        .setColor(top ? (top.color ?? '#FFCC44') : tierColor)
+        .setText(`×${mult.toFixed(1)}`)
+        .setColor(tierColor)
         .setVisible(true);
     } else {
       this.hudMult.setVisible(false);
     }
-    this.hudDist.setText(`${miles.toLocaleString()} MI`);
+    this.hudDist.setText(`${milesRaw.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MI`);
     this.hudSpeed.setText(`${mph}`);
     // Re-apply the difficulty-tinted MPH color each frame.  _buildHUD's
     // initial color was being locked at scene-init time (before the
@@ -6542,6 +8210,32 @@ export class GameScene extends Phaser.Scene {
     // the CHECKPOINTS table, falling back to the broad region palette
     // name only if no location range matches.
     this.hudRegion.setText(getLocationName(progress) || palette.name || '');
+    // Park hudDist (mileage) immediately to the LEFT of hudRegion so
+    // the two read as one "8 MI  WASHINGTON" line.  Done here because
+    // region's bounds change with the location name length.
+    if (this.hudDist && this.hudRegion) {
+      const rb = this.hudRegion.getBounds?.();
+      if (rb) this.hudDist.x = rb.left - 8;
+    }
+    // Keep the in-game mute icon in sync with the audio system —
+    // covers any path that flips audio.muted from outside this
+    // button's own click handler (iPhone-menu long-press, etc.).
+    if (this.hudMuteLbl) {
+      const want = this.audio?.muted ? '🔇' : '🔊';
+      if (this.hudMuteLbl.text !== want) this.hudMuteLbl.setText(want);
+    }
+    // Perf readout — live FPS + scenery sprite count.  Flags show
+    // which heavy passes are currently disabled via ?no… URL params.
+    if (this.hudFPS) {
+      const fps = Math.round(this.game?.loop?.actualFps ?? 0);
+      const spr = this._renderedSpriteCount ?? 0;
+      const flags = [
+        this._perf?.noMirror  && 'noMirror',
+        this._perf?.noSprites && 'noSprites',
+        this._perf?.noEffects && 'noEffects',
+      ].filter(Boolean).join(' ');
+      this.hudFPS.setText(`FPS ${fps}  SPR ${spr}${flags ? '  [' + flags + ']' : ''}`);
+    }
 
     const stars = this.cops.starDisplay;
     let starsText = stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '';
@@ -6561,7 +8255,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ── Rear-view mirror — populate sprite pools with rear scene ──
-    if (this.hudMirrorGlass && this._mirrorBounds && this._mirrorCarPool) {
+    if (this.hudMirrorGlass && this._mirrorBounds && this._mirrorCarPool && !this._perf?.noMirror) {
       const mb = this._mirrorBounds;
       const carPool      = this._mirrorCarPool;
       const buildingPool = this._mirrorBuildingPool;
@@ -6582,7 +8276,8 @@ export class GameScene extends Phaser.Scene {
         : 0;
       const playerSeg = segsForState?.[playerSegIdx];
       const inTunnel  = !!playerSeg?.tunnel;
-      const onWater   = !!playerSeg?.water || !!playerSeg?.bridge;
+      const onWater     = !!playerSeg?.water || !!playerSeg?.bridge;
+      const onWaterLeft = !!playerSeg?.waterLeft && !onWater;
 
       const _mileMirror = (p.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
       const duskT  = TimeOfDay.duskAmount(_mileMirror);
@@ -6641,13 +8336,34 @@ export class GameScene extends Phaser.Scene {
       const horizonCx = mb.roadCx + lateralShift + curveShift;
 
       // Ground beneath the horizon — context-aware: grass on open road,
-      // concrete walls in a tunnel, deep-blue water on a bridge.
-      const groundCol = inTunnel ? 0x55524A
-                      : onWater  ? 0x1E3850
-                      :            (palette.grass1 ?? 0x3F6E40);
-      mg.fillStyle(groundCol, 1);
-      mg.fillRect(mb.glassX, mb.horizonY,
-                  mb.glassW, mb.glassY + mb.glassH - mb.horizonY);
+      // concrete walls in a tunnel, deep-blue water on a bridge.  For
+      // waterLeft segments (West Seattle approach mile 0-1) the ground
+      // is SPLIT — water on one side of the road, grass on the other.
+      // The mirror preserves the driver's left/right frame, so water
+      // (forward-LEFT) stays on mirror-LEFT.
+      const groundY = mb.horizonY;
+      const groundH = mb.glassY + mb.glassH - mb.horizonY;
+      if (inTunnel) {
+        mg.fillStyle(0x55524A, 1);
+        mg.fillRect(mb.glassX, groundY, mb.glassW, groundH);
+      } else if (onWater) {
+        mg.fillStyle(0x1E3850, 1);
+        mg.fillRect(mb.glassX, groundY, mb.glassW, groundH);
+      } else if (onWaterLeft) {
+        const grass = palette.grass1 ?? 0x3F6E40;
+        const water = 0x1E3850;
+        // Real rear-view mirrors preserve the driver's left/right frame —
+        // an object forward-LEFT stays on the mirror LEFT when seen
+        // behind you (the eye-to-mirror-to-rear bounce keeps left as
+        // left). Water on the forward-LEFT → water on mirror LEFT.
+        mg.fillStyle(water, 1);
+        mg.fillRect(mb.glassX, groundY, drawnRoadCx - mb.glassX, groundH);
+        mg.fillStyle(grass, 1);
+        mg.fillRect(drawnRoadCx, groundY, (mb.glassX + mb.glassW) - drawnRoadCx, groundH);
+      } else {
+        mg.fillStyle(palette.grass1 ?? 0x3F6E40, 1);
+        mg.fillRect(mb.glassX, groundY, mb.glassW, groundH);
+      }
       // Road trapezoid — converges to horizon vanishing point (curved!)
       // from the bottom edges (parallax-shifted only).  Mask clips any
       // overspill to the glass area.
@@ -6757,11 +8473,18 @@ export class GameScene extends Phaser.Scene {
       // mirror road.  Anchor the iteration on the player's VISUAL z
       // (camera + virtual_Z) so buildings that have just slipped past
       // the visible player car are picked up immediately.
+      // Mirror draw distance — extended so sprites shrink all the way
+      // to the vanishing point (where the road lines converge) before
+      // they pop out of existence.  Previously buildings stopped at 40
+      // segments (8000 u) and cars/cops at 9000–12000 u, making things
+      // vanish well short of the horizon.  180 segs ≈ 36000 u puts the
+      // farthest visible sprite at depthT=0 (the centerpoint).
+      const MIRROR_FAR_Z = 36000;
       const segs = this.road?.segments;
       let usedBuildings = 0;
       if (segs?.length) {
         const visualSegIdx = Math.floor((p.position + PLAYER_VIRTUAL_Z) / SEG_LENGTH);
-        for (let n = 1; n <= 40 && usedBuildings < buildingPool.length; n++) {
+        for (let n = 1; n <= 180 && usedBuildings < buildingPool.length; n++) {
           const segIdx = (visualSegIdx - n + segs.length) % segs.length;
           const seg = segs[segIdx];
           if (!seg?.sprites) continue;
@@ -6771,7 +8494,7 @@ export class GameScene extends Phaser.Scene {
             if (sp.type !== 'building' && sp.type !== 'house'
                 && sp.type !== 'tree')  continue;
             const vz = n * SEG_LENGTH + SEG_LENGTH / 2;
-            const proj = projectRear(vz, sp.offset, 9000);
+            const proj = projectRear(vz, sp.offset, MIRROR_FAR_Z);
             const s = buildingPool[usedBuildings++];
             placeSprite(s, sp.texKey, proj.x, proj.y, proj.depthT, 22);
             if (usedBuildings >= buildingPool.length) break;
@@ -6786,15 +8509,20 @@ export class GameScene extends Phaser.Scene {
       // passed the camera plane.  vz is the world-space distance
       // BEHIND the player car: 0 = right at the player's visual z,
       // bigger = further back.
+      // Cars + cops use MIRROR_FAR_Z so they shrink all the way to the
+      // vanishing point.  Sort FAR-FIRST so a car that's been falling
+      // behind keeps its pool slot as it shrinks toward the horizon
+      // (and near paints over far on overlap).  Pool overflow drops
+      // brand-new cars instead — they reappear next frame anyway.
       let usedCars = 0;
       const visualPlayerZ = p.position + PLAYER_VIRTUAL_Z;
       const carsBehind = (this.traffic ?? [])
         .map(c => ({ c, vz: visualPlayerZ - c.position }))
-        .filter(o => o.c.alive && o.vz > 0 && o.vz <= 9000)
+        .filter(o => o.c.alive && o.vz > 0 && o.vz <= MIRROR_FAR_Z)
         .sort((a, b) => b.vz - a.vz);   // far first → near paints over far
       for (const { c: car, vz } of carsBehind) {
         if (usedCars >= carPool.length) break;
-        const proj = projectRear(vz, car.laneOffset, 9000);
+        const proj = projectRear(vz, car.laneOffset, MIRROR_FAR_Z);
         const tex  = `car_front_${car.colorSet ?? 'white'}`;
         const fallback = this.textures.exists(tex) ? tex : 'car_front_white';
         placeSprite(carPool[usedCars++], fallback, proj.x, proj.y, proj.depthT, 18);
@@ -6804,11 +8532,11 @@ export class GameScene extends Phaser.Scene {
       // are baked into the texture, so no per-frame flashing needed.
       const copsBehind = (this.cops?.cops ?? [])
         .map(c => ({ c, vz: visualPlayerZ - c.position }))
-        .filter(o => o.vz > 0 && o.vz <= 12000)
+        .filter(o => o.vz > 0 && o.vz <= MIRROR_FAR_Z)
         .sort((a, b) => b.vz - a.vz);
       for (const { c: cop, vz } of copsBehind) {
         if (usedCars >= carPool.length) break;
-        const proj = projectRear(vz, cop.laneOffset, 12000);
+        const proj = projectRear(vz, cop.laneOffset, MIRROR_FAR_Z);
         const tex = this.textures.exists('car_front_police') ? 'car_front_police' : 'car_front_white';
         placeSprite(carPool[usedCars++], tex, proj.x, proj.y, proj.depthT, 20);
       }
@@ -6882,10 +8610,14 @@ export class GameScene extends Phaser.Scene {
     const g = this.hudGfx;
     g.clear();
 
-    // Left-side stack: each row is "[NAME] [BAR]" reading downward.
+    // Stack of "[NAME] [BAR]" rows.  Right-handed (default) anchors at
+    // the left edge; left-handed mirrors the whole block to the right
+    // edge so the drug bars sit on the opposite side from the weapon
+    // stack.  Internal label-then-bar layout is preserved either way —
+    // the player still reads left-to-right.
     const barW   = 110, barH = 15, rowH = 22;
     const labelW = 64;
-    const x      = 10;
+    const x      = this._leftHanded ? (SCREEN_W - 10 - labelW - barW) : 10;
     const yTop   = 85;
 
     if (!this._drugLabels) this._drugLabels = {};
@@ -7038,19 +8770,23 @@ export class GameScene extends Phaser.Scene {
     // bullet total, not the number of stacked tokens.
     counts.gun = this.cops.gunAmmo ?? 0;
 
-    // Touch-target sized icons — shrunk 5% from 60×52 → 57×49 to clear
-    // overlap with the speed display + Accel pedal.  yTop bumped 50 → 55
-    // so the top of the weapon stack doesn't crowd the MPH readout.
-    const iconW = 57, iconH = 49, rowGap = 6;
+    // Touch-target sized icons — 15% bigger than the old 57×49 cells
+    // (now 66×56) to be more thumb-friendly.  yTop pushed down 10 px
+    // so the larger cells don't crowd the MPH readout.
+    const iconW = 66, iconH = 56, rowGap = 6;
+    // Stack anchors against whichever edge is the player's "dominant"
+    // thumb — right edge by default, left edge in left-handed mode.
+    const lhWeap = !!this._leftHanded;
+    const xLeft  = 10;
     const xRight = SCREEN_W - 10;
-    const yTop   = 55;
+    const yTop   = 65;
     const top    = tokens.length ? tokens[tokens.length - 1] : null;
 
     let row = 0;
     for (const tType of TYPES) {
       const count = counts[tType.id] ?? 0;
       const y     = yTop + row * (iconH + rowGap);
-      const x     = xRight - iconW;
+      const x     = lhWeap ? xLeft : (xRight - iconW);
 
       // Pre-create the icon (real image if available, fallback to emoji) +
       // count text once per type.
@@ -7239,9 +8975,15 @@ export class GameScene extends Phaser.Scene {
   /** Generate a stable 5-char save code: <stopId><diffChar><3-hash>.
    *  Difficulty is encoded as E / N / H so the player can tell at a glance
    *  which mode the code resumes (and the resume path can restore the
-   *  matching difficulty before launching the run). */
+   *  matching difficulty before launching the run).  Custom mode resumes
+   *  under its underlying customSub (E/N/H) — the Custom-specific opt-ins
+   *  (drug sliders, starting stars, flags) aren't carried in the save
+   *  code anyway, so collapsing to the sub keeps codes always one of three
+   *  letters and avoids a 'C' the popup parser doesn't currently handle. */
   _makeSaveCode(stopId, score) {
-    const diffChar = (Difficulty.mode() ?? 'normal').charAt(0).toUpperCase(); // 'E' | 'N' | 'H'
+    const m = Difficulty.mode() ?? 'normal';
+    const effective = m === 'custom' ? (Difficulty.customSub?.() ?? 'normal') : m;
+    const diffChar = effective.charAt(0).toUpperCase(); // 'E' | 'N' | 'H'
     const hash3 = (Math.abs(score * 2654435761) % (36 * 36 * 36))
       .toString(36).toUpperCase().padStart(3, '0');
     return `${stopId}${diffChar}${hash3}`;
@@ -7276,8 +9018,10 @@ export class GameScene extends Phaser.Scene {
     this._saveRestStop(rs.id, code);
     this._lastCheckpoint = { name: rs.name, position: this.player.position, scoreAtCP: this.score };
 
-    // Quiet music while the menu is up so the user can read.
-    this.audio?.setPaused?.(true);
+    // Music keeps playing in the rest stop — only the mute button (M key /
+    // in-game mute icon) silences the radio.  Previously paused on entry,
+    // unpaused on _continue; removed per user direction so the player has
+    // a soundtrack while shopping.
 
     // Fade-to-white-then-launch effect — short cinematic so the transition
     // feels like an actual off-ramp pull-over, not an instant scene swap.
@@ -7471,7 +9215,8 @@ export class GameScene extends Phaser.Scene {
 
   _buildCodeEntryPopup(defaultCode, onAccept, onCancel) {
     this._modalOpen = true;
-    let code = String(defaultCode || '').toUpperCase().slice(0, 4);
+    const CODE_LEN = 5;
+    let code = String(defaultCode || '').toUpperCase().slice(0, CODE_LEN);
     const objs = [];
     const D = 230;
     const cx = SCREEN_W / 2, cy = SCREEN_H / 2;
@@ -7486,17 +9231,17 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(2, 0xFFFFFF).setDepth(D + 1);
     objs.push(card);
 
-    const title = this.add.text(cx, cy - cardH/2 + 20, 'ENTER 4-CHAR SAVE CODE', {
+    const title = this.add.text(cx, cy - cardH/2 + 20, 'ENTER 5-CHAR SAVE CODE', {
       fontSize: '15px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
     }).setOrigin(0.5).setDepth(D + 2);
     objs.push(title);
 
     const slotsY = cy - cardH/2 + 56;
     const slotW = 36, slotGap = 8;
-    const slotsTotalW = 4 * slotW + 3 * slotGap;
+    const slotsTotalW = CODE_LEN * slotW + (CODE_LEN - 1) * slotGap;
     const slotsX = cx - slotsTotalW / 2 + slotW / 2;
     const slotTexts = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < CODE_LEN; i++) {
       const x = slotsX + i * (slotW + slotGap);
       const sBg = this.add.rectangle(x, slotsY, slotW, 42, 0x000000, 1)
         .setStrokeStyle(1, 0x888888).setDepth(D + 2);
@@ -7507,7 +9252,7 @@ export class GameScene extends Phaser.Scene {
       slotTexts.push(sTx);
     }
     const refresh = () => {
-      for (let i = 0; i < 4; i++) slotTexts[i].setText(code[i] ?? '');
+      for (let i = 0; i < CODE_LEN; i++) slotTexts[i].setText(code[i] ?? '');
     };
     refresh();
 
@@ -7530,7 +9275,7 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(D + 3);
       kBg.on('pointerdown', (p) => {
         p.event?.stopPropagation?.();
-        if (code.length < 4) { code += ch; refresh(); }
+        if (code.length < CODE_LEN) { code += ch; refresh(); }
       });
       objs.push(kBg, kTx);
     }
@@ -7586,6 +9331,10 @@ export class GameScene extends Phaser.Scene {
     const fireFirstTap = () => { this._awaitingFirstGameTap = false; };
     this.time.delayedCall(180, () => {
       this.input.once('pointerdown', fireFirstTap);
+      // Either steering direction should kick the run off — previously
+      // only Right (+ Space/Enter) cleared the flag, which left Easy
+      // players unable to start with a Left tap in L/R mode.
+      this.input.keyboard?.once('keydown-LEFT',  fireFirstTap);
       this.input.keyboard?.once('keydown-RIGHT', fireFirstTap);
       this.input.keyboard?.once('keydown-SPACE', fireFirstTap);
       this.input.keyboard?.once('keydown-ENTER', fireFirstTap);
@@ -7610,11 +9359,33 @@ export class GameScene extends Phaser.Scene {
       this.cops.starTimer = 4;            // matches addStar's reset
       this._customStartStars = null;
     }
-    // Initialize/play radio on first user interaction (browser audio gate).
-    if (this.audio && !this.audio._inited) {
-      this.audio.currentStation = 4; // Country (default station per user request)
-      this.audio.init?.();
-      this.audio._inited = true;
+    // Initialize/play radio on first user interaction (browser audio
+    // gate).  ARCADE (index 0) is the chiptune instrumental station —
+    // the default vibe when no other music is already playing.  But
+    // if the player started a song or a playlist from the iPhone-menu
+    // music app before launching, that selection takes priority — we
+    // do NOT switch them off it.
+    if (this.audio) {
+      const customMusicPlaying =
+        (!!this.audio._trackEl && !this.audio._trackEl.paused) ||
+        (Array.isArray(this.audio._playlistQueue) && this.audio._playlistQueue.length > 0);
+      if (!this.audio._inited) {
+        // First-ever init — default to ARCADE.
+        this.audio.currentStation = 0;
+        this.audio.init?.();
+        this.audio._inited = true;
+      } else if (!customMusicPlaying) {
+        // No music currently playing — kick a fresh ARCADE track so
+        // Start Over / Checkpoint still drops the player into music
+        // instead of silence.
+        this.audio.currentStation = 0;
+        this.audio._enablePlayback?.();
+        this.audio.setStation?.(0);
+      } else {
+        // Player's own song/playlist is already running.  Resume
+        // playback state without touching the station selection.
+        this.audio._enablePlayback?.();
+      }
     }
     // Fade out the title overlay.  Includes the animated D-U-I letter
     // images so they don't linger after gameplay starts.
@@ -7648,11 +9419,12 @@ export class GameScene extends Phaser.Scene {
     this._touchLeft = this._touchRight = this._touchF12 = false;
   }
 
-  // Top speed in internal units, accounting for cocaine pickup boost + NOS.
+  // Top speed in internal units, accounting for cocaine + meth pickup boosts + NOS.
   _maxSpeedWithBoost() {
-    const bonusMph = this.drugs.getCocaineSpeedBonusMPH?.() ?? 0;
-    const nosTier  = this._vehicleAccessories?.().nos ?? 0;
-    const topMph   = 120 + bonusMph + nosTier * 5;
+    const cokeBonus = this.drugs.getCocaineSpeedBonusMPH?.() ?? 0;
+    const methBonus = this.drugs.getMethSpeedBonusMPH?.()    ?? 0;
+    const nosTier   = this._vehicleAccessories?.().nos ?? 0;
+    const topMph    = 120 + cokeBonus + methBonus + nosTier * 5;
     return MAX_SPEED * (topMph / 120);
   }
 
@@ -7687,19 +9459,29 @@ export class GameScene extends Phaser.Scene {
     this.score       -= lost;
 
     // Warp back to last checkpoint
-    this.player.position = cp.position;
-    this.player.speed    = MAX_SPEED * 0.25;
-    this.player.x        = 0;
-    this.player.xImpulse = 0;
+    this.player.position      = cp.position;
+    this.player.speed         = MAX_SPEED * 0.25;
+    this.player.x             = this._postCrashLaneX();
+    this.player.xImpulse      = 0;
+    this.player.steerVelocity = 0;
 
     // Clear cops, reset stars
     this.cops.clearArrest();
 
+    // Reset the drug-bump star-gate flags too — without this, Path B
+    // ("20 NPC bumps while drug ≥ 30%") is permanently disabled after
+    // the first arrest because `_drugBumpFired` stays true forever.
+    // _npcCrashesPostDrink also resets so Path A doesn't carry stale
+    // counts from the pre-arrest run.
+    this._drugBumpFired       = false;
+    this._drugBumpCount       = 0;
+    this._npcCrashesPostDrink = 0;
+
     // Remove traffic near warp point to prevent instant re-collision
     this.traffic = this.traffic.filter(t => Math.abs(t.position - cp.position) > 15000);
 
-    // Probation: any drug use within 60s = +2 stars
-    this._probationTimer = 60;
+    // Probation: any drug use within 30s = +2 stars
+    this._probationTimer = 30;
 
     this.effects.triggerShake(700, 0.02);
     this._showPopup(

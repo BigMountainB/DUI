@@ -129,6 +129,119 @@ const ROOF_COLORS  = [
   0x4A2E2A,  0x5A3835,  0x3A2825,  0x6E4540,    // shingle browns/dark reds
   0x4D4A45,  0x3A3B3D,                           // grey shingle
 ];
+const CODEX_SEATTLE_SKYLINE = [
+  // South-to-north pass into downtown Seattle: south CBD towers, then
+  // the denser midtown / waterfront core.  (Stadiums removed from the
+  // cycle pool — they're placed explicitly on the LEFT side at mile
+  // 1.85/2.00 via addStadium(); leaving them in the pool also spawned
+  // them on the right side, which the user didn't want.)
+  'codex_seattle_columbia_center',
+  'codex_seattle_municipal_tower',
+  'codex_seattle_safeco_plaza',
+  'codex_seattle_1201_third',
+  'codex_seattle_f5_tower',
+  'codex_seattle_city_centre',
+  'codex_seattle_rainier_square',
+  'codex_seattle_two_union_square',
+  'codex_seattle_russell_investments',
+  'codex_seattle_tower_pair',
+  'codex_seattle_office_cluster',
+  'codex_seattle_skyline',
+];
+const CODEX_BELLEVUE_SKYLINE = [
+  'codex_bellevue_skyline',
+  'codex_pse_bellevue_office',
+  'codex_pse_bellevue_second_office',
+  'codex_bellevue_wavy_residential',
+  'codex_bellevue_city_center_dark',
+  'codex_bellevue_braced_glass_tower',
+  'codex_bellevue_twin_residential',
+  'codex_bellevue_residential_cluster',
+];
+const CODEX_ISSAQUAH_BUILDINGS = [
+  'codex_issaquah_front_supply',
+  'codex_issaquah_highlands',
+  'codex_issaquah_cottage',
+];
+
+// ─────────────────────────────────────────────────────────────────────
+//  Regional tree / shrub pools (photo PNGs registered in AssetManifest).
+//
+//  Western WA conifers (Bellevue tail → Snoqualmie Pass): Douglas Fir,
+//  Western Hemlock, Western Red Cedar.  Sized via SCENERY_IMAGE_PROFILES
+//  in GameScene.js so the player sees full-sized 4-car-tall conifers.
+//
+//  Eastern WA dry-side (Cle Elum → Vantage → Columbia Basin):
+//  Ponderosa + Western White Pine + sage / rabbitbrush shrubs.
+//
+//  Each species lists 2+ variants so the slot-based spawn loop below
+//  cycles through them without obvious 1-2-1-2 repeats.
+// ─────────────────────────────────────────────────────────────────────
+const WESTERN_WA_CONIFERS = [
+  'tree_douglas_fir_1', 'tree_douglas_fir_2',
+  'tree_red_cedar_1',   'tree_red_cedar_2',
+  'tree_hemlock1',      'tree_hemlock2', 'tree_hemlock3',
+  'tree_cedar1',        'tree_cedar2',
+];
+// Urban / suburban Pacific NW mix — maples planted alongside conifers,
+// the look of a Seattle / Bellevue / Mercer Island street.
+const URBAN_PNW_MIX = [
+  'tree_bigleaf_maple_1', 'tree_bigleaf_maple_2', 'tree_vine_maple_1',
+  'tree_douglas_fir_1',   'tree_douglas_fir_2',
+  'tree_red_cedar_1',     'tree_hemlock1',        'tree_hemlock2',
+];
+const EAST_CASCADES_PINES = [
+  'tree_ponderosa_1', 'tree_ponderosa_2',
+  'tree_white_pine_1','tree_white_pine_2',
+];
+const COLUMBIA_BASIN_SHRUBS = [
+  'shrub_sage_1', 'shrub_sage_2', 'shrub_rabbitbrush_1',
+];
+const COLUMBIA_BASIN_SPARSE_PINES = ['tree_ponderosa_1', 'tree_ponderosa_2'];
+// (CODEX_WEST_SEATTLE_PORT removed — cranes are spawned exclusively by
+// the mile-1.0-1.7 bridge branch in the spawn block, NOT mixed into the
+// residential pool.  Mixing put cranes on West Seattle home streets.)
+const CODEX_SKYLINE_BACKDROPS = new Set([
+  'codex_seattle_tmobile_park',
+  'codex_seattle_lumen_field',
+  'codex_seattle_columbia_center',
+  'codex_seattle_municipal_tower',
+  'codex_seattle_safeco_plaza',
+  'codex_seattle_1201_third',
+  'codex_seattle_f5_tower',
+  'codex_seattle_city_centre',
+  'codex_seattle_rainier_square',
+  'codex_seattle_two_union_square',
+  'codex_seattle_russell_investments',
+  'codex_seattle_tower_pair',
+  'codex_seattle_office_cluster',
+  'codex_seattle_skyline',
+  'codex_bellevue_skyline',
+  'codex_pse_bellevue_office',
+  'codex_pse_bellevue_second_office',
+  'codex_bellevue_wavy_residential',
+  'codex_bellevue_city_center_dark',
+  'codex_bellevue_braced_glass_tower',
+  'codex_bellevue_twin_residential',
+  'codex_bellevue_residential_cluster',
+  // Directional variants used by the per-side cycle pools — without
+  // these, the suffixed keys missed the city-building setback/heightBoost
+  // path and got planted at the close 2.05 roadside offset, jamming
+  // tall office towers up against the shoulder.
+  'codex_pse_bellevue_office_left',
+  'codex_pse_bellevue_office_right',
+  'codex_pse_bellevue_second_office_left',
+  'codex_pse_bellevue_second_office_right',
+  'codex_bellevue_twin_residential_left',
+]);
+// Building offsets are normalized road-width units.  City photo cutouts
+// are very wide, so keep them far enough out that their bases never read
+// as sitting in the travel lanes at horizon distance.  Keep the front
+// row just outside the Bellevue exit ramp: the ramp's outer edge is
+// ~4.30, so keep the building centers beyond that while leaving them
+// close enough for the player to collide with when drifting off-road.
+const CITY_BUILDING_SETBACK = 5.35;
+const CITY_BUILDING_BACKROW = 6.8;
 
 function getTraitsAt(t) {
   for (const r of REGION_ORDER) {
@@ -208,26 +321,49 @@ export function buildRoute(count = ROUTE_SEGS) {
     const wave  = Math.sin(i * 0.003) * traits.curveMax * 0.7;
     return noise * 0.4 + wave * 0.6;
   });
-  // ── Manual curve overrides ────────────────────────────────────────
-  // Real I-90 has a noticeable LEFT bend coming off the Lacey Murrow
-  // bridge onto Mercer Island and a RIGHT bend exiting the Mercer
-  // Island Lid Tunnel.  Add a curve impulse over those mile windows so
-  // the road plays like the real route.  Each impulse is shaped as a
-  // half-sine across the window so the curve eases in and out.
-  const addCurveImpulse = (mileStart, mileEnd, peakCurve) => {
-    const i0 = Math.floor((mileStart / TOTAL_ROUTE_MILES) * count);
-    const i1 = Math.floor((mileEnd   / TOTAL_ROUTE_MILES) * count);
+  // ── Bridge & tunnel ranges ───────────────────────────────────────
+  // Edge mile-markers (start..end) for every drivable bridge + tunnel
+  // on the eastside.  Used below to (a) tag segments as bridge/tunnel
+  // and (b) zero-out curvature so the road is dead-straight across
+  // any bridge — no Washington bridge has a turn on it.
+  const WEST_SEATTLE_BRIDGE_RANGE = [1.0, 1.7];   // high concrete over Duwamish (shifted: mile 0-1 is pre-bridge water-left approach)
+  const MT_BAKER_TUNNEL_RANGE     = [4.9, 5.6];   // west portal → east portal
+  const MURROW_BRIDGE_RANGE       = [5.7, 7.2];   // Lacey V. Murrow floating bridge
+  const MERCER_LID_TUNNEL_RANGE   = [7.4, 7.9];   // covered lid across Mercer Island
+  const EAST_CHANNEL_BRIDGE_RANGE = [9.8, 10.2];  // Mercer → Bellevue
+  const BRIDGE_RANGES = [WEST_SEATTLE_BRIDGE_RANGE, MURROW_BRIDGE_RANGE, EAST_CHANNEL_BRIDGE_RANGE];
+  // Flatten the procedural curve noise across every bridge segment —
+  // bridges on this route are straight in real life and the player
+  // wreck-clamps badly if a curve drags them into the rail.
+  for (const [m0, m1] of BRIDGE_RANGES) {
+    const i0 = Math.floor((m0 / TOTAL_ROUTE_MILES) * count);
+    const i1 = Math.floor((m1 / TOTAL_ROUTE_MILES) * count);
+    for (let i = i0; i < i1; i++) rawCurves[i] = 0;
+  }
+  // Mt Baker Tunnel — real-world dead-straight (single bore aligned
+  // east/west under the freeway lid).  Zero any noise across the
+  // tunnel range so the procedural / GPS curve data can't push the
+  // player into the concrete.
+  {
+    const [m0, m1] = MT_BAKER_TUNNEL_RANGE;
+    const i0 = Math.floor((m0 / TOTAL_ROUTE_MILES) * count);
+    const i1 = Math.floor((m1 / TOTAL_ROUTE_MILES) * count);
+    for (let i = i0; i < i1; i++) rawCurves[i] = 0;
+  }
+  // Mercer Island Lid Tunnel — real-world I-90 bends RIGHT through
+  // the lid as the freeway rounds the island ridge.  Add a half-sine
+  // right-curve impulse so the in-game tunnel matches the actual
+  // geometry instead of running straight through the rock.
+  {
+    const [m0, m1] = MERCER_LID_TUNNEL_RANGE;
+    const i0 = Math.floor((m0 / TOTAL_ROUTE_MILES) * count);
+    const i1 = Math.floor((m1 / TOTAL_ROUTE_MILES) * count);
+    const peak = +0.012;                          // gentle right bend
     for (let i = i0; i < i1; i++) {
       const tt = (i - i0) / Math.max(1, i1 - i0);
-      rawCurves[i] = (rawCurves[i] ?? 0) + peakCurve * Math.sin(tt * Math.PI);
+      rawCurves[i] = peak * Math.sin(tt * Math.PI);
     }
-  };
-  // Bridge stays straight from 7.0–8.0 — no curve there.  Left bend
-  // begins ONLY after the player rolls off the bridge onto Mercer
-  // Island at mile 8.0, easing back to neutral by 8.5 (lid-tunnel
-  // entrance).  Right bend after the lid tunnel exits.
-  addCurveImpulse(8.0, 8.5, -0.012);   // Onto Mercer Island — left bend
-  addCurveImpulse(9.0, 9.6, +0.010);   // Lid-tunnel exit — right bend
+  }
   const curves = smooth(rawCurves, 0.04);
 
   // ── Hills ────────────────────────────────────────────────────────────
@@ -243,22 +379,20 @@ export function buildRoute(count = ROUTE_SEGS) {
   // Pullman.  t = mile / 293.
   const I90_ELEV_FT = [
     [0.0000,   350],   //   0 mi:  West Seattle (Alaska Junction hilltop)
-    [0.0068,   200],   //   2 mi:  West Seattle Bridge midspan (high above Duwamish)
-    [0.0102,    20],   //   3 mi:  Off the bridge into SoDo (sea level)
-    [0.0170,    20],   //   5 mi:  SoDo (still sea level)
-    [0.0205,    55],   //   6 mi:  Mt. Baker Tunnel west portal
-    [0.0228,    55],   //   6.7 mi: Mt. Baker Tunnel east portal
-    [0.0240,    25],   //   7.0 mi: Coming off the tunnel ramp toward bridge (eased)
-    [0.0252,    20],   //   7.4 mi: Floating bridge midspan — water level
-    [0.0273,    20],   //   8 mi:  Bridge end / Mercer Island west shore (still water level)
-    [0.0280,    34],   //   8.2 mi: Gentle ramp up off the bridge (eased so NPCs don't pop)
-    [0.0288,    60],   //   8.4 mi: Steeper climb up the Mercer Island ridge
-    [0.0294,    78],   //   8.6 mi: Approach to Mercer Island Lid Tunnel
-    [0.0303,    78],   //   8.9 mi: Inside the lid tunnel — held flat
-    [0.0312,    72],   //   9.1 mi: Just past lid tunnel exit
-    [0.0325,    50],   //   9.5 mi: Gentle descent toward East Channel
-    [0.0341,    25],   //  10 mi:  East Channel Bridge approach (lake level)
-    [0.0392,    32],   //  11.5 mi: East Channel Bridge end — Bellevue shore
+    [0.0020,   290],   //   0.6 mi: West Seattle Bridge west approach (deck climbing)
+    [0.0033,   200],   //   1.0 mi: West Seattle Bridge midspan (high above Duwamish)
+    [0.0044,    80],   //   1.3 mi: Off the bridge, descending into SoDo
+    [0.0137,    20],   //   4.0 mi: SoDo (sea level)
+    [0.0167,    55],   //   4.9 mi: Mt. Baker Tunnel west portal
+    [0.0191,    55],   //   5.6 mi: Mt. Baker Tunnel east portal
+    [0.0195,    30],   //   5.7 mi: Ramp down to the Lacey V. Murrow approach
+    [0.0218,    18],   //   6.4 mi: Murrow Floating Bridge midspan (lake level)
+    [0.0246,    25],   //   7.2 mi: Murrow east end / Mercer Island west shore
+    [0.0252,    70],   //   7.4 mi: Mercer Island Lid Tunnel west portal (ridge top)
+    [0.0270,    70],   //   7.9 mi: Mercer Island Lid Tunnel east portal
+    [0.0290,    40],   //   8.5 mi: Gentle descent toward East Channel
+    [0.0335,    25],   //   9.8 mi: East Channel Bridge approach (lake level)
+    [0.0348,    30],   //  10.2 mi: East Channel Bridge end — Bellevue shore
     [0.0410,    92],   //  12 mi:  Bellevue (I-405 jct, climbing up)
     [0.0512,   200],   //  15 mi:  Eastgate climb
     [0.0580,   108],   //  17 mi:  Issaquah (valley floor)
@@ -327,7 +461,15 @@ export function buildRoute(count = ROUTE_SEGS) {
   // World elevation is absolute, not an accumulated random walk. Keep the
   // pavement profile clean and macro-scale: the real-route keyframes create
   // the climbs and descents, while the road surface itself stays smooth.
-  const ELEV_SCALE = 340;
+  // ELEV_SCALE doubled (340 → 680) per user request to make hills look
+  // about 2× as steep visually.  Important: realGradePct (line below)
+  // divides dY by ELEV_SCALE, so the scale CANCELS OUT of the physics
+  // grade — gradePct stays unchanged, meaning the camera pitch boost,
+  // grade-based speed multiplier, and grade-sign placement all see
+  // exactly the same real-world percentages as before.  Only seg.y
+  // (the road's vertical world coordinate) doubles, which is what
+  // drives the visual climbs/descents.
+  const ELEV_SCALE = 680;
   const baseElevFt = elevAt(0);
   const rawHills = new Array(count).fill(0).map((_, i) => {
     const t = i / count;
@@ -366,6 +508,12 @@ export function buildRoute(count = ROUTE_SEGS) {
   // physics see a clean curve even where hills[] still has tiny ripples.
   const macroGradeSmooth   = boxBlurCentered(macroGrade,   12, 2);
   const realGradePctSmooth = boxBlurCentered(realGradePct, 12, 2);
+  // Photo skyline cutouts are visually distinctive. If the same one
+  // repeats within a few nearby placements, it reads as cloned buildings
+  // stacked together. Track recent picks per roadside so skyline pools
+  // rotate more like a city block instead of using the generic block
+  // picker's repeated-primary behavior.
+  const recentSkylineKeys = { left: [], right: [] };
 
   for (let i = 0; i < count; i++) {
     const t      = i / count;
@@ -380,32 +528,10 @@ export function buildRoute(count = ROUTE_SEGS) {
     //   • FAR  band (offset 1.9–4.5) — spread further out into the scene
     //     so the world has perceived depth instead of a 2-deep tree wall.
     // Each segment can spawn from either band on either side independently.
-    const TREE_TEXTURES = ['tree_hemlock1', 'tree_hemlock2', 'tree_cedar1', 'tree_cedar2', 'tree_generic'];
-    const pickTreeTex = () => TREE_TEXTURES[Math.floor(rng.next() * TREE_TEXTURES.length)];
-    const pushTree = (offset) => {
-      const type = rng.pick(traits.scenery);
-      sprites.push({
-        type,
-        texKey: type === 'tree' ? pickTreeTex() : null,
-        offset,
-        baseW: 2000, baseH: 7000,
-        collected: false,
-      });
-    };
-    if (traits.scenery.length > 0) {
-      // Inner band (offset 1.6–2.05) — sits ~1 lane back from the fog line
-      // so the player has a grass shoulder to spin out into instead of
-      // immediately slamming a tree. The user explicitly wants this buffer
-      // since trees are a crash hazard.
-      const innerP = traits.sceneryDensity * 1.4;
-      if (rng.bool(innerP)) pushTree( rng.range(1.6, 2.05));
-      if (rng.bool(innerP)) pushTree(-rng.range(1.6, 2.05));
-      // Outer band — fills the scenery scene to the horizon at slightly
-      // higher per-segment probability so the world has visible depth.
-      const outerP = traits.sceneryDensity * 2.2;
-      if (rng.bool(outerP)) pushTree( rng.range(2.3, 5.0));
-      if (rng.bool(outerP)) pushTree(-rng.range(2.3, 5.0));
-    }
+    // Generic per-segment natural scenery disabled for the current art
+    // pass. Individual trees turned into heavy sprite clutter, and after
+    // removing trees the remaining shrubs read as repeated piles. Region
+    // identity now comes from authored buildings/strips and sparse skyline.
 
     // (Random brown freeway signs removed — real mileage signs are
     // placed below at each CHECKPOINT location.)
@@ -419,18 +545,26 @@ export function buildRoute(count = ROUTE_SEGS) {
     //     city block. Spawns more often than frontage to fill the scene.
     // Generic procedural-style fallback pool (used for regions without a
     // dedicated photo asset set, e.g. palouse).
-    const BUILDING_TEXTURES = ['building_1','building_2','building_3','building_4','building_5','building_6','building_7'];
-    // Region-specific photo pools — user-supplied "Scene Building" assets.
+    // Region-specific Codex building pools.
     //   • West Seattle homes — single-family residences (Pacific NW).
-    //   • Sea/Bev skyscrapers — downtown Seattle + downtown Bellevue cores.
-    //   • Bell/Issy mid-rise — Bellevue surroundings + Issaquah corridor.
-    const WEST_SEATTLE_HOMES = ['west_seattle_1','west_seattle_2','west_seattle_3','west_seattle_4','west_seattle_5','west_seattle_6'];
-    const SEA_BEV_TOWERS     = ['sea_bev_1','sea_bev_2','sea_bev_3','sea_bev_4','sea_bev_5','sea_bev_6'];
-    const BELL_ISSY_BLDG     = ['bell_issy_1','bell_issy_2','bell_issy_3','bell_issy_4','bell_issy_5','bell_issy_6'];
+    //   • Seattle/Bellevue towers — downtown Seattle + downtown Bellevue cores.
+    //   • Issaquah buildings — late-eastside corridor.
+    // Homes ONLY — cranes are spawned exclusively in the bridge stretch
+    // (mile 1.0-1.7) by the mile-based branch upstream.  Do not mix
+    // CODEX_WEST_SEATTLE_PORT in here or cranes start appearing on
+    // residential streets.
+    const WEST_SEATTLE_HOMES = [
+      'west_seattle_1',
+      'west_seattle_2',
+      'west_seattle_3',
+      'west_seattle_4',
+      'west_seattle_5',
+      'west_seattle_6',
+    ];
     // Resolve the right pool for the current segment based on which
-    // I-90 region we're in.  Eastside (post-Bellevue) flips to West
-    // Seattle homes for the Issaquah tail (mile 16+) so that exit reads
-    // as the residential edge of town, per user direction.
+    // I-90 region we're in.  Bellevue skyscrapers only cover the 1.5-mile
+    // downtown core, then the corridor steps down to Bellevue/Issaquah
+    // mid-rise assets. Eastside flips to Codex Issaquah assets at mile 16.
     const _mileForPool = t * TOTAL_ROUTE_MILES;
     let _regionKeyForPool = null;
     for (const r of REGION_ORDER) {
@@ -440,21 +574,34 @@ export function buildRoute(count = ROUTE_SEGS) {
       switch (_regionKeyForPool) {
         case 'seattle_urban':
         case 'mercer_island':   return WEST_SEATTLE_HOMES;
-        case 'downtown_seattle':return SEA_BEV_TOWERS;
-        case 'eastside_urban':  return rng.bool(0.55) ? SEA_BEV_TOWERS : BELL_ISSY_BLDG;
-        case 'eastside':        return _mileForPool >= 16 ? WEST_SEATTLE_HOMES : BELL_ISSY_BLDG;
-        default:                return BUILDING_TEXTURES;
+        case 'downtown_seattle':return CODEX_SEATTLE_SKYLINE;
+        case 'eastside_urban':  return CODEX_BELLEVUE_SKYLINE;
+        case 'eastside':        return CODEX_ISSAQUAH_BUILDINGS;
+        default:                return null;
       }
     })();
     // Treat a homes-only pool as a residential context — the spawner
     // skips procedural houses and drops in image-based homes instead.
     const poolIsHomes = buildingPool === WEST_SEATTLE_HOMES;
+    const poolIsCodexSkyline = buildingPool === CODEX_SEATTLE_SKYLINE
+                            || buildingPool === CODEX_BELLEVUE_SKYLINE;
     // Block-based texture picker — neighbours share a primary style for
     // ~40-segment runs (≈ a city block) so the eye reads coherent
     // neighbourhoods of similar homes instead of one-of-each chaos.
     // Each block has a "primary" key picked by index; 70 % of buildings
     // in the block use it, 30 % drift to a random other key for variety.
-    const pickBuildingTex = () => {
+    const pickBuildingTex = (offset = 0) => {
+      if (poolIsCodexSkyline) {
+        const side = offset < 0 ? 'left' : 'right';
+        const recent = recentSkylineKeys[side];
+        let choices = buildingPool.filter(key => !recent.includes(key));
+        if (choices.length === 0) choices = buildingPool;
+        const seed = Math.floor(i / 18) * 5 + (side === 'left' ? 2 : 0);
+        const key = choices[seed % choices.length];
+        recent.unshift(key);
+        recent.length = Math.min(recent.length, Math.min(7, buildingPool.length - 1));
+        return key;
+      }
       const block      = Math.floor(i / 40);
       const primary    = buildingPool[(block * 7 + 3) % buildingPool.length];
       return rng.bool(0.70)
@@ -469,7 +616,7 @@ export function buildRoute(count = ROUTE_SEGS) {
       if (poolIsHomes) {
         return {
           type:      'building',
-          texKey:    pickBuildingTex(),
+          texKey:    pickBuildingTex(offset),
           offset,
           // Home photos are roughly 1.4× wider than tall — slightly bigger
           // than the procedural-house footprint so they read at full size
@@ -502,13 +649,24 @@ export function buildRoute(count = ROUTE_SEGS) {
         };
       }
       const isTower = style === 'tower';
+      const texKey = pickBuildingTex(offset);
+      const isCodexSkyline = CODEX_SKYLINE_BACKDROPS.has(texKey);
       const bFloors = isTower
         ? 6 + Math.floor(rng.next() * 12)
         : 3 + Math.floor(rng.next() * 4);
       return {
         type:      'building',
-        texKey:    pickBuildingTex(),
-        offset,
+        texKey,
+        offset:    isCodexSkyline
+          ? (offset >= 0 ? Math.max(offset, CITY_BUILDING_SETBACK) : Math.min(offset, -CITY_BUILDING_SETBACK))
+          : offset,
+        visualMinOffset: isCodexSkyline ? CITY_BUILDING_SETBACK : undefined,
+        // Per user: everything but weapons/drugs should be collidable.
+        // (Default undefined → solid obstacle in the scenery collision
+        // check at GameScene.js:2914.  Pickups aren't in SCENERY_TYPES
+        // so they're unaffected and still pick up normally.)
+        collidable: undefined,
+        heightBoost: isCodexSkyline ? 3.0 : undefined,
         baseW:     isTower
           ? 900 + Math.floor(rng.next() * 700)
           : 700 + Math.floor(rng.next() * 500),
@@ -529,9 +687,249 @@ export function buildRoute(count = ROUTE_SEGS) {
       // Linear taper 1.0 → 0.15 over miles 14-17.
       densityScale = 1.0 - 0.85 * ((mileNow - 14) / 3);
     }
-    if (traits.buildings && mileNow <= 17) {
+    // ── West Seattle approach (mile 0-1) ────────────────────────────
+    // Water on the LEFT (rendered in Road.js via seg.waterLeft).
+    // RIGHT side: pseudo-random walk through the home pool so the same
+    // 6 PNGs combine differently every block — no obvious repeat
+    // patterns.  No left spawns at all (the bay is over there).
+    if (mileNow >= 0 && mileNow < 1.0) {
+      const slotsPerMile = 100;  // dense residential frontage
+      const segsPerSlot  = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / slotsPerMile;
+      const slotNow  = Math.floor(i / segsPerSlot);
+      const slotPrev = i > 0 ? Math.floor((i - 1) / segsPerSlot) : -1;
+      if (slotNow > slotPrev) {
+        // Spawn at every slot — no random skips.  (Previously had a
+        // 15% skip for "natural gaps" but the gaps left visible holes
+        // in the home row as the player drove past, and the user wants
+        // an unbroken West Seattle frontage from start to bridge.)
+        // Pseudo-random texture pick — a hash of slot index gives a
+        // non-repeating but deterministic walk through the home pool.
+        const hash    = (slotNow * 7919 + 13) % 997;
+        const texKey  = WEST_SEATTLE_HOMES[hash % WEST_SEATTLE_HOMES.length];
+        // Right side only — water field on left, no spawns there.
+        // Positive offset = RIGHT in this engine's coords.
+        const offset  = 2.05 + rng.next() * 0.20;
+        sprites.push({
+          type:      'building',
+          texKey,
+          offset:    offset,
+          baseW:     5400 + Math.floor(rng.next() * 2400),
+          baseH:     4200 + Math.floor(rng.next() * 1400),
+          collected: false,
+        });
+      }
+    }
+    // ── West Seattle Bridge cranes (mile 1.05 – 1.75) ──────────────
+    // Container cranes flank the bridge in the port water below.
+    // Visibility lookahead = DRAW_DIST × SEG_LENGTH ÷ (ROUTE_SEGS /
+    // TOTAL_ROUTE_MILES) ≈ 0.23 mi, so spawn at 1.05 yields first
+    // visible at ~0.82 mi.  Start pulled back another ~0.07 mi
+    // (~2 sec) per user request so cranes appear earlier still.
+    // End pushed from 1.70 → 1.75 so the slot at ~1.71 mi can fire
+    // (previously the last crane landed around 1.53; the new bound
+    // pushes the last spawn out past mile 1.6).
+    // GameScene._renderSceneSprites() caps the crane lookahead at
+    // DRAW_DIST explicitly (cranes don't render beyond the road-
+    // projection cache) so cranes never appear with the wrong
+    // perspective at extreme distance.
+    else if (mileNow >= 1.05 && mileNow < 1.75) {
+      const CRANE_LEFT_POOL = [
+        'codex_ws_crane_crate_left',
+        'codex_ws_crane_white_boxes_left',
+      ];
+      const CRANE_RIGHT_POOL = [
+        'codex_ws_crane_crate_right',
+        'codex_ws_crane_white_boxes_right',
+      ];
+      // 7 slots/mi × 0.65 mi bridge × ~0.55 prob × 2 sides ≈ 5-8 cranes
+      // total — reads as a port row, not a stacked junkyard.
+      const craneSlotsPerMile = 7;
+      const segsPerCraneSlot  = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / craneSlotsPerMile;
+      const craneSlot      = Math.floor(i / segsPerCraneSlot);
+      const craneSlotPrev  = i > 0 ? Math.floor((i - 1) / segsPerCraneSlot) : -1;
+      if (craneSlot > craneSlotPrev) {
+        const craneKeyL = CRANE_LEFT_POOL[ craneSlot       % CRANE_LEFT_POOL.length ];
+        const craneKeyR = CRANE_RIGHT_POOL[(craneSlot + 2) % CRANE_RIGHT_POOL.length];
+        // Sit far off the bridge in the port flats below — pushed well
+        // outward (world-space, not pixel-space) so their footprints
+        // never overlap the road area.
+        const craneOff  = 12.0 + rng.next() * 2.5;
+        // renderDepth 9.4 places cranes near the top of the scenery
+        // band so they occlude distant Seattle skyline backdrops behind
+        // them (those use the standard 9.5→7 distance ramp and at the
+        // far end fall into the 7-8 range — without the bump cranes at
+        // depth 2 were drawn UNDER the skyline towers, which looked
+        // wrong because the cranes are nearer in world space).  The old
+        // low depth was meant to let the bridge deck (depth 4) paint
+        // over crane bases, but cranes spawn at ±12-14 lateral offset
+        // and never visually overlap the road surface, so the bridge
+        // cover-up wasn't doing anything anyway.
+        if (rng.bool(0.55)) sprites.push({
+          type: 'building', texKey: craneKeyL,
+          offset: -(craneOff),    // LEFT side
+          baseW: 900, baseH: 2400, collected: false,
+          renderDepth: 9.4,
+        });
+        if (rng.bool(0.55)) sprites.push({
+          type: 'building', texKey: craneKeyR,
+          offset: +(craneOff),    // RIGHT side
+          baseW: 900, baseH: 2400, collected: false,
+          renderDepth: 9.4,
+        });
+      }
+    }
+    // Eastside continues with sparse suburban / freeway-edge structures
+    // after Bellevue instead of turning into a blank green field.
+    else if (traits.buildings && buildingPool && mileNow <= 17) {
       const style = traits.buildingStyle || 'midrise';
-      if (poolIsHomes) {
+
+      // ── Per-region full pool — each city cycles through its whole
+      //    texture array so the player sees the entire variety as they
+      //    drive through ("add a building passing every 1/20 mi").
+      // Separate per-side cycle pools so each side gets directional
+      // variants where they exist.  Flat-front bases are gone — only
+      // the angle-matched _left / _right images are still in the
+      // manifest, so the left pool references _left keys, the right
+      // pool references _right keys.  Buildings with no directional
+      // pair (skyline, wavy_residential, etc.) appear in both pools.
+      const BELLEVUE_LEFT_POOL = [
+        'codex_bellevue_skyline',
+        'codex_pse_bellevue_office_left',
+        'codex_pse_bellevue_second_office_left',
+        'codex_bellevue_wavy_residential',
+        'codex_bellevue_city_center_dark',
+        'codex_bellevue_braced_glass_tower',
+        'codex_bellevue_twin_residential_left',
+        'codex_bellevue_residential_cluster',
+      ];
+      const BELLEVUE_RIGHT_POOL = [
+        'codex_bellevue_skyline',
+        'codex_pse_bellevue_office_right',
+        'codex_pse_bellevue_second_office_right',
+        'codex_bellevue_wavy_residential',
+        'codex_bellevue_city_center_dark',
+        'codex_bellevue_braced_glass_tower',
+        // twin_residential has no _right variant yet — use the
+        // residential_cluster as substitute so the right pool isn't
+        // a one-short cycle.
+        'codex_bellevue_residential_cluster',
+        'codex_bellevue_residential_cluster',
+      ];
+      const CYCLE_POOLS = {
+        seattle_urban:    { left: WEST_SEATTLE_HOMES,    right: WEST_SEATTLE_HOMES    },
+        mercer_island:    { left: WEST_SEATTLE_HOMES,    right: WEST_SEATTLE_HOMES    },
+        downtown_seattle: { left: CODEX_SEATTLE_SKYLINE, right: CODEX_SEATTLE_SKYLINE },
+        eastside_urban:   { left: BELLEVUE_LEFT_POOL,    right: BELLEVUE_RIGHT_POOL   },
+        eastside:         { left: CODEX_ISSAQUAH_BUILDINGS, right: CODEX_ISSAQUAH_BUILDINGS },
+      };
+      const cyclePool = CYCLE_POOLS[_regionKeyForPool];
+
+      // The Bellevue approach strip is drawn as an opaque distant layer
+      // in GameScene; these grounded sprites are the close drive-by,
+      // collidable city frontage.
+
+      // ── Cycle spawn — buildings appear at regular intervals along
+      //    the road, alternating left and right with directional
+      //    variants where they exist.  Density is denser for homes
+      //    regions (West Seattle / Mercer Island residential streets
+      //    need a row of houses, not a sparse cycle) and standard for
+      //    skyline regions (one per ~1/20 mi each side).
+      //
+      // Mile 0–1.05 (West Seattle approach + the bridge on-ramp gap
+      // before the crane block at 1.05) has Elliott Bay on the LEFT,
+      // so the cycle spawn must not drop homes there.  Range extends
+      // through 1.05 because from mile 0 the camera can see ~0.6 mi
+      // forward, easily reaching the bridge on-ramp slot — a left-side
+      // home spawned there reads as floating in the bay.
+      const inWestSeattleApproach = (mileNow >= 0 && mileNow < 1.05);
+      if (!inWestSeattleApproach && cyclePool && cyclePool.left.length > 0 && densityScale > 0.2) {
+        // Homes regions: 1 building per ~1/80 mile per side (4× denser).
+        // Skyline regions: 1 building per ~1/20 mile per side.
+        const slotsPerMile  = poolIsHomes ? 80 : 20;
+        const segsPerSlot   = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / slotsPerMile;
+        const slotNow  = Math.floor(i / segsPerSlot);
+        const slotPrev = i > 0 ? Math.floor((i - 1) / segsPerSlot) : -1;
+        if (slotNow > slotPrev) {
+          // 20 % chance per slot to skip entirely — leaves natural gaps
+          // (vacant lots, parks, side streets) so the drive feels less
+          // like a checkerboard wall of buildings.
+          const skipSlot = rng.bool(0.20);
+          if (!skipSlot) {
+            // Each side cycles its own pool independently so directional
+            // variants line up with the side they're spawned on.
+            const leftKey  = cyclePool.left[slotNow % cyclePool.left.length];
+            const rightKey = cyclePool.right[(slotNow + 3) % cyclePool.right.length];
+            // ONE car width off the sidewalk — sidewalk runs ~1.0 to ~1.7;
+            // a car is ~0.35 wide in normalized lane units, so the building's
+            // near edge sits around offset 2.05.  Slight jitter (~0.20) so
+            // the row doesn't look ruler-straight.
+            const baseOff  = 2.05;
+            const makeOne  = (sign, texKey, rampClearance) => {
+              const off  = sign * (baseOff + rng.next() * 0.20);
+              const isCodexSkyline = CODEX_SKYLINE_BACKDROPS.has(texKey);
+              sprites.push({
+                type:      'building',
+                texKey,
+                offset:    off,
+                baseW:     poolIsHomes ? (5400 + Math.floor(rng.next() * 2400))
+                                       : (800  + Math.floor(rng.next() * 500)),
+                baseH:     poolIsHomes ? (4200 + Math.floor(rng.next() * 1400))
+                                       : (2200 + Math.floor(rng.next() * 1500)),
+                collected: false,
+                visualMinOffset: isCodexSkyline ? CITY_BUILDING_SETBACK : undefined,
+                // rampClearance tells the renderer to push this sprite
+                // PAST the off-ramp's outer edge so the house sits on
+                // the far side of the ramp, not in the gore wedge.
+                rampClearance:   rampClearance || undefined,
+                // Explicit collidable: true per user spec — every
+                // cycle-spawned building is a solid obstacle.  Skyline
+                // buildings sit at CITY_BUILDING_SETBACK (5.35) which is
+                // well past the exit ramp's outer edge (4.30); the
+                // player can reach them via the extended ramp p.x
+                // clamp (see GameScene line 2613 area).
+                collidable:      true,
+                heightBoost:     isCodexSkyline ? 3.0                    : undefined,
+              });
+            };
+            // Both sides spawn together (single decision for the pair).
+            // Previously each side rolled 0.90 independently, so 19% of
+            // slots had only one side populated — the asymmetry read as
+            // "houses appear on the left before the right" as the player
+            // approached.  Slot-level skip (rng.bool(0.20) above) still
+            // creates natural vacant lots, but per-slot the pair stays
+            // symmetric.
+            // RAMP GUARD: ramps from rest stops widen the right shoulder
+            // over 1 mi before the exit + 0.3 mi after.  A right-side
+            // house spawned in that window sits in the gore wedge
+            // between the road and the ramp.  Detection by checking
+            // each segment's rampStrength FAILS here — rampStrength is
+            // written AFTER the building spawn loop runs, so it's all
+            // zero at this point.  Instead, check the spawn's mile
+            // directly against REST_STOPS mileages: any house spawning
+            // within (rs.mileage - 1.0, rs.mileage + 0.3) gets
+            // rampClearance set, and the renderer pushes it past the
+            // ramp's outer edge.  Left side is unaffected.
+            const onRamp = REST_STOPS.some(rs =>
+              mileNow >= rs.mileage - 1.0 && mileNow <= rs.mileage + 0.3
+            );
+            // Sign convention: positive offset = screen-right (per
+            // Road.js sampleSurface: sx += screenW * laneOffset).  So
+            // sign=-1 puts the leftKey textures on the LEFT side, and
+            // sign=+1 puts the rightKey textures on the RIGHT side
+            // (where the off-ramp also opens, so it carries the
+            // rampClearance push).  Previously these were swapped,
+            // which placed *_left directional facades on the right
+            // side of the road for Bellevue.
+            makeOne(-1, leftKey,  false);
+            makeOne( 1, rightKey, onRamp);
+          }
+        }
+      }
+      // ── Legacy dense placement — runs ONLY for non-city regions
+      //    (rural cascades / palouse / etc).  City regions use the
+      //    layered strip + cycle approach above.
+      if (!cyclePool) {
+        if (poolIsHomes) {
         // ── Neighborhood-block placement ────────────────────────────
         // Homes don't read as "a neighborhood" when each segment rolls
         // independently — you get a sprinkle of houses with random gaps.
@@ -563,15 +961,142 @@ export function buildRoute(count = ROUTE_SEGS) {
         if (rng.bool(backP)) sprites.push(makeBuilding( blockSetback + 3.0 + jitter(), style));
         if (rng.bool(backP)) sprites.push(makeBuilding(-blockSetback - 3.0 + jitter(), style));
       } else {
-        // Original generic placement — used by tower / midrise regions.
-        const frontageP = traits.buildingDensity * 0.30 * densityScale;
-        if (rng.bool(frontageP)) sprites.push(makeBuilding( rng.range(2.35, 3.15), style));
-        if (rng.bool(frontageP)) sprites.push(makeBuilding(-rng.range(2.35, 3.15), style));
-        const deepP = traits.buildingDensity * 0.70 * densityScale;
-        if (rng.bool(deepP)) sprites.push(makeBuilding( rng.range(3.2, 5.6), style));
-        if (rng.bool(deepP)) sprites.push(makeBuilding(-rng.range(3.2, 5.6), style));
+        if (poolIsCodexSkyline) {
+          // City photo clusters should feel roadside, but not glued to
+          // the sidewalk.  Keep the front row about two car widths back
+          // and allow a modest second row for skyline depth.
+          const skylineP = Math.min(0.034, traits.buildingDensity * 0.20) * densityScale * 0.25;
+          if (rng.bool(skylineP)) sprites.push(makeBuilding( rng.range(CITY_BUILDING_SETBACK, CITY_BUILDING_BACKROW), style));
+          if (rng.bool(skylineP)) sprites.push(makeBuilding(-rng.range(CITY_BUILDING_SETBACK, CITY_BUILDING_BACKROW), style));
+        } else {
+          // Original generic placement — used by tower / midrise regions.
+          const frontageP = traits.buildingDensity * 0.30 * densityScale;
+          if (rng.bool(frontageP)) sprites.push(makeBuilding( rng.range(2.35, 3.15), style));
+          if (rng.bool(frontageP)) sprites.push(makeBuilding(-rng.range(2.35, 3.15), style));
+          const deepP = traits.buildingDensity * 0.70 * densityScale;
+          if (rng.bool(deepP)) sprites.push(makeBuilding( rng.range(3.2, 5.6), style));
+          if (rng.bool(deepP)) sprites.push(makeBuilding(-rng.range(3.2, 5.6), style));
+        }
+        }
       }
     }
+    // ── Regional trees & shrubs ───────────────────────────────────────
+    // Slot-based spawn (deterministic, mirrors the building cycle):
+    // each side independently picks a tree from the region pool every
+    // N segments.  Density and species pool depend on the current
+    // region.  Bridges / tunnels / water flags strip these out in the
+    // post-pass below (same path that strips other non-collectible
+    // sprites from those zones).
+    let _treePool = null;
+    let _treeSlotsPerMile = 0;
+    let _shrubPool = null;
+    let _shrubSlotsPerMile = 0;
+    switch (_regionKeyForPool) {
+      case 'seattle_urban':
+        // West Seattle homes — maples & conifers between the house row
+        // and the road.  Suppressed during the dense home frontage
+        // (mile 0–1.05) by the guard below; spawns elsewhere if the
+        // region runs past that window.
+        _treePool = URBAN_PNW_MIX;
+        _treeSlotsPerMile = 14;
+        break;
+      case 'downtown_seattle':
+        // SoDo → downtown Seattle.  Trees line the surface streets
+        // beside the I-90 corridor — fewer than residential but enough
+        // to break up the tower-cluster backdrop.
+        _treePool = URBAN_PNW_MIX;
+        _treeSlotsPerMile = 10;
+        break;
+      case 'mercer_island':
+        // Suburban island — tree-lined residential streets in real life.
+        _treePool = URBAN_PNW_MIX;
+        _treeSlotsPerMile = 18;
+        break;
+      case 'eastside_urban':
+        // Bellevue downtown — buildings dominate but the city has heavy
+        // street-tree planting.  Mix of maples + conifers.
+        _treePool = URBAN_PNW_MIX;
+        _treeSlotsPerMile = 12;
+        break;
+      case 'eastside':
+        // Bellevue tail → Issaquah → North Bend — dense roadside
+        // conifers, the iconic I-90 wooded eastside stretch.
+        _treePool = WESTERN_WA_CONIFERS;
+        _treeSlotsPerMile = 22;
+        break;
+      case 'cascades':
+        // Snoqualmie Pass + Cle Elum — heaviest forest on the route.
+        _treePool = WESTERN_WA_CONIFERS;
+        _treeSlotsPerMile = 30;
+        break;
+      case 'east_cascades':
+        // Cle Elum → Ellensburg → Vantage — sparser, drier; pines
+        // start replacing the wet-side conifers.
+        _treePool = EAST_CASCADES_PINES;
+        _treeSlotsPerMile = 12;
+        break;
+      case 'columbia_basin':
+        // High desert — sage steppe, sparse ponderosa.
+        _treePool = COLUMBIA_BASIN_SPARSE_PINES;
+        _treeSlotsPerMile = 3;
+        _shrubPool = COLUMBIA_BASIN_SHRUBS;
+        _shrubSlotsPerMile = 18;
+        break;
+      // palouse: wheat country — no roadside trees, occasional
+      // farmstead shelterbelt only.  Skip the spawn entirely.
+    }
+    if (_treePool || _shrubPool) {
+      // Suppress spawning inside the urban West Seattle approach (the
+      // dense home frontage already fills both sides) and on the bridge
+      // / over-water stretches (their post-pass strips non-collectibles
+      // anyway, but no point creating sprites we'll just throw away).
+      const _suppressTrees =
+        (mileNow >= 0 && mileNow < 1.05) ||              // West Seattle approach
+        traits.water === true;                            // floating bridges
+      if (!_suppressTrees) {
+        const SPAWN_TREE = (pool, slotsPerMile, kind /* 'tree' | 'shrub' */) => {
+          if (!pool || slotsPerMile <= 0) return;
+          const segsPerSlot = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / slotsPerMile;
+          const slotNow  = Math.floor(i / segsPerSlot);
+          const slotPrev = i > 0 ? Math.floor((i - 1) / segsPerSlot) : -1;
+          if (slotNow <= slotPrev) return;
+          // ~15% slot skip — natural gaps between clusters so the row
+          // doesn't look like a procedural picket fence.
+          if (rng.bool(0.15)) return;
+          // Each side picks its own variant.  Offset jitter: trees sit
+          // 1.85–2.6 from centerline (just past the rumble strip);
+          // shrubs sit slightly closer (1.55–2.2).
+          const baseMin = kind === 'shrub' ? 1.55 : 1.85;
+          const baseMax = kind === 'shrub' ? 2.20 : 2.60;
+          const leftKey  = pool[ slotNow       % pool.length];
+          const rightKey = pool[(slotNow + 1)  % pool.length];
+          const pushOne = (sign, texKey) => {
+            const off = sign * (baseMin + rng.next() * (baseMax - baseMin));
+            sprites.push({
+              type:      kind,
+              texKey,
+              offset:    off,
+              baseW:     1500,  // overwritten by texture.width at render
+              baseH:     2400,  // overwritten by texture.height at render
+              collected: false,
+              // Trees are solid obstacles but light damage — much less
+              // punishing than buildings/scenery (10 HP) so the wooded
+              // eastside isn't a meat grinder.  GameScene reads `damage`
+              // off the sprite in _triggerSceneryRespawn.
+              damage:    5,
+            });
+          };
+          // 75% chance of both sides, 25% of one-side-only — keeps the
+          // forest from feeling perfectly mirrored.
+          const bothSides = rng.bool(0.75);
+          pushOne( 1, leftKey);
+          if (bothSides) pushOne(-1, rightKey);
+        };
+        SPAWN_TREE(_treePool,  _treeSlotsPerMile,  'tree');
+        SPAWN_TREE(_shrubPool, _shrubSlotsPerMile, 'shrub');
+      }
+    }
+
     // ── Drug collectibles (density varies by region) ─────────────────
     // type starts as 'drug-pending' so the actual drug is chosen at runtime
     // by DrugSystem.chooseAddictedDrug(...) when the sprite enters the visible
@@ -647,13 +1172,13 @@ export function buildRoute(count = ROUTE_SEGS) {
     });
   }
 
-  // ── Mt Baker Tunnel (mile 6.0–7.0) ─────────────────────────────────────
-  // West portal at the SoDo end of I-90, east portal opens onto the
-  // Lacey V. Murrow Floating Bridge approach.  Concrete walls + ceiling
-  // + roadside scenery stripped.
+  // ── Mt Baker Tunnel (mile 4.9–5.6) ─────────────────────────────────
+  // West portal at the SoDo end of I-90, east portal opens directly
+  // onto the Lacey V. Murrow Floating Bridge approach.  Concrete walls
+  // + ceiling + roadside scenery stripped.
   {
-    const ts = Math.floor(6.0 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
-    const te = Math.floor(7.0 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const ts = Math.floor(MT_BAKER_TUNNEL_RANGE[0] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const te = Math.floor(MT_BAKER_TUNNEL_RANGE[1] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
     for (let i = ts; i !== te; i = (i + 1) % count) {
       const seg = segments[i];
       if (!seg) continue;
@@ -664,16 +1189,14 @@ export function buildRoute(count = ROUTE_SEGS) {
     }
   }
 
-  // ── Mercer Island Lid Tunnel (mile 8.5–9.0) ───────────────────────────
-  // After the floating bridge climbs onto Mercer Island, I-90 cuts
-  // through a covered "lid" structure across the island ridge.  Treated
-  // identically to the Mt Baker tunnel — concrete walls + ceiling.
-  // IMPORTANT: this falls inside the lake_washington region, which sets
-  // seg.water = true via traits.  We clear that flag on tunnel segments
-  // so the water tile doesn't paint through the tunnel floor.
+  // ── Mercer Island Lid Tunnel (mile 7.4–7.9) ──────────────────────────
+  // After the Murrow floating bridge climbs onto Mercer Island, I-90
+  // cuts through a covered "lid" structure across the island ridge.
+  // Treated identically to the Mt Baker tunnel — concrete walls +
+  // ceiling, water flag cleared so the tile doesn't paint through.
   {
-    const ts = Math.floor(8.5 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
-    const te = Math.floor(9.0 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const ts = Math.floor(MERCER_LID_TUNNEL_RANGE[0] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const te = Math.floor(MERCER_LID_TUNNEL_RANGE[1] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
     for (let i = ts; i !== te; i = (i + 1) % count) {
       const seg = segments[i];
       if (!seg) continue;
@@ -685,37 +1208,114 @@ export function buildRoute(count = ROUTE_SEGS) {
     }
   }
 
-  // ── West Seattle Bridge ──────────────────────────────────────────────
-  // Mile 2.0 → 3.0 — the high concrete bridge over the Duwamish.  Tagged
-  // segments get drivable bridge rendering (deck + railings + pylons +
-  // water far below) and a hard rail clamp like the tunnel walls.
-  // Strip roadside scenery (trees / buildings) — you're 200 ft up over
-  // the river, nothing should be at road level.
-  const bridgeStart = Math.floor(2.0 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
-  const bridgeEnd   = Math.floor(3.0 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
-  for (let i = bridgeStart; i !== bridgeEnd; i = (i + 1) % count) {
-    const seg = segments[i];
-    if (!seg) continue;
-    seg.bridge = true;
-    if (seg.sprites?.length) {
-      seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
+  // ── West Seattle approach (mile 0–1) — water on LEFT side only ─────
+  // The road runs along Elliott Bay before climbing onto the high bridge.
+  // waterLeft flag triggers a left-flank water render in Road.js while
+  // the right flank stays grass for the house frontage.
+  {
+    const approachStart = 0;
+    const approachEnd   = Math.floor(1.0 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    for (let i = approachStart; i !== approachEnd; i = (i + 1) % count) {
+      const seg = segments[i];
+      if (!seg) continue;
+      seg.waterLeft = true;
     }
   }
 
-  // ── East Channel Bridge (Mercer Island → Bellevue) ───────────────────
-  // Real-route mile 10.0 → 11.5: 1.5 miles of floating bridge over the
-  // East Channel between Mercer Island and the Bellevue shore.  Same
-  // render treatment as the Murrow (water tile + railings, no roadside
-  // scenery).  The lake_washington region trait already sets
-  // seg.water=true for this stretch via REGION_ORDER, but we tag the
-  // bridge segments explicitly here for clarity / robustness.
+  // ── West Seattle Bridge (mile 1.0–1.7) ──────────────────────────────
+  // High concrete bridge over the Duwamish.  Mostly over land with two
+  // water channels.  Tagged segments get drivable bridge rendering +
+  // a hard rail clamp like the tunnel walls.
+  // The sprite filter preserves CRANES and the Seattle-skyline-behind-
+  // cranes spawns (those were placed by the mile-1.0-1.7 spawn branch
+  // upstream); everything else is stripped so random scenery doesn't
+  // appear floating in the bridge's water flanks.
   {
-    const ts = Math.floor(10.0 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
-    const te = Math.floor(11.5 * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const bridgeStart = Math.floor(WEST_SEATTLE_BRIDGE_RANGE[0] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const bridgeEnd   = Math.floor(WEST_SEATTLE_BRIDGE_RANGE[1] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    // Bridge stretch keeps CRANES + collectibles ONLY.  Cranes are
+    // spawned by the mile-1.0-1.7 branch in the spawn block upstream;
+    // anything else (Seattle skyline buildings from the regional cycle,
+    // homes, etc.) gets stripped so the bridge doesn't look cluttered.
+    const isCraneTex = (texKey) =>
+      typeof texKey === 'string' && texKey.startsWith('codex_ws_crane_');
+    for (let i = bridgeStart; i !== bridgeEnd; i = (i + 1) % count) {
+      const seg = segments[i];
+      if (!seg) continue;
+      seg.bridge = true;
+      if (seg.sprites?.length) {
+        seg.sprites = seg.sprites.filter(sp => sp.isCollectible || isCraneTex(sp.texKey));
+      }
+    }
+  }
+
+  // ── SoDo stadium landmarks ──────────────────────────────────────────
+  // Place these as one-off landmarks on the early Seattle approach rather
+  // than mixing them into the random skyline pool.  That keeps the drive
+  // reading as a sequence: West Seattle/SoDo stadium district → tunnel →
+  // bridge → Bellevue.
+  {
+    const SEGS_PER_MILE = count / TOTAL_ROUTE_MILES;
+    const addStadium = (mile, texKey, offset) => {
+      const idx = Math.floor(mile * SEGS_PER_MILE) % count;
+      const seg = segments[idx];
+      if (!seg || seg.bridge || seg.tunnel || seg.water) return;
+      seg.sprites = (seg.sprites ?? []).filter(sp => {
+        if (sp.isCollectible) return true;
+        const off = sp.offset ?? 0;
+        return Math.abs(off - offset) > 1.8;
+      });
+      seg.sprites.push({
+        type: 'landmark',
+        texKey,
+        offset,
+        visualMinOffset: Math.abs(offset),
+        // Stadium landmarks are now collidable per user spec — they're
+        // physical structures at offset ±5.45, so the player would only
+        // hit them if they drift well off the road.
+        collidable: undefined,
+        baseW: 5600,
+        baseH: 2600,
+        collected: false,
+      });
+    };
+    // Stadium pair — placed right after the West Seattle Bridge exits
+    // (bridge ends at mile 1.7) so they read as the SoDo arrival moment.
+    // Both on the LEFT side (geographically east of I-90 SoDo stretch).
+    // T-Mobile Park comes FIRST (mile 1.85), then Lumen Field (mile 2.00).
+    addStadium(1.85, 'codex_seattle_tmobile_park', -5.45);
+    addStadium(2.00, 'codex_seattle_lumen_field',  -5.25);
+  }
+
+  // ── Lacey V. Murrow Floating Bridge (mile 5.7–7.2) ──────────────────
+  // First floating bridge to Mercer Island — emerges right out of the
+  // Mt Baker tunnel.  Real-life dead straight (curve flattened above).
+  // Water tile + railings, no roadside scenery.
+  {
+    const ts = Math.floor(MURROW_BRIDGE_RANGE[0] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const te = Math.floor(MURROW_BRIDGE_RANGE[1] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
     for (let i = ts; i !== te; i = (i + 1) % count) {
       const seg = segments[i];
       if (!seg) continue;
-      seg.water = true;
+      seg.bridge = true;
+      seg.water  = true;
+      if (seg.sprites?.length) {
+        seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
+      }
+    }
+  }
+
+  // ── East Channel Bridge (mile 9.8–10.2) ──────────────────────────────
+  // Short floating bridge Mercer Island → Bellevue shore.  Same render
+  // treatment as the Murrow.
+  {
+    const ts = Math.floor(EAST_CHANNEL_BRIDGE_RANGE[0] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    const te = Math.floor(EAST_CHANNEL_BRIDGE_RANGE[1] * SEGS_PER_MILE_FOR_TUNNEL(count)) % count;
+    for (let i = ts; i !== te; i = (i + 1) % count) {
+      const seg = segments[i];
+      if (!seg) continue;
+      seg.bridge = true;
+      seg.water  = true;
       if (seg.sprites?.length) {
         seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
       }
@@ -777,6 +1377,18 @@ export function buildRoute(count = ROUTE_SEGS) {
   // location's start mile.  Replaces the random brown signs that used
   // to clutter the shoulder.  (SEGS_PER_MILE is already declared above
   // for the random-cop placement loop.)
+  // If a sign target lands INSIDE a tunnel, walk backward until we
+  // clear the tunnel mouth — signs are never readable when projected
+  // through a concrete ceiling.
+  const beforeTunnel = (segIdx) => {
+    if (segIdx == null || segIdx < 0) return segIdx;
+    let cur = segIdx;
+    for (let k = 0; k < 1200 && segments[cur]?.tunnel; k++) {
+      cur = (cur - 1 + count) % count;
+    }
+    return cur;
+  };
+
   for (const cp of CHECKPOINTS) {
     if (cp.isStart) continue;                       // skip "West Seattle" — it IS the start
     // Skip checkpoints that share their mile with a REST_STOP — the
@@ -786,16 +1398,14 @@ export function buildRoute(count = ROUTE_SEGS) {
     const sharesWithRestStop = REST_STOPS.some(rs => Math.abs(rs.mileage - cp.mileage) < 1.5);
     if (sharesWithRestStop) continue;
     const advanceMile = Math.max(0, cp.mileage - 1);
-    const segIdx = Math.floor(advanceMile * SEGS_PER_MILE) % count;
+    let segIdx = Math.floor(advanceMile * SEGS_PER_MILE) % count;
     if (segIdx < 0 || segIdx >= count) continue;
-    segments[segIdx].sprites.push({
-      type:      'mileage_sign',
-      townName:  cp.name,
-      mileage:   cp.mileage,
-      offset:    1.20,
-      baseW: 5200, baseH: 6700,                     // bigger so EXIT N + town fit
-      collected: false,
-    });
+    segIdx = beforeTunnel(segIdx);
+    // (Removed: stand-alone `mileage_sign` — green town/exit/mileage
+    //  marker carried no drug info, so per UX direction it's now
+    //  suppressed.  The exit_sign_green at rest stops still carries
+    //  the route info AND drug bars.)
+    // segments[segIdx].sprites.push({ type: 'mileage_sign', ... });
   }
 
   // Helper — clear right-side scenery (trees, buildings, etc.) from a
@@ -815,8 +1425,13 @@ export function buildRoute(count = ROUTE_SEGS) {
         if (sp.type === 'grade_sign') return true;
         if (sp.type === 'next_stops_sign') return true;
         if (sp.isCollectible)         return true;
+        // City skyline buildings get stored at a close offset (~2.05) but
+        // render at visualMinOffset (CITY_BUILDING_SETBACK = 5.35) — they
+        // visually sit OUTSIDE the exit corridor.  Preserve them so the
+        // right side of Bellevue / downtown Seattle doesn't read empty.
+        if ((sp.visualMinOffset ?? 0) >= CITY_BUILDING_SETBACK) return true;
         const off = sp.offset ?? 0;
-        if (off > 1.0 && off < 3.5)   return false;     // strip right-side scenery
+        if (off > 1.0 && off < 4.9)   return false;     // strip exit-lane corridor
         return true;
       });
     }
@@ -843,13 +1458,17 @@ export function buildRoute(count = ROUTE_SEGS) {
     { mile: 133, line1: '6% GRADE',     line2: 'NEXT 8 MI' },
   ];
   for (const gs of GRADE_SIGNS) {
-    const segIdx = Math.floor(gs.mile * SEGS_PER_MILE) % count;
+    let segIdx = Math.floor(gs.mile * SEGS_PER_MILE) % count;
     if (segIdx < 0 || segIdx >= count) continue;
+    segIdx = beforeTunnel(segIdx);
     segments[segIdx].sprites.push({
       type:    'grade_sign',
       line1:   gs.line1,
       line2:   gs.line2,
-      offset:  1.18,
+      // offset 1.6: grade_sign is a smaller diamond plaque (baseW
+      // 2800) — face fits within ~1.0 road units wide, so offset
+      // 1.6 keeps it fully clear of the road (face spans ~1.1 to 2.1).
+      offset:  1.6,
       baseW:   2800, baseH: 3400,
       collected: false,
     });
@@ -868,21 +1487,14 @@ export function buildRoute(count = ROUTE_SEGS) {
     clearRightSceneryAround(segIdx);
   }
 
-  for (const rs of REST_STOPS) {
+  for (const [rsIdx, rs] of REST_STOPS.entries()) {
     const segAt = (mi) => Math.floor((mi / TOTAL_ROUTE_MILES) * count) % count;
-    const placeSign = (centerSeg, sub) => {
-      // Single-segment placement (no 4-copy stack — caused overlapping
-      // ghosts at different perspective scales).
-      const segIdx = ((centerSeg % count) + count) % count;
-      segments[segIdx].sprites.push({
-        type:      'rest_sign',
-        sub,                                   // '5mi' | '1mi' | 'exit'
-        stopId:    rs.id,
-        offset:    1.18,
-        baseW: 4200, baseH: 5800,              // bumped — bigger rest-stop sign
-        collected: false,
-      });
-    };
+    // (Removed: stand-alone `rest_sign` placards — both the −5mi
+    //  "REST AREA AHEAD" sign and the "EXIT" sign carried no drug
+    //  info, so per UX direction they're suppressed.  The
+    //  exit_sign_green spawned 1 mile out still announces the stop
+    //  AND carries the drug bars.)
+    const placeSign = (_centerSeg, _sub) => {};
     placeSign(segAt(rs.mileage - 5), '5mi');
     placeSign(segAt(rs.mileage),     'exit');
     // Clear approach scenery around each rest-stop sign so trees/buildings
@@ -901,6 +1513,17 @@ export function buildRoute(count = ROUTE_SEGS) {
     // walk forward to the next dry segment so the sign isn't planted in
     // the lake or through tunnel walls.
     const findDrySeg = (startSegIdx, maxSearch = 400) => {
+      // Tunnel case: walk BACKWARD so the sign sits just before the
+      // tunnel mouth (visible to the player on approach) instead of
+      // being pushed past the tunnel exit.
+      if (segments[startSegIdx]?.tunnel) {
+        for (let k = 0; k < 1200; k++) {
+          const idx = (startSegIdx - k + count) % count;
+          const seg = segments[idx];
+          if (seg && !seg.tunnel && !seg.bridge && !seg.water) return idx;
+        }
+      }
+      // Bridge/water case: walk forward to the next dry segment.
       for (let k = 0; k < maxSearch; k++) {
         const idx = (startSegIdx + k) % count;
         const seg = segments[idx];
@@ -917,7 +1540,11 @@ export function buildRoute(count = ROUTE_SEGS) {
       mileage:   rs.mileage,
       townName:  rs.name.split(',')[0],             // strip ", WA"
       hwyKey:    rs.hwy ?? 'hwy_i90',               // shield badge texture
-      offset:    1.20,
+      // offset 2.0: sign FACE is 1.32 * baseW / ROAD_WIDTH = 1.76 road
+      // units wide (half = 0.88), so the face spans offset 1.12 to 2.88
+      // — fully off the road (road ends at offset 1.0).  Previously 1.20
+      // which centered the face directly over the right lane.
+      offset:    2.0,
       baseW: 4800, baseH: 6600,                     // bumped — big I-90 overhead sign
       collected: false,
     });
@@ -935,8 +1562,14 @@ export function buildRoute(count = ROUTE_SEGS) {
       stopId:     rs.id,
       amenities:  rs.amenities ?? [],
       signKey:    `sign_${rs.id}`,                   // pre-baked PNG key
-      offset:     1.20,
-      baseW: 4800, baseH: 6600,                       // match exit_sign_green
+      // offset 2.4: largest sign (baseW 6700, face 1.30w → 2.42 road
+      // units wide, half = 1.21).  Face spans offset 1.19 to 3.61 —
+      // fully clear of the road (road ends at 1.0).
+      offset:     2.4,
+      // ~40% larger than the previous 4800×6600 baseline so the
+      // baked-in brand logos read clearly from approach distance —
+      // matches the reference "SHOPPING — NEXT RIGHT" placard.
+      baseW: 6700, baseH: 9200,
       collected:  false,
     });
 
@@ -1005,14 +1638,36 @@ export function buildRoute(count = ROUTE_SEGS) {
       }
     }
 
-    // Clear the right-shoulder scenery (trees, buildings, sign clutter)
-    // off every ramp-tagged segment.  The ramp asphalt extends out to
-    // ~x=2.4 lane units; anything spawned with positive offset > 1.0 is
-    // sitting on or alongside the ramp and would block the pull-over.
-    // Left-side scenery is preserved.
-    const rampWindowFull = RAMP_WINDOW_SEG + AFTER_SEGS;
+    // Clear the exit-lane corridor, not the entire right roadside.  At
+    // full divergence Road.js paints the ramp from roughly x=3.05 to
+    // x=4.30; include the gore/shoulder margins, but preserve scenery
+    // farther out so the right side still feels populated.
+    // Keep the heavy non-skyline corridor wipe short, but apply skyline
+    // clearance across the FULL ramp approach. The Bellevue ramp is already
+    // visibly painted around mile 11.96 for the 12.5 exit, so a 0.35-mile
+    // skyline cleanup misses the exact buildings the player sees there.
+    const RAMP_CLEAR_BEFORE_SEG = Math.floor(0.35 / TOTAL_ROUTE_MILES * count);
+    const RAMP_SKYLINE_BEFORE_SEG = RAMP_WINDOW_SEG;
+    const RAMP_SKYLINE_SETBACK = CITY_BUILDING_SETBACK + 3.2;
+    const rampSkylineWindowFull = RAMP_SKYLINE_BEFORE_SEG + AFTER_SEGS;
+    for (let k = 0; k < rampSkylineWindowFull; k++) {
+      const segIdx = (exitSeg - RAMP_SKYLINE_BEFORE_SEG + 1 + k + count) % count;
+      const seg = segments[segIdx];
+      if (!seg?.sprites) continue;
+      for (const sp of seg.sprites) {
+        if ((sp.visualMinOffset ?? 0) < CITY_BUILDING_SETBACK) continue;
+        const off = sp.offset ?? 0;
+        const side = off >= 0 ? 1 : -1;
+        const nextOffset = Math.max(Math.abs(off), RAMP_SKYLINE_SETBACK);
+        sp.visualMinOffset = Math.max(sp.visualMinOffset ?? 0, RAMP_SKYLINE_SETBACK);
+        sp.offset = side * nextOffset;
+        sp.rampClearance = true;
+      }
+    }
+
+    const rampWindowFull = RAMP_CLEAR_BEFORE_SEG + AFTER_SEGS;
     for (let k = 0; k < rampWindowFull; k++) {
-      const segIdx = (exitSeg - RAMP_WINDOW_SEG + 1 + k + count) % count;
+      const segIdx = (exitSeg - RAMP_CLEAR_BEFORE_SEG + 1 + k + count) % count;
       const seg = segments[segIdx];
       if (!seg?.sprites) continue;
       seg.sprites = seg.sprites.filter(sp => {
@@ -1022,13 +1677,52 @@ export function buildRoute(count = ROUTE_SEGS) {
         if (sp.type === 'amenities_sign') return true;
         if (sp.type === 'next_stops_sign') return true;
         if (sp.isCollectible)        return true;
-        // Strip right-side scenery only within the ramp band (offset
-        // 1.0–3.5).  Outer-band trees / buildings beyond x=3.5 stay so
-        // the horizon still reads as populated.
+        // rampClearance sprites are already pushed past the gore by the
+        // renderer — don't wipe them on top of that.
+        if (sp.rampClearance)        return true;
         const off = sp.offset ?? 0;
-        if (off > 1.0 && off < 3.5) return false;
+        if ((sp.visualMinOffset ?? 0) >= CITY_BUILDING_SETBACK) {
+          return true;
+        }
+        if (off > 1.0 && off < 4.9) return false;
         return true;
       });
+    }
+
+    // Perspective roadside strip near the actual exit handoff. This uses
+    // the generated low-shop / side-street strip, placed close enough to
+    // read as exit scenery instead of tiny buildings far off in the field.
+    // Skipped for residential rest stops (Mercer Island — only "camp"
+    // amenity) where a commercial-strip image reads as a tiny floating
+    // sticker rather than fitting the single-family neighborhood feel.
+    // Bellevue already has horizon-anchored skyline strips; adding this
+    // as a normal roadside sprite made a floating apartment-card near
+    // the road instead of a stable horizon element.
+    if (rs.id !== 'M' && rs.id !== 'B') {
+      const addExitScenery = (mile, offset) => {
+        const segIdx = findDrySeg(((segAt(mile) % count) + count) % count);
+        const seg = segments[segIdx];
+        if (!seg || isWet(seg)) return;
+        const texKey = rs.mileage <= 13
+          ? 'codex_bellevue_roadside_strip'
+          : 'codex_issaquah_roadside_strip_perspective';
+        seg.sprites = seg.sprites ?? [];
+        seg.sprites.push({
+          type: 'building',
+          texKey,
+          offset,
+          visualMinOffset: Math.abs(offset),
+          // Exit-ramp shop strip is now collidable per user spec.
+          // Player on the exit ramp at p.x up to ~2.8 will hit this
+          // strip at offset 2.65 (collision band 1.80-3.50).
+          collidable: undefined,
+          heightBoost: 1.0,
+          baseW: 7600,
+          baseH: 1700,
+          collected: false,
+        });
+      };
+      addExitScenery(rs.mileage - 0.08, 2.65);
     }
   }
 
@@ -1057,7 +1751,11 @@ export function buildRoute(count = ROUTE_SEGS) {
     seg.sprites.push({
       type:      'next_stops_sign',
       rows:      upcoming,
-      offset:    1.18,
+      // offset 2.0: face is 1.24 * 4400 / ROAD_WIDTH = 1.52 road units
+      // wide (half = 0.76).  Face spans offset 1.24 to 2.76 — fully
+      // clear of the road.  Previously 1.18 which centered the face
+      // over the right lane.
+      offset:    2.0,
       baseW: 4400, baseH: 6200,
       collected: false,
     });
@@ -1066,17 +1764,19 @@ export function buildRoute(count = ROUTE_SEGS) {
 
   // ── Landmark: Space Needle ─────────────────────────────────────────
   // Real geography: driving I-90 east, the Space Needle is north (LEFT)
-  // of the highway, visible just past the floating-bridge approach.
-  // Place at mile 7.5 — just east of the Mt Baker tunnel exit (mile 7)
-  // on the LEFT shoulder so it stands beside the bridge approach.
-  // baseW/H ratio matches the source PNG (1:1, 2500×2500) and is
-  // stretched taller by _renderSceneSprites's landmark size multiplier.
-  const needleSeg = Math.floor((7.5 / TOTAL_ROUTE_MILES) * count) % count;
+  // of the highway, visible from the West Seattle Bridge looking
+  // northeast.  Place at mile 3.5 — just past the bridge exit and
+  // past the cranes (1.05–1.75) so it reads as a distant downtown
+  // landmark over the cranes' shoulders while crossing the bridge.
+  // Needs far-perspective scaling (see _renderSceneSprites) so it
+  // renders at horizon size from miles 1.0–1.7.
+  const needleSeg = Math.floor((3.5 / TOTAL_ROUTE_MILES) * count) % count;
   segments[needleSeg].sprites.push({
     type:      'landmark',
     texKey:    'space_needle',
     offset:    -1.6,               // LEFT side of the road (north of I-90)
     baseW:     2500, baseH: 2500,
+    renderDepth: 1.5,              // behind cranes (2.0) and most scenery
     collected: false,
   });
 

@@ -98,7 +98,10 @@ export class DrugSystem {
 
   /** Top up every unlocked drug bar to a safe 60% — keeps the player from
    *  walking out of a rest stop into an instant fent OD.  Bars already
-   *  above 60% are left alone. */
+   *  above 60% are left alone.  IMPORTANT: do NOT bump `maxReached` —
+   *  the LSD / fentanyl unlock gates read maxReached for shrooms /
+   *  heroin, so writing CAP there would chain-unlock the downstream
+   *  drugs without the player ever peaking the prerequisite bar. */
   refillAll() {
     const CAP = 0.60;
     for (const id of Object.values(DRUGS)) {
@@ -106,7 +109,6 @@ export class DrugSystem {
       // Don't dial back a player who's already higher than the cap.
       if ((this.levels[id] ?? 0) >= CAP) continue;
       this.levels[id] = CAP;
-      if (CAP > this.maxReached[id]) this.maxReached[id] = CAP;
     }
   }
 
@@ -351,12 +353,14 @@ export class DrugSystem {
     if (id === DRUGS.COCAINE) this.cocainePickupCount += 1;
     this.pickupCounts[id] = (this.pickupCounts[id] ?? 0) + 1;
 
-    // Immediate OD check — bar can safely fill to 100% AND stay there
-    // without overdose.  OD only fires if the level somehow exceeds
-    // 1.0 (i.e., 101%+).  Since pickup() clamps to 1.0, this strict
-    // > 1.0 check effectively never fires from normal play — exactly
-    // what the user wants: 100% is a permanent safe zone.
-    if (cfg.canOD && this.levels[id] > 1.0) {
+    // Immediate OD check — fires when the bar exceeds the drug's
+    // odThreshold (per-drug; heroin 0.88, meth 0.85, ket 0.90, rx 0.97).
+    // Drugs whose threshold is 1.0 (alcohol/weed/cocaine/fent) are
+    // effectively safe because pickup() clamps at 1.0 — they max out
+    // but never overflow.  Dangerous drugs (heroin/meth/ket/rx) have
+    // sub-1.0 thresholds, so picking up while already near max trips OD.
+    const odThr = cfg.odThreshold ?? 1.0;
+    if (cfg.canOD && this.levels[id] > odThr) {
       return { overdose: true, drug: id };
     }
     return { overdose: false, drug: id };
@@ -409,8 +413,13 @@ export class DrugSystem {
       // Permastoned lock — no weed pickups for the rest of the run.
       if (id === DRUGS.WEED && this._weedPermastonedLocked) continue;
       const count = this.pickupCounts[id] ?? 0;
-      // Base weight 1 + addiction kicker (each pickup adds +0.4)
-      let w = 1 + count * 0.4;
+      // Base weight 1 + addiction kicker.  Switched from linear (count×0.4)
+      // to sqrt-scaled (sqrt(count)×1.6) so addiction still strongly biases
+      // the pick after a few hits but a long lifetime history (30+ beers)
+      // doesn't permanently lock other drugs out at 13:1 odds.  Old: 30
+      // beers → weight 13.  New: 30 beers → weight ~9.8, 100 beers →
+      // ~17 (vs old 41).  Still meaningful, no longer pathological.
+      let w = 1 + Math.sqrt(count) * 1.6;
       if (upDominant && DOWNERS.has(id)) w *= 0.45;
       if (dnDominant && UPPERS.has(id))  w *= 0.45;
       // Fentanyl is RARE — single hit = 50%, two = OD.  Knock its weight
@@ -449,17 +458,14 @@ export class DrugSystem {
   }
 
   checkOD() {
-    // Per spec: OD only fires on OVERFLOW past 100% — exactly 1.0 is a
-    // safe state (the slider in custom mode + the maxed-out achievement
-    // both depend on this).  Bars are clamped at 1.0 in pickup() so
-    // strict-greater never fires from normal play; the pickup() path
-    // itself returns { overdose: true } when a drug pickup happens
-    // while already at 1.0.  This frame-level check is now a no-op for
-    // any sane state — kept only as a safety net for cases where some
-    // future code might push a level above 1.0.
+    // Per-drug threshold (cfg.odThreshold).  Safe drugs (1.0) never fire
+    // here because pickup() clamps the level at 1.0.  Dangerous drugs
+    // (heroin/meth/ket/rx, all < 1.0) fire when their bar crosses their
+    // own threshold mid-frame (e.g., a decay underflow or future setter).
     for (const id of Object.values(DRUGS)) {
       const cfg = DRUG_CONFIG[id];
-      if (cfg.canOD && this.levels[id] > 1.0) {
+      const odThr = cfg.odThreshold ?? 1.0;
+      if (cfg.canOD && this.levels[id] > odThr) {
         return id;
       }
     }

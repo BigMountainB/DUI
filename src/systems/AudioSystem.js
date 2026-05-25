@@ -5,55 +5,103 @@
  * procedural Web Audio synthesis (chorus, supersaw, plate reverb, etc.).
  */
 
-// Real-track playlist per genre.  Files live in public/assets/music/.
-// Stations whose name doesn't appear here keep their procedural sound.
+// Real-track playlist per genre.  Files live in public/assets/music/
+// in per-genre subfolders.  Stations whose name doesn't appear here
+// keep their procedural sound.
 const STATION_TRACKS = {
+  'ARCADE': [
+    'assets/music/arcade/8-bit_bounce.mp3',
+    'assets/music/arcade/90s_kid.mp3',
+    'assets/music/arcade/ass_fault.mp3',
+    'assets/music/arcade/curbside_chaos.mp3',
+    'assets/music/arcade/drop_coin.mp3',
+    'assets/music/arcade/drop_the_soap.mp3',
+    'assets/music/arcade/electric_gerbil.mp3',
+    'assets/music/arcade/final_boss.mp3',
+    'assets/music/arcade/neon_pursuit.mp3',
+    'assets/music/arcade/side_quest.mp3',
+    'assets/music/arcade/sidewalk_slide.mp3',
+    'assets/music/arcade/static_punch.mp3',
+  ],
+  'SYNTHWAVE': [
+    'assets/music/80s/arcade_renegades.mp3',
+    'assets/music/80s/concrete_animal.mp3',
+    'assets/music/80s/crystal_speedway.mp3',
+    'assets/music/80s/mall_riot_summer.mp3',
+    'assets/music/80s/nitro_saints.mp3',
+    'assets/music/80s/perms_pistols.mp3',
+    'assets/music/80s/powder_vision.mp3',
+  ],
+  'CLASSIC ROCK': [
+    'assets/music/classic_rock/2000_miles_to_mexico.mp3',
+    'assets/music/classic_rock/acid_picnic_at_vantage.mp3',
+    'assets/music/classic_rock/free_love_motel.mp3',
+    'assets/music/classic_rock/rain_on_the_ferry.mp3',
+    'assets/music/classic_rock/snoqualmie_moon.mp3',
+    'assets/music/classic_rock/the_last_beer_in_ritzville.mp3',
+    'assets/music/classic_rock/through_the_palouse.mp3',
+  ],
   'COUNTRY': [
-    'assets/music/country.mp3', 'assets/music/country_2.mp3',
-    'assets/music/country_3.mp3', 'assets/music/country_4.mp3',
-    'assets/music/country_5.mp3', 'assets/music/country_-_6.mp3',
-    'assets/music/country_7.mp3', 'assets/music/country_8.mp3',
-    'assets/music/country_9.mp3', 'assets/music/country_10.mp3',
-    'assets/music/country_11.mp3', 'assets/music/country_12.mp3',
+    'assets/music/country/blue_lights_in_the_rearview.mp3',
+    'assets/music/country/cash_in_a_feed_sack.mp3',
+    'assets/music/country/powder_river_revival.mp3',
+    'assets/music/country/riverboat_arson.mp3',
+    'assets/music/country/roman_candles_tannerite.mp3',
+    'assets/music/country/shotgun_choir.mp3',
+    'assets/music/country/whiskey_bent_transmission.mp3',
   ],
   'EDM': [
-    'assets/music/edm.mp3', 'assets/music/edm_2.mp3',
-    'assets/music/edm_3.mp3', 'assets/music/edm_4.mp3',
-    'assets/music/edm_5.mp3', 'assets/music/edm_6.mp3',
-    'assets/music/edm_7.mp3',
+    'assets/music/edm/acid_carousel.mp3',
+    'assets/music/edm/anarchy_hotline.mp3',
+    'assets/music/edm/crash_theory.mp3',
+    'assets/music/edm/feel_the_frequency.mp3',
+    'assets/music/edm/nitrous_communion.mp3',
+    'assets/music/edm/tokyo_sideways.mp3',
+    'assets/music/edm/velvet_laser.mp3',
   ],
   'HIP-HOP': [
-    'assets/music/hiphop.mp3',
+    'assets/music/rap/clinic_cup.mp3',
+    'assets/music/rap/exit_13.mp3',
+    'assets/music/rap/interstate_fever_dream.mp3',
+    'assets/music/rap/line_phantom.mp3',
+    'assets/music/rap/mushed_my_turn.mp3',
+    'assets/music/rap/neon_dash_foam_ghosts.mp3',
+    'assets/music/rap/paint_the_asphalt_pink.mp3',
+    'assets/music/rap/parking_lot_wizzard.mp3',
+    'assets/music/rap/pull_up_pull_out.mp3',
   ],
-  'HEAVY METAL': [
-    'assets/music/heavy_metal.mp3', 'assets/music/heavy_metal_2.mp3',
-    'assets/music/heavy_metal_3.mp3', 'assets/music/heavy_metal_4.mp3',
-    'assets/music/heavy_metal_5.mp3',
-  ],
-  'POLKA': [
-    'assets/music/polka.mp3', 'assets/music/polka_2.mp3',
-    'assets/music/polka_3.mp3', 'assets/music/polka_4.mp3',
+  'K-POP': [
+    'assets/music/kpop/black_card_valkyries.mp3',
+    'assets/music/kpop/cherry_bomb_express.mp3',
+    'assets/music/kpop/gangnam_ghosts.mp3',
+    'assets/music/kpop/neon_vacation.mp3',
+    'assets/music/kpop/pit_stopping_hearts.mp3',
+    'assets/music/kpop/sugar_rush_riot.mp3',
+    'assets/music/kpop/tunnel_vision.mp3',
   ],
   'REGGAE': [
-    'assets/music/raegge.mp3', 'assets/music/raegge_2.mp3',
-    'assets/music/raegga_3.mp3',
-  ],
-  'MARIACHI': [
-    'assets/music/marachi.mp3', 'assets/music/mirachi.mp3',
-  ],
-  // Pop and MK64 don't have matching procedural stations — added as bonus
-  // stations near the bottom of the STATIONS list below.
-  'POP': [
-    'assets/music/pop.mp3', 'assets/music/pop_2.mp3',
-  ],
-  'MK64': [
-    'assets/music/mk64.mp3', 'assets/music/mk64_2.mp3',
-    'assets/music/mk64_3.mp3', 'assets/music/mk64_4.mp3',
-    'assets/music/mk64_5.mp3', 'assets/music/mk64_6.mp3',
+    'assets/music/reggae/catch_we.mp3',
+    'assets/music/reggae/concrete_jungle_bashment.mp3',
+    'assets/music/reggae/ganja_speedway.mp3',
+    'assets/music/reggae/high_grade_holiday.mp3',
+    'assets/music/reggae/midnight_soundbwoy.mp3',
+    'assets/music/reggae/pull_up.mp3',
+    'assets/music/reggae/rum_revolution.mp3',
   ],
 };
 
 const STATIONS = [
+  // ── ARCADE — chiptune-style instrumentals, default for new runs ─────
+  // Procedural fallback fields are silent; real MP3s drive playback.
+  {
+    name: 'ARCADE', color: '#33DD66', bpm: 132,
+    melody: { type: 'triangle', notes: [0,0,0,0], gain: 0.0 },
+    bass:   { notes: [0], gain: 0.0 },
+    drums:  { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+              snare:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+              hat:  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
+  },
+
   // ── SYNTHWAVE — detuned saw chorus, 80s Am-F-C-G progression ─────────
   {
     name: 'SYNTHWAVE', color: '#FF6EC7', bpm: 118,
@@ -285,84 +333,6 @@ const STATIONS = [
     snareStyle: 'country',
   },
 
-  // ── HEAVY METAL — distorted power chords, E3 riff, double kick ───────
-  {
-    name: 'HEAVY METAL', color: '#CC0000', bpm: 180,
-    melody: {
-      type: 'sawtooth', distort: true, powerChord: true, reverb: 0.25, stereo: 0.7,
-      notes: [
-        164.8,164.8,174.6,164.8, 164.8,146.8,0,146.8,
-        164.8,164.8,174.6,164.8, 196,0,174.6,164.8,
-        164.8,164.8,174.6,164.8, 164.8,146.8,0,146.8,
-        164.8,164.8,174.6,164.8, 196,196,174.6,164.8,
-      ],
-      altNotes: [
-        // Galloping triplet riff
-        82.41,164.8,164.8,82.41, 164.8,164.8,82.41,164.8,
-        164.8,82.41,196,196, 82.41,196,196,82.41,
-        82.41,164.8,164.8,82.41, 164.8,164.8,82.41,174.6,
-        174.6,82.41,196,196, 82.41,196,220,196,
-        // Solo break — high octave
-        329.6,392,329.6,293.7, 329.6,392,440,329.6,
-        329.6,392,329.6,293.7, 329.6,392,329.6,246.9,
-        220,246.9,293.7,329.6, 392,440,493.9,440,
-        392,329.6,293.7,329.6, 246.9,220,196,164.8,
-      ],
-      gain: 0.16,
-    },
-    bass: {
-      notes: [
-        82.41,82.41,82.41,87.31, 82.41,82.41,82.41,73.42,
-        82.41,82.41,87.31,82.41, 98,98,87.31,82.41,
-        82.41,82.41,82.41,87.31, 82.41,82.41,82.41,73.42,
-        82.41,82.41,87.31,82.41, 98,98,87.31,82.41,
-      ],
-      gain: 0.25,
-    },
-    drums: {
-      kick:  [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],
-      snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-      hat:   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    },
-    kickStyle: 'metal', snareStyle: 'rock',
-  },
-
-  // ── POLKA — oompah bass, triangle clarinet, jolly major ──────────────
-  {
-    name: 'POLKA', color: '#FFCC44', bpm: 120,
-    melody: {
-      type: 'triangle', reverb: 0.25, stereo: 0.5,
-      notes: [
-        523.3,659.3,784,659.3, 523.3,659.3,784,0,
-        587.3,698.5,880,698.5, 587.3,698.5,880,0,
-        523.3,659.3,784,1046.5, 880,784,659.3,0,
-        587.3,698.5,880,1046.5, 880,698.5,587.3,0,
-      ],
-      altNotes: [
-        // Pickup phrase
-        392,440,523.3,659.3, 784,659.3,523.3,659.3,
-        784,880,1046.5,880, 784,659.3,523.3,0,
-        440,523.3,587.3,698.5, 880,698.5,587.3,698.5,
-        880,1046.5,1318.5,1046.5, 880,784,659.3,0,
-      ],
-      gain: 0.16,
-    },
-    bass: {
-      notes: [
-        65.41,0,98,0, 65.41,0,98,0,
-        73.42,0,110,0, 73.42,0,110,0,
-        65.41,0,98,0, 65.41,0,98,0,
-        82.41,0,123.5,0, 82.41,0,123.5,0,
-      ],
-      gain: 0.32,
-    },
-    drums: {
-      kick:  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-      snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-      hat:   [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0],
-    },
-  },
-
   // ── REGGAE — off-beat skank, deep bass walks ────────────────────────
   {
     name: 'REGGAE', color: '#22BB44', bpm: 78,
@@ -400,100 +370,9 @@ const STATIONS = [
     kickStyle: 'sub',
   },
 
-  // ── MARIACHI — trumpet-y sawtooth, walking bass, major ranchera ─────
+  // ── K-POP — real-track only.  Procedural fields silent fallback. ────
   {
-    name: 'MARIACHI', color: '#FF6622', bpm: 110,
-    melody: {
-      type: 'sawtooth', reverb: 0.3, stereo: 0.5, harmony: 1.498,
-      notes: [
-        523.3,659.3,784,659.3, 523.3,392,523.3,0,
-        587.3,698.5,880,698.5, 587.3,440,587.3,0,
-        659.3,784,1046.5,784, 659.3,523.3,392,0,
-        587.3,698.5,880,698.5, 523.3,440,392,0,
-      ],
-      altNotes: [
-        // Trumpet flourish
-        784,880,1046.5,1318.5, 1046.5,880,784,659.3,
-        523.3,659.3,784,1046.5, 880,784,659.3,523.3,
-        698.5,784,880,1046.5, 880,784,698.5,587.3,
-        523.3,440,392,440, 523.3,659.3,784,0,
-      ],
-      gain: 0.13,
-    },
-    bass: {
-      notes: [
-        130.8,0,164.8,0, 196,0,164.8,0,
-        146.8,0,174.6,0, 220,0,174.6,0,
-        130.8,0,164.8,0, 196,0,261.6,0,
-        146.8,0,196,0, 130.8,0,98,0,
-      ],
-      gain: 0.30,
-    },
-    drums: {
-      kick:  [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-      snare: [0,0,0,0,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,1,0,0,0],
-      hat:   [1,0,1,1,1,0,1,0,1,0,1,1,1,0,1,0,1,0,1,1,1,0,1,0,1,0,1,1,1,0,1,0],
-    },
-  },
-
-  // ── ANCIENT CHINESE — pentatonic zither, sparse gong percussion ─────
-  {
-    name: 'ANCIENT CHINESE', color: '#DD2222', bpm: 72,
-    melody: {
-      type: 'triangle', reverb: 0.6, stereo: 0.7,
-      notes: [
-        // C major pentatonic: C D E G A
-        523.3,0,587.3,0, 659.3,0,784,0,
-        880,0,784,0, 659.3,0,587.3,0,
-        523.3,0,659.3,0, 880,0,1046.5,0,
-        880,784,659.3,587.3, 523.3,0,0,0,
-      ],
-      altNotes: [
-        // Erhu-style ornamented line
-        659.3,587.3,659.3,784, 880,784,659.3,587.3,
-        523.3,587.3,659.3,784, 880,1046.5,880,784,
-        659.3,0,587.3,0, 523.3,587.3,659.3,784,
-        880,784,659.3,587.3, 523.3,0,0,0,
-        // Sparse high pluck
-        1046.5,0,0,880, 0,0,784,0,
-        0,659.3,0,0, 587.3,0,523.3,0,
-        0,0,1046.5,0, 0,880,0,784,
-        0,659.3,0,587.3, 523.3,0,0,0,
-      ],
-      gain: 0.12,
-    },
-    bass: {
-      notes: [
-        65.41,0,0,0, 65.41,0,0,0,
-        82.41,0,0,0, 82.41,0,0,0,
-        65.41,0,0,0, 65.41,0,0,0,
-        98,0,0,0, 65.41,0,0,0,
-      ],
-      gain: 0.24,
-    },
-    drums: {
-      // Sparse — heavy beat-1 thump (gong-like) only.
-      kick:  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      snare: [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
-      hat:   [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-    },
-  },
-
-  // ── POP — real-track only (no procedural fallback needed) ───────────
-  // Procedural fields included for HUD/color and as a silent fallback if
-  // the MP3 manifest fails to load.
-  {
-    name: 'POP', color: '#FF44AA', bpm: 110,
-    melody: { type: 'triangle', notes: [0,0,0,0], gain: 0.0 },
-    bass:   { notes: [0], gain: 0.0 },
-    drums:  { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-              snare:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-              hat:  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
-  },
-
-  // ── MK64 — Mario-Kart-64-style game music, real-track only ──────────
-  {
-    name: 'MK64', color: '#FFCC00', bpm: 132,
+    name: 'K-POP', color: '#FF44AA', bpm: 110,
     melody: { type: 'triangle', notes: [0,0,0,0], gain: 0.0 },
     bass:   { notes: [0], gain: 0.0 },
     drums:  { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -518,8 +397,9 @@ export class AudioSystem {
     this._schedTimer   = null;
     this._nextStepTime = 0;
     this._currentStep  = 0;
-    // Default radio station: Country (index 4) per user request.
-    this.currentStation = 4;
+    // Default radio station: ARCADE (index 0) — chiptune instrumentals
+    // play when a fresh run starts.
+    this.currentStation = 0;
     this.muted         = false;
     this.volume        = 0.32;
     this.ready         = false;
@@ -543,7 +423,11 @@ export class AudioSystem {
     try {
       this._ctx    = new (window.AudioContext || window.webkitAudioContext)();
       this._master = this._ctx.createGain();
-      this._master.gain.value = this.volume;
+      // Respect any mute toggled before init ran — tapping the mute
+      // button on the title screen flips `this.muted` but the gain
+      // assignment in toggleMute() is a no-op while _master is null,
+      // so the silence has to be re-applied here.
+      this._master.gain.value = (this.muted || this.paused) ? 0 : this.volume;
       this._master.connect(this._ctx.destination);
 
       // Compressor bus — glues the mix, adds punch
@@ -622,6 +506,87 @@ export class AudioSystem {
     this._refreshStationPlayback();
   }
 
+  /** Public API consumed by the phone-menu Music app. */
+  getStations() {
+    return STATIONS.map((s, i) => ({
+      index:  i,
+      name:   s.name,
+      color:  s.color,
+      tracks: (s.tracks ?? []).slice(),
+    }));
+  }
+  setStation(idx) {
+    if (idx < 0 || idx >= STATIONS.length) return;
+    // Switching stations cancels any active custom playlist.
+    this._playlistQueue = null;
+    this._playlistIdx   = 0;
+    this.currentStation = idx;
+    this._currentStep   = 0;
+    this._songBarsTotal = 0;
+    this._songPhase     = 'play';
+    this._refreshStationPlayback();
+  }
+  /** Force the audio system into a state where it can play music on
+   *  iOS — init the system if it hasn't been booted yet (the user's
+   *  tap counts as the required gesture), resume the AudioContext if
+   *  suspended, clear the paused/muted flags, and unpause master
+   *  gain.  Called whenever the user explicitly picks a track in the
+   *  music app so playback doesn't silently fail. */
+  _enablePlayback() {
+    if (!this.ready) this.init();
+    try { if (this._ctx?.state === 'suspended') this._ctx.resume(); } catch (_) {}
+    // Clear the in-game-pause flag, but PRESERVE the user's mute
+    // preference — pressing play on a song or restarting the run
+    // must never override the mute toggle.
+    this.paused = false;
+    if (this._master) this._master.gain.value = this.muted ? 0 : this.volume;
+  }
+  playSpecificTrack(url) {
+    // Tapping a specific track is an explicit "play this now" — it
+    // overrides any standing mute (the user clearly wants sound) and
+    // any in-game-pause flag.  Mute persistence still applies for
+    // implicit playback (game start, station refresh).
+    this.muted = false;
+    this._enablePlayback();
+    // Single-track play cancels any active playlist queue.
+    this._playlistQueue = null;
+    this._playlistIdx   = 0;
+    for (let i = 0; i < STATIONS.length; i++) {
+      if ((STATIONS[i].tracks ?? []).includes(url)) {
+        this.currentStation = i;
+        this._trackIdx = STATIONS[i].tracks.indexOf(url);
+        this._currentStep   = 0;
+        this._songBarsTotal = 0;
+        this._songPhase     = 'play';
+        this._startTrack(url);
+        return true;
+      }
+    }
+    return false;
+  }
+  /** Cross-genre playlist — queue an arbitrary list of track URLs.
+   *  Plays them in order; on each track end the next one starts.
+   *  Loops back to the start when the queue is exhausted. */
+  playPlaylist(urls) {
+    if (!Array.isArray(urls) || !urls.length) return;
+    // Same intent as playSpecificTrack — hitting PLAY is an explicit
+    // request for sound, so override any standing mute.
+    this.muted = false;
+    this._enablePlayback();
+    this._playlistQueue = urls.slice();
+    this._playlistIdx   = 0;
+    this._startTrack(this._playlistQueue[0]);
+  }
+  /** Shuffle all real-track stations into a single rotating set. */
+  shuffleAllTracks() {
+    this._playlistQueue = null;
+    const pool = [];
+    for (const st of STATIONS) for (const t of (st.tracks ?? [])) pool.push(t);
+    if (!pool.length) return;
+    const url = pool[Math.floor(Math.random() * pool.length)];
+    this.playSpecificTrack(url);
+  }
+
   /** Switch playback path based on the current station: if it has real
    *  tracks, kill any procedural sound and start an MP3; otherwise stop
    *  any playing MP3 and let the procedural scheduler take over. */
@@ -639,25 +604,78 @@ export class AudioSystem {
 
   _startTrack(url) {
     this._stopTrack();
-    try {
-      const el = new Audio(url);
-      el.crossOrigin = 'anonymous';
-      el.loop        = false;
-      el.volume      = 1;
-      // Route through the master gain so volume/mute/pause apply.
-      const src = this._ctx.createMediaElementSource(el);
-      src.connect(this._master);
-      el.addEventListener('ended', () => this._onTrackEnded());
-      el.addEventListener('error', () => this._onTrackEnded());
-      // If muted/paused at start, gain stays at 0 — the element still
-      // counts time so 'ended' fires normally.
-      el.play().catch(() => {/* user-gesture-required errors swallowed */});
-      this._trackEl     = el;
-      this._trackSource = src;
-    } catch (e) {
-      // MediaElementSource can throw if the stream isn't ready; fall
-      // back silently — procedural scheduler still runs.
-      console.warn('AudioSystem track start failed:', e);
+    // Generation token — only the LATEST _startTrack call is allowed
+    // to actually wire up audio.  Two taps in quick succession (or a
+    // tap during the iOS context-resume delay) would otherwise leave
+    // both Audio() elements playing simultaneously, with only the
+    // newer one referenced by this._trackEl — the older becomes an
+    // unstoppable orphan.  Incrementing _startGen per call and
+    // checking it inside begin() drops the stale ones.
+    const myGen = (this._startGen = (this._startGen ?? 0) + 1);
+    // The FIRST .play() after AudioContext creation can silently fail
+    // on iOS even when invoked from a user gesture — the context is
+    // still mid-resume, so HTMLMediaElement decides "no user gesture"
+    // and rejects.  Wait for the context to be running before
+    // starting playback, and retry once on rejection.  If that fails
+    // too, advance to the next track so the radio doesn't stall.
+    const begin = () => {
+      if (myGen !== this._startGen) return;       // superseded — abort
+      // Defensive — kill any track that may have started during the
+      // resume delay before we replace this._trackEl.
+      this._stopTrack();
+      try {
+        const el = new Audio(url);
+        el.crossOrigin = 'anonymous';
+        el.loop        = false;
+        el.volume      = 1;
+        // Default is 'metadata' — only fetches the MP3 header, then
+        // waits for play() to fetch the rest, which is a big chunk
+        // of the "first song is slow" delay on iOS.  'auto' tells
+        // the browser to start downloading the whole file as soon
+        // as the element is created, so by the time play() runs the
+        // first samples are already buffered.
+        el.preload = 'auto';
+        // Route through the master gain so volume/mute/pause apply.
+        const src = this._ctx.createMediaElementSource(el);
+        src.connect(this._master);
+        el.addEventListener('ended', () => this._onTrackEnded());
+        el.addEventListener('error', () => this._onTrackEnded());
+        // iOS pauses the audio element when a system sound interrupts
+        // (text-message ping, charger plug-in chime, Siri, etc.).
+        // If our own paused/muted state says we WANT to be playing,
+        // resume after a short beat so the interruption doesn't kill
+        // the song.
+        el.addEventListener('pause', () => {
+          if (this.paused || this.muted) return;     // intentional
+          if (el.ended) return;
+          if (el !== this._trackEl) return;          // superseded
+          setTimeout(() => {
+            if (this.paused || this.muted) return;
+            if (el !== this._trackEl || el.ended) return;
+            el.play().catch(() => {});
+          }, 120);
+        });
+        const tryPlay = (retries) => {
+          if (myGen !== this._startGen) { try { el.pause(); } catch (_) {} return; }
+          el.play().catch(() => {
+            if (myGen !== this._startGen) return;
+            if (retries > 0) setTimeout(() => tryPlay(retries - 1), 150);
+            else             this._onTrackEnded();
+          });
+        };
+        tryPlay(1);
+        this._trackEl     = el;
+        this._trackSource = src;
+      } catch (e) {
+        // MediaElementSource can throw if the stream isn't ready; fall
+        // back silently — procedural scheduler still runs.
+        console.warn('AudioSystem track start failed:', e);
+      }
+    };
+    if (this._ctx?.state === 'suspended') {
+      this._ctx.resume().then(begin, begin);
+    } else {
+      begin();
     }
   }
 
@@ -671,6 +689,12 @@ export class AudioSystem {
   }
 
   _onTrackEnded() {
+    // Active custom playlist takes priority over station auto-advance.
+    if (this._playlistQueue && this._playlistQueue.length) {
+      this._playlistIdx = (this._playlistIdx + 1) % this._playlistQueue.length;
+      this._startTrack(this._playlistQueue[this._playlistIdx]);
+      return;
+    }
     const st = STATIONS[this.currentStation];
     if (!st?.tracks?.length) { this._stopTrack(); return; }
     // Advance to a different track (avoid replaying the same file).

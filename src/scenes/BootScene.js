@@ -82,7 +82,12 @@ export class BootScene extends Phaser.Scene {
     save.setMode(mode);
     const wallet = new Wallet(save);
 
-    this.registry.set('audio',        new AudioSystem());
+    // AudioSystem is registered in main.js before the game even
+    // boots so the iPhone-menu music app sees stations instantly.
+    // Only create one here as a fallback if main.js didn't.
+    if (!this.registry.get('audio')) {
+      this.registry.set('audio', new AudioSystem());
+    }
     this.registry.set('save',         save);
     this.registry.set('wallet',       wallet);
 
