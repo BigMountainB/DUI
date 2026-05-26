@@ -16,10 +16,14 @@ const DRUG_TEX = (id) => (id === 'alcohol' ? 'drug_beer' : `drug_${id}`);
 // Per-drug rest-stop pricing — each click adds +10 % to that bar, capped
 // at 80 %.  Prices scaled so 8 clicks (0 → 80 %) costs roughly the same
 // as the old single +50 % click did.
+// Per-drug pharmacy base prices.  Camp / dealer / charge / hunting
+// apply SHOP_DRUG_MARKUP (2.5×) on top.  Cut ~70-90 % from the
+// pre-rebalance numbers per the cost ladder so dealer trips are
+// tempting but pharmacy is the budget option.
 const DRUG_PRICE = {
-  alcohol:  80,  weed:   80,   cocaine: 220,  shrooms: 140,
-  lsd:     180,  heroin: 280,  rx:      180,  fentanyl: 360,
-  ketamine:260,  meth:   300,
+  alcohol:  5,   weed:   5,    cocaine: 40,   shrooms: 15,
+  lsd:     10,   heroin: 15,   rx:      10,   fentanyl: 25,
+  ketamine:15,   meth:   15,
 };
 
 const DRUG_DISPLAY = (id) => DRUG_CONFIG[id]?.label?.replace(/^[^A-Za-z]+/, '').trim() ?? id;
@@ -27,11 +31,11 @@ const DRUG_DISPLAY = (id) => DRUG_CONFIG[id]?.label?.replace(/^[^A-Za-z]+/, '').
 const drugItems = (unlocks /* { id: bool } | Set<id> | null */) => {
   const items = [
     { id: 'coffee',     label: 'COFFEE',           emoji: '☕',
-      cost: 5000, desc: 'Reduces all drug bars 50%', payload: { reduceDrugs: 0.5 } },
+      cost: 7, desc: '−1% on every drug', payload: { reduceDrugs: 0.99 } },
     { id: 'snooze',     label: 'TAKE A SNOOZE',    emoji: '😴',
-      cost: 10000, desc: 'Reduces all drug bars 100%', payload: { reduceDrugs: 0 } },
+      cost: 150, desc: 'Wipes all drug bars (instant — no ad watch)', payload: { reduceDrugs: 0 } },
     { id: 'top_all_50', label: 'TOP UP ALL TO 50%', emoji: '⬆️',
-      cost: 2500, desc: 'Every unlocked bar to ≥50 %', payload: { topAllTo: 0.5 } },
+      cost: 300, desc: 'Every unlocked bar to ≥50 %', payload: { topAllTo: 0.5 } },
   ];
   // Drug unlocks are stored in the registry by DrugSystem.snapshotUnlocks
   // as a PLAIN OBJECT { alcohol: true, weed: true, shrooms: true, ... },
@@ -130,21 +134,27 @@ const SECTIONS = {
   hunting: {
     label: '🦌  HUNTING',
     items: [
-      { id: 'gun',     label: 'PISTOL',          icon: 'weapon_gun',         cost: 1500, desc: '+6 bullets',                                payload: { f12: 'gun' } },
-      { id: 'rocket',  label: 'ROCKET LAUNCHER', icon: 'weapon_rocket',      cost: 2250, desc: '+1 directional rocket',                     payload: { f12: 'rocket' } },
-      { id: 'spike',   label: 'SPIKE STRIP',     icon: 'weapon_spike_strip', cost:  500, desc: '+1 rear strip — heat goes UP (max 3)',      payload: { f12: 'spike_strip', spikeHeat: true } },
-      { id: 'paint',   label: 'PAINT BOMB',      icon: 'weapon_paint_bomb',  cost: 1000, desc: '+1 directional bomb',                       payload: { f12: 'paint_bomb' } },
-      { id: 'camo',    label: '🥷  CAMOUFLAGE',  cost: 1500, desc: 'Single-use: clears 2 stars on resume',                                  payload: { camouflage: true } },
+      { id: 'gun',     label: 'PISTOL',           icon: 'weapon_gun',         cost:  500, desc: '+6 bullets',                                payload: { f12: 'gun' } },
+      // Rocket Launcher now ships 3 rockets per purchase (the launcher
+      // is the asset, the rockets are ammo).  Triple-stacks the F12 token.
+      { id: 'rocket',  label: 'ROCKET LAUNCHER',  icon: 'weapon_rocket',      cost: 1000, desc: '+3 directional rockets',                    payload: { f12: 'rocket', f12Count: 3 } },
+      { id: 'spike',   label: 'SPIKED JACKS',     icon: 'weapon_spike_strip', cost:  200, desc: '+1 rear strip — heat goes UP (max 3)',      payload: { f12: 'spike_strip', spikeHeat: true } },
+      { id: 'paint',   label: 'DOUGHNUTS',        icon: 'weapon_paint_bomb',  cost:   50, desc: '+1 directional bomb',                       payload: { f12: 'paint_bomb' } },
+      { id: 'camo',    label: '🥷  NEW PASSPORT', cost: 2000, desc: 'Single-use: clears 2 stars on resume',                                  payload: { camouflage: true } },
     ],
   },
   camp: {
     label: '🏕  CAMP',
     items: [
       { id: 'hitch',    label: '🧍  PICK UP HITCHHIKER',  cost:   0, desc: 'Free — but it\'s a gamble',                              payload: { hitchhike: true } },
-      { id: 'sleep',    label: '😴  SLEEP IT OFF',         cost: 500, desc: 'Watch ad (5s); −25% on every drug; party-clock penalty', payload: { sleep: true,  reduceDrugs: 0.75 } },
-      { id: 'coffee',   label: '☕  COFFEE',                cost: 150, desc: '−50% on every drug',                                     payload: { coffee: true, reduceDrugs: 0.50 } },
-      { id: 'campfix',  label: '🔧  CAMP REPAIR',          cost: 500, desc: 'Repair up to 65% HP (cheaper than dealership)',          payload: { campRepair: true } },
-      { id: 'sexworker',label: '💋  PAY A SEX WORKER FOR HER TIME', cost: 2000, desc: '1-in-10 chance she has dirt on a politician (no >2★ for 100 mi)', payload: { sexworker: true } },
+      { id: 'sleep',    label: '😴  NAP IT OFF',          cost:   0, desc: 'Watch ad (5s); −25% on every drug; party-clock penalty', payload: { sleep: true,  reduceDrugs: 0.75 } },
+      { id: 'coffee',   label: '☕  COFFEE',                cost:   7, desc: '−1% on every drug',                                     payload: { coffee: true, reduceDrugs: 0.99 } },
+      { id: 'campfix',  label: '🔧  CAMP REPAIR',          cost: 400, desc: 'Repair up to 65% HP (cheaper than dealership)',          payload: { campRepair: true } },
+      // Sex Worker now grants a stacking +10 HP "bonus" (extra over max)
+      // PLUS rolls 10 % for the existing dirt-on-a-politician outcome.
+      // Bonus HP carries into gameplay and is consumed by crash damage
+      // before regular HP.
+      { id: 'sexworker',label: '💋  PAY A SEX WORKER FOR HER TIME', cost: 500, desc: '+10 bonus HP (above max, until used). 10 % chance: no >2★ for 100 mi', payload: { sexworker: true, bonusHp: 10 } },
     ],
   },
   // DEALER's landing tile opens a chooser screen (see _showDealerChooser)
@@ -388,8 +398,8 @@ export class RestStopScene extends Phaser.Scene {
     } else {
       gasItems.push({
         id: 'oil_710', label: '🛢  ADD A QUART OF 710 OIL',
-        cost: 50,
-        desc: `+15 HP (capped at ${_vehMaxHp} max).`,
+        cost: 80,
+        desc: `+10 HP (capped at ${_vehMaxHp} max).`,
         payload: { oil710: true },
       });
     }
@@ -418,9 +428,9 @@ export class RestStopScene extends Phaser.Scene {
     const NOS_PRICES = [5000, 10000, 15000];
 
     const accItems = [
-      { id: 'repair',  label: '🔧  REPAIR CAR', cost: 1000,
+      { id: 'repair',  label: '🔧  REPAIR CAR', cost: 1500,
         desc: 'Restore full health', payload: { repair: true } },
-      { id: 'paint',   label: '🎨  PAINT JOB',  cost: 4500,
+      { id: 'paint',   label: '🎨  PAINT JOB',  cost: 3500,
         desc: 'Drops ALL stars — only way out from under a 5★ chopper.',
         payload: { clearStars: true } },
     ];
@@ -435,14 +445,14 @@ export class RestStopScene extends Phaser.Scene {
     }
     if (!_vHasBumper) {
       accItems.push({
-        id: 'armor', label: '🛡  REINFORCED BUMPER', cost: 3500,
+        id: 'armor', label: '🛡  REINFORCED BUMPER', cost: 4000,
         desc: 'Take 20% less crash damage on this vehicle.',
         payload: { vehicleAccessory: 'bumper' },
       });
     }
     if (!_vHasTraction) {
       accItems.push({
-        id: 'traction', label: '❄️  TRACTION TIRES', cost: 2500,
+        id: 'traction', label: '❄️  TRACTION TIRES', cost: 1500,
         desc: '−40% slide penalty on any car (−100% with 4x4).',
         payload: { vehicleAccessory: 'traction' },
       });
@@ -1097,22 +1107,30 @@ export class RestStopScene extends Phaser.Scene {
       // reduceDrugs branch — leave as-is so the math composes.
     }
     if (p.sexworker) {
-      // 1-in-10 chance she has dirt on a politician — gives the player
-      // a "no more than 2 stars for 100 miles" cap.  9/10 it's just a
-      // pleasant detour with nothing to show for it.
+      // ALWAYS grants +10 bonus HP — extra above the vehicle's max,
+      // consumed by crash damage before regular HP (see DamageModel
+      // takeDamage).  Stacks if the player visits multiple sex workers
+      // across rest stops.  10 % roll on top adds the dirt-on-politician
+      // star-cap buff for 100 mi.
       this._purchases.sexworker = true;
+      this._purchases.bonusHp   = (this._purchases.bonusHp ?? 0) + (p.bonusHp ?? 10);
       if (Math.random() < 0.10) {
         this._purchases.starCapMiles = (this._purchases.starCapMiles ?? 0) + 100;
         this._purchases.starCapMax   = 2;
-        this._setStatus?.('🗞  SHE HAD DIRT! Cops capped at 2★ for 100 mi.', '#88FFCC');
+        this._setStatus?.(`🗞  SHE HAD DIRT! Cops capped at 2★ for 100 mi. +${p.bonusHp ?? 10} bonus HP.`, '#88FFCC');
       } else {
-        this._setStatus?.('She had a nice time. Thanks for asking.', '#FFFFFF');
+        this._setStatus?.(`+${p.bonusHp ?? 10} bonus HP. She had a nice time.`, '#FFFFFF');
       }
     }
     if (p.restock)    this._purchases.restock = true;
     if (p.clearStars) this._purchases.clearStars = true;
     if (p.scoreBonus) this._purchases.scoreBonus += p.scoreBonus;
-    if (p.f12)        this._purchases.f12.push(p.f12);
+    if (p.f12) {
+      // f12Count lets a single purchase stack multiple tokens (Rocket
+      // Launcher ships 3 rockets per buy).  Defaults to 1 for the rest.
+      const _f12N = Math.max(1, Math.floor(p.f12Count ?? 1));
+      for (let _i = 0; _i < _f12N; _i++) this._purchases.f12.push(p.f12);
+    }
     if (p.upgrade)    this._purchases.upgrade.push(p.upgrade);
     if (p.drugTopUp) {
       // Per-drug top-up: each click ADDS p.amount (+10%) up to a cap of

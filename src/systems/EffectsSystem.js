@@ -7,6 +7,7 @@
  *   - Green tint overlay           (weed)
  *   - White flash pulse            (cocaine)
  *   - Hue-cycling color overlay    (shrooms / lsd)
+ *   - Liquefying world projection  (shrooms > 0.7)
  *   - Dark vignette + drooping lids (heroin / fentanyl)
  *   - Tunnel vision                (fentanyl)
  *   - K-hole quad split            (ketamine > 0.8)
@@ -37,6 +38,7 @@ export class EffectsSystem {
 
     // State exposed to Road renderer
     this.doubleVision = 0;
+    this.shroomMelt = 0;
 
     // Delayed input buffer for ketamine
     this._inputBuffer = [];
@@ -92,6 +94,13 @@ export class EffectsSystem {
     const fent = d.get(DRUGS.FENTANYL);
     const ket  = d.get(DRUGS.KETAMINE);
     const meth = d.get(DRUGS.METH);
+
+    // High-dose mushrooms: smoothly feed a visual-only liquid-world warp
+    // into Road.render(). Keeping this in the projection pass bends pavement,
+    // scenery, and traffic together without a shader or extra textures.
+    const meltRaw = clamp((shrooms - 0.70) / 0.30, 0, 1);
+    const meltTarget = meltRaw * meltRaw * (3 - 2 * meltRaw);
+    this.shroomMelt = lerp(this.shroomMelt, meltTarget, clamp(dt * 3, 0, 1));
 
     // ── Rx roulette ─────────────────────────────────────────────────
     // Detect a fresh pickup (rx jumped > 0.05 vs last frame); roll a
@@ -453,40 +462,78 @@ export class EffectsSystem {
         // the glass).  Each drop has a stable x seed and a phase offset
         // so they're scattered, then y is animated by gameTime against a
         // fixed scroll period.  Wiper button suppresses the layer.
-        if (!ctx.wiperActive) {
-          const DROP_COUNT = Math.floor(34 * weatherInt);
-          const TOP_Y      = 130;
-          const BOTTOM_Y   = 410;
-          const TRAVEL     = BOTTOM_Y - TOP_Y;
-          // Faster scroll when the car is moving (real airflow).  At rest
-          // drops barely move; at full speed they traverse the windshield
-          // in roughly a second.  No speed signal here, so use a steady
-          // rate tuned by weather intensity (heavier rain → faster drops).
-          const SCROLL_PERIOD = 1.6 / Math.max(0.4, weatherInt);
-          for (let i = 0; i < DROP_COUNT; i++) {
-            const seed   = i * 13.31;
-            const sxR    = ((Math.sin(seed * 9.77) * 43758.5) % 1 + 1) % 1;
-            const phase  = ((Math.sin(seed * 5.13) * 43758.5) % 1 + 1) % 1;
-            const x      = sxR * 800;
-            // phaseT cycles 0→1; map to y BOTTOM→TOP (up the screen).
-            const phaseT = ((t / SCROLL_PERIOD) + phase) % 1;
-            const y      = BOTTOM_Y - phaseT * TRAVEL;
-            // Fade in/out at the ends of travel so drops don't pop on
-            // respawn at the bottom of the windshield.
-            const edge   = Math.min(phaseT, 1 - phaseT);
-            const fade   = Math.min(1, edge * 6);
-            const r      = 2 + (i % 3) * 0.8;
-            // Thin vertical streak trailing BELOW the drop — the smear
-            // it leaves as it's swept up the glass.
-            this.overlay.fillStyle(0xCFE0EE, 0.30 * fade);
-            this.overlay.fillRect(x - r * 0.30, y, r * 0.6, r * 2.4);
-            // Drop itself — slightly vertical-elongated for motion feel.
-            this.overlay.fillStyle(0xCFE0EE, 0.55 * fade);
-            this.overlay.fillEllipse(x, y, r * 1.5, r * 1.9);
-            // Highlight specular dot.
-            this.overlay.fillStyle(0xFFFFFF, 0.85 * fade);
-            this.overlay.fillCircle(x - r * 0.35, y - r * 0.35, r * 0.35);
+        // ── Persistent windshield-drop pool ──────────────────────────
+        // Each drop has its own x/y/size/alpha and drifts UP the glass
+        // toward the top of the windshield.  Wipers DO NOT instantly
+        // clear all drops — instead each completed wiper cycle fires a
+        // `ctx.wiperSweepPulse` that removes ~45 % of drops and shrinks
+        // the survivors by ~35 % size + 30 % alpha.  After 3 sweeps,
+        // residual drops are ~17 % count × ~27 % size of the original
+        // — small leftovers that read like "fresh rain just started".
+        // New drops keep spawning while it's raining, so leaving the
+        // wipers off lets the storm build back up.
+        if (!this._wsDrops) { this._wsDrops = []; this._wsSpawnT = 0; }
+        const sev = Weather.severity?.(mile) ?? 1;       // 1.0 .. 2.4
+        const sevT = Math.max(0, Math.min(1, (sev - 1) / 1.4));
+        // Target drop count for current intensity / severity.  When the
+        // pool is below target (rain just started, post-wipe, etc.)
+        // spawn fast to fill the windshield; when at/above target,
+        // spawn slowly (just to maintain).  Drops spawn across the
+        // ENTIRE windshield Y range so the screen covers immediately
+        // rather than crawling up from the bottom.
+        const TARGET_DROPS = Math.floor(120 * weatherInt * (1 + 1.5 * sevT));
+        const MAX_DROPS    = 240;
+        const below        = TARGET_DROPS - this._wsDrops.length;
+        // Bulk fill when way below target: spawn 60 drops/sec until
+        // close to target.  Maintenance rate after that: 20/sec to
+        // replace drops drifting off the top.
+        const SPAWN_PER_SEC = below > 30 ? 60 : 20 * weatherInt * (1 + sevT);
+        this._wsSpawnT += dt;
+        const spawnInterval = 1 / Math.max(0.1, SPAWN_PER_SEC);
+        const WS_TOP    = 110;
+        const WS_BOTTOM = 420;
+        while (this._wsSpawnT >= spawnInterval && this._wsDrops.length < MAX_DROPS) {
+          this._wsSpawnT -= spawnInterval;
+          // Spawn across the WHOLE windshield height so the glass
+          // covers in one beat, not from the bottom up.
+          this._wsDrops.push({
+            x:     Math.random() * 800,
+            y:     WS_TOP + Math.random() * (WS_BOTTOM - WS_TOP),
+            r:     (1.8 + Math.random() * 2.6) * (1 + 0.5 * sevT),
+            alpha: 0.55 + Math.random() * 0.30,
+            vy:    -6 - Math.random() * 4 - 4 * sevT,    // up-drift speed
+          });
+        }
+        // Wipe pulse — remove ~45 % of drops + shrink/fade survivors.
+        if (ctx.wiperSweepPulse) {
+          const survivors = [];
+          for (const d of this._wsDrops) {
+            if (Math.random() < 0.45) continue;     // remove
+            d.r     *= 0.65;
+            d.alpha *= 0.70;
+            if (d.r > 0.6 && d.alpha > 0.08) survivors.push(d);
           }
+          this._wsDrops = survivors;
+        }
+        // Update + render.
+        const TOP_Y = 110;
+        for (let i = this._wsDrops.length - 1; i >= 0; i--) {
+          const d = this._wsDrops[i];
+          d.y += d.vy * dt;
+          if (d.y < TOP_Y) {
+            // Drop reached the top — remove.  New ones spawn at bottom.
+            this._wsDrops.splice(i, 1);
+            continue;
+          }
+          // Streak below.
+          this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.30 * d.alpha));
+          this.overlay.fillRect(d.x - d.r * 0.30, d.y, d.r * 0.6, d.r * 2.4);
+          // Drop body.
+          this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.55 * d.alpha));
+          this.overlay.fillEllipse(d.x, d.y, d.r * 1.5, d.r * 1.9);
+          // Specular highlight.
+          this.overlay.fillStyle(0xFFFFFF, Math.min(1, 0.85 * d.alpha));
+          this.overlay.fillCircle(d.x - d.r * 0.35, d.y - d.r * 0.35, d.r * 0.35);
         }
       } else if (weatherState === 'snow' && weatherInt > 0.05) {
         // Snowflakes — bigger + more varied per user spec.  Five size
@@ -535,6 +582,62 @@ export class EffectsSystem {
             this.overlay.fillRect(x - armL * 0.5, driftY - armW * 0.5, armL, armW);
             this.overlay.fillRect(x - armW * 0.5, driftY - armL * 0.5, armW, armL);
           }
+        }
+
+        // ── Snow ACCUMULATION on windshield ──────────────────────────
+        // Unlike rain droplets, snowflakes that land on the glass
+        // DON'T drift up — they stick.  The pool grows until wipers
+        // remove them.  Each wiper sweep pulse removes ~60 % of stuck
+        // snow + fades the survivors; after 2-3 sweeps the windshield
+        // is clear, and accumulation starts over.
+        if (!this._wsSnow) { this._wsSnow = []; this._wsSnowSpawnT = 0; }
+        const sevSn = Weather.severity?.(mile) ?? 1;
+        const sevSnT = Math.max(0, Math.min(1, (sevSn - 1) / 1.4));
+        const TARGET_SNOW = Math.floor(160 * weatherInt * (1 + 1.2 * sevSnT));
+        const MAX_SNOW    = 300;
+        const belowS = TARGET_SNOW - this._wsSnow.length;
+        // Bulk-fill when below target (e.g., right after a wipe), then
+        // a slower maintenance rate while at target.  Snow accumulates
+        // faster than rain because there's nothing pulling it off the
+        // glass (no up-drift), so even maintenance feels "stuck on".
+        const SPAWN_SNOW_PER_SEC = belowS > 30 ? 70 : 18 * weatherInt * (1 + sevSnT);
+        this._wsSnowSpawnT += dt;
+        const sIvl = 1 / Math.max(0.1, SPAWN_SNOW_PER_SEC);
+        const SN_TOP    = 90;
+        const SN_BOTTOM = 420;
+        while (this._wsSnowSpawnT >= sIvl && this._wsSnow.length < MAX_SNOW) {
+          this._wsSnowSpawnT -= sIvl;
+          this._wsSnow.push({
+            x:     Math.random() * 800,
+            y:     SN_TOP + Math.random() * (SN_BOTTOM - SN_TOP),
+            r:     1.6 + Math.random() * 2.4,
+            alpha: 0.70 + Math.random() * 0.25,
+          });
+        }
+        // Wipe pulse — heavier removal than rain (snow is more easily
+        // pushed off), ~60 % gone per sweep + fade survivors.
+        if (ctx.wiperSweepPulse) {
+          const survivors = [];
+          for (const f of this._wsSnow) {
+            if (Math.random() < 0.60) continue;
+            f.alpha *= 0.72;
+            if (f.alpha > 0.10) survivors.push(f);
+          }
+          this._wsSnow = survivors;
+        }
+        // Render stuck-snow flakes — soft outer halo + bright center.
+        for (const f of this._wsSnow) {
+          this.overlay.fillStyle(0xDDE8F2, f.alpha * 0.40);
+          this.overlay.fillCircle(f.x, f.y, f.r * 1.6);
+          this.overlay.fillStyle(0xFFFFFF, f.alpha);
+          this.overlay.fillCircle(f.x, f.y, f.r);
+        }
+      } else {
+        // Not snowing — drain any leftover stuck snow over time so the
+        // glass clears naturally when you exit the snow zone.
+        if (this._wsSnow?.length) {
+          for (const f of this._wsSnow) f.alpha *= 0.94;
+          this._wsSnow = this._wsSnow.filter(f => f.alpha > 0.10);
         }
       }
 

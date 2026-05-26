@@ -53,6 +53,17 @@ export const ASSET_MANIFEST = {
     { key: 'codex_bestla_roadster_front', path: 'assets/cars/codex/codex_bestla_roadster_front.png' },
     { key: 'codex_playdout_s3x_back',  path: 'assets/cars/codex/bestla_playdout_s3x_back.png' },
     { key: 'codex_playdout_s3x_front', path: 'assets/cars/codex/bestla_playdout_s3x_front.png' },
+    // ── Beater first-person cockpit (transparent PNG overlay) ─────────
+    // Native 1672×941, scaled to fill the 800×450 viewport.  Drawn in
+    // GameScene._buildCockpit / _renderCockpit when the active vehicle
+    // is `beater`.  Other vehicles continue using the third-person
+    // playerSprite until their own cockpit art ships.
+    { key: 'beater_cockpit_base',         path: 'assets/cars/codex/cockpit/beater_cockpit_no_wheel.png' },
+    { key: 'beater_steering_wheel',       path: 'assets/cars/codex/cockpit/beater_steering_wheel.png' },
+    { key: 'beater_speedometer_needle',   path: 'assets/cars/codex/cockpit/beater_speedometer_needle.png' },
+    { key: 'beater_fuel_needle',          path: 'assets/cars/codex/cockpit/beater_fuel_needle.png' },
+    { key: 'beater_low_fuel_light',       path: 'assets/cars/codex/cockpit/beater_low_fuel_light.png' },
+    { key: 'beater_wiper_arm',            path: 'assets/cars/codex/cockpit/beater_wiper_arm.png' },
     // Traffic aliases for the Codex garage cars.  GameScene resolves NPC
     // traffic with car_back_<set> / car_front_<set> keys.
     { key: 'car_back_codex_beater',          path: 'assets/cars/codex/codex_beater_back.png' },

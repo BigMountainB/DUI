@@ -146,7 +146,10 @@ const CODEX_SEATTLE_SKYLINE = [
   'codex_seattle_russell_investments',
   'codex_seattle_tower_pair',
   'codex_seattle_office_cluster',
-  'codex_seattle_skyline',
+  // `codex_seattle_skyline` is a wide background panorama, not a
+  // drive-by structure. Spawning it in this collidable roadside cycle
+  // makes its base span the freeway/ramp so the player appears to drive
+  // underneath the city composite.
 ];
 const CODEX_BELLEVUE_SKYLINE = [
   'codex_bellevue_skyline',
@@ -189,6 +192,30 @@ const URBAN_PNW_MIX = [
   'tree_bigleaf_maple_1', 'tree_bigleaf_maple_2', 'tree_vine_maple_1',
   'tree_douglas_fir_1',   'tree_douglas_fir_2',
   'tree_red_cedar_1',     'tree_hemlock1',        'tree_hemlock2',
+];
+// Mercer Island canopy: landscaped maples among the full wet-side
+// evergreen set. Keep dry-side ponderosa/white pine out of this shoreline
+// neighborhood, but use every local cedar, fir, and hemlock variant.
+const MERCER_ISLAND_TREES = [
+  'tree_bigleaf_maple_1', 'tree_bigleaf_maple_2', 'tree_vine_maple_1',
+  ...WESTERN_WA_CONIFERS,
+];
+// Seattle street trees — heavily deciduous (the SoDo → downtown stretch
+// has block after block of bigleaf maples lining the sidewalks; conifers
+// are an accent, not the norm).  Six deciduous slots vs two evergreens
+// gives the row a green-leafy look without removing the PNW conifer cues.
+const SEATTLE_STREET_TREES = [
+  'tree_bigleaf_maple_1', 'tree_bigleaf_maple_2', 'tree_vine_maple_1',
+  'tree_bigleaf_maple_2', 'tree_bigleaf_maple_1', 'tree_vine_maple_1',
+  'tree_douglas_fir_1',   'tree_hemlock1',
+];
+// Downtown Bellevue is deliberately greener and more landscaped than the
+// freeway forest bands: broadleaf street trees should break up the office
+// frontage, with only occasional conifers mixed in.
+const BELLEVUE_STREET_TREES = [
+  'tree_bigleaf_maple_1', 'tree_bigleaf_maple_2', 'tree_vine_maple_1',
+  'tree_bigleaf_maple_2', 'tree_bigleaf_maple_1', 'tree_vine_maple_1',
+  'tree_red_cedar_1',     'tree_douglas_fir_2',
 ];
 const EAST_CASCADES_PINES = [
   'tree_ponderosa_1', 'tree_ponderosa_2',
@@ -242,6 +269,126 @@ const CODEX_SKYLINE_BACKDROPS = new Set([
 // close enough for the player to collide with when drifting off-road.
 const CITY_BUILDING_SETBACK = 5.35;
 const CITY_BUILDING_BACKROW = 6.8;
+const RESIDENTIAL_FRONTAGE_GAP_CARS = 1.25;
+
+// ─────────────────────────────────────────────────────────────────────
+//  Fog-line setback model
+//
+//  Spawn code asks "how far past the white shoulder stripe should this
+//  building's NEAR edge sit?", measured in player-car widths.  The
+//  building's CENTER offset (what the renderer + collision actually
+//  consume) is then `fogLineOffset + side * (carWidthsPastFog *
+//  CAR_WIDTH_NORM + buildingHalfWidthNorm)`.
+//
+//  Why:
+//    The previous model used a fixed center offset (`2.05`) regardless
+//    of how wide the building was — a 1-unit-wide cottage and an
+//    8-unit-wide skyline cluster both spawned with their CENTER at the
+//    same place, which put the cottage's near edge a car-width past
+//    the fog line but the skyline cluster's near edge halfway across
+//    the road.  This helper inverts that: callers pick the visible
+//    GAP between road shoulder and building face, and the math here
+//    figures out the center offset by adding back the building's own
+//    half-width.
+//
+//  Math (per call):
+//    targetW_screen = proj.sw * mult       // mult = profile's heightMult * aspect,
+//                                          //        or profile's widthMult,
+//                                          //        or default sizeMult (2.6).
+//    halfW_norm     = (targetW_screen / 2) / proj.roadHalfW
+//                   = (mult / 2) * (proj.sw / proj.roadHalfW)
+//                   = (mult / 2) * (825 / 3600)               // SW_TO_ROADHALF
+//                   = (mult / 2) * 0.22917
+//    offset         = sign * (FOG_LINE_OFFSET
+//                            + carWidthsPastFog * CAR_WIDTH_NORM
+//                            + halfW_norm)
+//
+//  The mult lookup matches SCENERY_IMAGE_PROFILES in GameScene.js for
+//  every keyed photo asset we spawn through here; unknown textures fall
+//  back to the procedural defaults (sizeMult 2.6 = wide house/tower
+//  silhouette).
+// ─────────────────────────────────────────────────────────────────────
+const FOG_LINE_OFFSET   = 1.0;          // white shoulder stripe in lane units
+const SW_TO_ROADHALF    = 825 / 3600;   // proj.sw / proj.roadHalfW (constant)
+const CAR_WIDTH_NORM    = SW_TO_ROADHALF; // ~0.229 — a player car's width in normalized lane units
+
+// Mirror the subset of SCENERY_IMAGE_PROFILES (GameScene.js) we need
+// for spawn-time half-width math.  Each entry yields an effective
+// width-multiplier-on-proj.sw: either widthMult directly, or
+// heightMult * (textureAspectGuess). For residential frontage, use
+// source-PNG aspect ratios so the fixed spawn position matches runtime
+// uncapped image sizing exactly.
+// Keys not listed fall back to FOG_DEFAULT_MULT below.
+const FOG_PROFILE_MULTS = {
+  // West Seattle homes — actual source ratios, matching runtime sizing.
+  west_seattle_1: 6.0 * (1536 / 1024),
+  west_seattle_2: 6.0 * (1448 / 1086),
+  west_seattle_3: 6.0 * (1459 / 1078),
+  west_seattle_4: 6.0 * (1415 / 1112),
+  west_seattle_5: 6.0 * (1536 / 1024),
+  west_seattle_6: 6.0 * (1536 / 1024),
+  // Bellevue skyline — wider cluster art (aspect ~1.6-2.4).
+  codex_bellevue_skyline:             6.0 * 2.40,
+  codex_bellevue_wavy_residential:    6.0 * 0.95,
+  codex_bellevue_city_center_dark:    6.0 * 1.00,
+  codex_bellevue_braced_glass_tower:  6.0 * 0.90,
+  codex_bellevue_residential_cluster: 6.0 * 2.20,
+  codex_pse_bellevue_office_left:         6.0 * 1.30,
+  codex_pse_bellevue_office_right:        6.0 * 1.30,
+  codex_pse_bellevue_second_office_left:  6.0 * 1.40,
+  codex_pse_bellevue_second_office_right: 6.0 * 1.40,
+  codex_bellevue_twin_residential_left:   6.0 * 1.50,
+  // Downtown Seattle skyline — tall + relatively narrow.
+  codex_seattle_skyline:              3.90 * 2.40,
+  codex_seattle_office_cluster:       3.80 * 2.40,
+  codex_seattle_tower_pair:           4.60 * 0.80,
+  codex_seattle_columbia_center:      5.90 * 0.55,
+  codex_seattle_rainier_square:       5.45 * 0.85,
+  codex_seattle_two_union_square:     5.35 * 0.85,
+  codex_seattle_1201_third:           5.15 * 0.80,
+  codex_seattle_municipal_tower:      5.05 * 0.95,
+  codex_seattle_f5_tower:             5.25 * 0.70,
+  codex_seattle_safeco_plaza:         4.70 * 0.95,
+  codex_seattle_city_centre:          4.55 * 0.95,
+  codex_seattle_russell_investments:  4.55 * 1.10,
+  // Issaquah frontage — actual source ratios, matching runtime sizing.
+  codex_issaquah_front_supply:        4.80 * (1533 / 926),
+  codex_issaquah_highlands:           4.80 * (1514 / 894),
+  codex_issaquah_cottage:             4.40 * (1524 / 928),
+};
+// Default for unknown textures + procedural houses/towers (sp.type
+// 'house' or 'building' with no profile lookup).  Matches sizeMult
+// default 2.6 in GameScene._renderSceneSprites.
+const FOG_DEFAULT_MULT = 2.6;
+
+/**
+ * Return the absolute lateral offset (signed, normalized lane units)
+ * that places a building's NEAR edge `carWidthsPastFog` car-widths
+ * outboard of the fog line on the chosen side.
+ *
+ *   texKey               — texture key (used to estimate building width).
+ *   side                 — +1 (right of road) or -1 (left of road).
+ *   carWidthsPastFog     — gap between fog line and building's near edge,
+ *                          in player-car widths.  0 = touching the white
+ *                          stripe.  Negative values are clamped to 0.
+ *   widthMultOverride    — optional explicit effective widthMult (used
+ *                          when caller knows the asset's per-segment
+ *                          override better than the FOG_PROFILE_MULTS
+ *                          table — e.g. heightBoost cases).
+ *
+ *  Why: lets spawn sites express placement in human terms ("one car
+ *  width past the shoulder") without needing to back-solve for the
+ *  building's center.  See block comment above.
+ */
+function fogLineOffset(texKey, side, carWidthsPastFog, widthMultOverride) {
+  const sign = side >= 0 ? 1 : -1;
+  const gap  = Math.max(0, carWidthsPastFog) * CAR_WIDTH_NORM;
+  const mult = widthMultOverride
+            ?? FOG_PROFILE_MULTS[texKey]
+            ?? FOG_DEFAULT_MULT;
+  const halfW = (mult * 0.5) * SW_TO_ROADHALF;
+  return sign * (FOG_LINE_OFFSET + gap + halfW);
+}
 
 function getTraitsAt(t) {
   for (const r of REGION_ORDER) {
@@ -327,6 +474,12 @@ export function buildRoute(count = ROUTE_SEGS) {
   // and (b) zero-out curvature so the road is dead-straight across
   // any bridge — no Washington bridge has a turn on it.
   const WEST_SEATTLE_BRIDGE_RANGE = [1.0, 1.7];   // high concrete over Duwamish (shifted: mile 0-1 is pre-bridge water-left approach)
+  // The high West Seattle bridge crosses port land with two visible
+  // Duwamish/slip channels under it. Keep crane yards on the dry spans.
+  const WEST_SEATTLE_WATER_CHANNEL_RANGES = [
+    [1.17, 1.25],
+    [1.44, 1.52],
+  ];
   const MT_BAKER_TUNNEL_RANGE     = [4.9, 5.6];   // west portal → east portal
   const MURROW_BRIDGE_RANGE       = [5.7, 7.2];   // Lacey V. Murrow floating bridge
   const MERCER_LID_TUNNEL_RANGE   = [7.4, 7.9];   // covered lid across Mercer Island
@@ -608,21 +761,25 @@ export function buildRoute(count = ROUTE_SEGS) {
         ? primary
         : buildingPool[Math.floor(rng.next() * buildingPool.length)];
     };
-    const makeBuilding = (offset, style) => {
+    const makeBuilding = (offset, style, preTexKey, roadEdgeGapCars) => {
       // Photo-home regions (West Seattle, Mercer Island, Issaquah tail)
       // always spawn image-based residences regardless of the region's
       // declared style — the West Seattle photos are wide-short homes, not
       // towers, so their geometry needs to match.
+      // preTexKey lets the fog-line wrapper pick the key first (so it
+      // can compute width-aware offset) and pass it back in here without
+      // a second RNG roll.
       if (poolIsHomes) {
         return {
           type:      'building',
-          texKey:    pickBuildingTex(offset),
+          texKey:    preTexKey ?? pickBuildingTex(offset),
           offset,
           // Home photos are roughly 1.4× wider than tall — slightly bigger
           // than the procedural-house footprint so they read at full size
           // when the camera is close.
           baseW:     5400 + Math.floor(rng.next() * 2400),
           baseH:     4200 + Math.floor(rng.next() * 1400),
+          roadEdgeGapCars,
           collected: false,
         };
       }
@@ -645,11 +802,12 @@ export function buildRoute(count = ROUTE_SEGS) {
           hasChimney:rng.bool(0.40),
           hasDormer: rng.bool(0.30),
           twoStory:  rng.bool(0.45),
+          roadEdgeGapCars,
           collected: false,
         };
       }
       const isTower = style === 'tower';
-      const texKey = pickBuildingTex(offset);
+      const texKey = preTexKey ?? pickBuildingTex(offset);
       const isCodexSkyline = CODEX_SKYLINE_BACKDROPS.has(texKey);
       const bFloors = isTower
         ? 6 + Math.floor(rng.next() * 12)
@@ -657,10 +815,11 @@ export function buildRoute(count = ROUTE_SEGS) {
       return {
         type:      'building',
         texKey,
-        offset:    isCodexSkyline
-          ? (offset >= 0 ? Math.max(offset, CITY_BUILDING_SETBACK) : Math.min(offset, -CITY_BUILDING_SETBACK))
-          : offset,
-        visualMinOffset: isCodexSkyline ? CITY_BUILDING_SETBACK : undefined,
+        // Use offset as-given — fog-line spawn math already accounts
+        // for setback and the building's half-width.  Previously this
+        // clamped codex skyline to CITY_BUILDING_SETBACK (5.35), which
+        // overrode the spawn-time decision; removed so fog-line wins.
+        offset,
         // Per user: everything but weapons/drugs should be collidable.
         // (Default undefined → solid obstacle in the scenery collision
         // check at GameScene.js:2914.  Pickups aren't in SCENERY_TYPES
@@ -675,6 +834,34 @@ export function buildRoute(count = ROUTE_SEGS) {
         floors:    bFloors,
         collected: false,
       };
+    };
+    // ── Fog-line wrapper for makeBuilding ──────────────────────────────
+    // Take a "side + car-widths past the fog line" pair and resolve it
+    // to the absolute center offset makeBuilding expects.  Picks the
+    // texKey FIRST so the half-width math can use the correct asset
+    // profile, then passes that pre-picked key into makeBuilding so
+    // the texture choice doesn't drift between the two calls (which
+    // would also burn extra RNG on the pickBuildingTex path).
+    //
+    // Why: see fogLineOffset() block comment up top.  Procedural
+    // 'home' / tower paths have no texKey at all, so they use the
+    // default sizeMult fallback in fogLineOffset.
+    const makeBuildingAtFog = (sign, carWidthsPastFog, style) => {
+      // A throwaway sign-only offset is used only to drive the
+      // skyline texture rotator (which keys off the offset's sign).
+      const sideHint = sign >= 0 ? +CITY_BUILDING_SETBACK : -CITY_BUILDING_SETBACK;
+      const texKey   = (poolIsHomes || style !== 'home')
+        ? pickBuildingTex(sideHint)
+        : null;
+      const off = fogLineOffset(texKey, sign, carWidthsPastFog);
+      const isResidentialFrontage = poolIsHomes || style === 'home'
+        || _regionKeyForPool === 'eastside';
+      return makeBuilding(
+        off,
+        style,
+        texKey ?? undefined,
+        isResidentialFrontage ? carWidthsPastFog : undefined,
+      );
     };
     // Hard cap: no buildings past mile 17 (Issaquah onward).  Player
     // wants the suburbs/cities to taper out into open road from there.
@@ -708,31 +895,32 @@ export function buildRoute(count = ROUTE_SEGS) {
         const texKey  = WEST_SEATTLE_HOMES[hash % WEST_SEATTLE_HOMES.length];
         // Right side only — water field on left, no spawns there.
         // Positive offset = RIGHT in this engine's coords.
-        const offset  = 2.05 + rng.next() * 0.20;
+        // Choose the permanent center offset from a one-and-a-quarter car
+        // width street-facing setback. GameScene renders this fixed position.
+        const offset  = fogLineOffset(texKey, +1, RESIDENTIAL_FRONTAGE_GAP_CARS);
         sprites.push({
           type:      'building',
           texKey,
           offset:    offset,
           baseW:     5400 + Math.floor(rng.next() * 2400),
           baseH:     4200 + Math.floor(rng.next() * 1400),
+          roadEdgeGapCars: RESIDENTIAL_FRONTAGE_GAP_CARS,
           collected: false,
         });
       }
     }
-    // ── West Seattle Bridge cranes (mile 1.05 – 1.75) ──────────────
-    // Container cranes flank the bridge in the port water below.
+    // ── West Seattle Bridge cranes (mile 1.05 – 1.70) ──────────────
+    // Container cranes sit in paved port yards beside the elevated bridge.
+    // Two short channel intervals beneath the bridge remain free of cranes.
     // Visibility lookahead = DRAW_DIST × SEG_LENGTH ÷ (ROUTE_SEGS /
     // TOTAL_ROUTE_MILES) ≈ 0.23 mi, so spawn at 1.05 yields first
     // visible at ~0.82 mi.  Start pulled back another ~0.07 mi
     // (~2 sec) per user request so cranes appear earlier still.
-    // End pushed from 1.70 → 1.75 so the slot at ~1.71 mi can fire
-    // (previously the last crane landed around 1.53; the new bound
-    // pushes the last spawn out past mile 1.6).
     // GameScene._renderSceneSprites() caps the crane lookahead at
     // DRAW_DIST explicitly (cranes don't render beyond the road-
     // projection cache) so cranes never appear with the wrong
     // perspective at extreme distance.
-    else if (mileNow >= 1.05 && mileNow < 1.75) {
+    else if (mileNow >= 1.05 && mileNow < WEST_SEATTLE_BRIDGE_RANGE[1]) {
       const CRANE_LEFT_POOL = [
         'codex_ws_crane_crate_left',
         'codex_ws_crane_white_boxes_left',
@@ -747,34 +935,30 @@ export function buildRoute(count = ROUTE_SEGS) {
       const segsPerCraneSlot  = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / craneSlotsPerMile;
       const craneSlot      = Math.floor(i / segsPerCraneSlot);
       const craneSlotPrev  = i > 0 ? Math.floor((i - 1) / segsPerCraneSlot) : -1;
-      if (craneSlot > craneSlotPrev) {
+      const onPortWaterChannel = WEST_SEATTLE_WATER_CHANNEL_RANGES.some(
+        ([start, end]) => mileNow >= start && mileNow < end
+      );
+      if (!onPortWaterChannel && craneSlot > craneSlotPrev) {
         const craneKeyL = CRANE_LEFT_POOL[ craneSlot       % CRANE_LEFT_POOL.length ];
         const craneKeyR = CRANE_RIGHT_POOL[(craneSlot + 2) % CRANE_RIGHT_POOL.length];
-        // Sit far off the bridge in the port flats below — pushed well
+        // Sit far off the bridge on port flats below — pushed well
         // outward (world-space, not pixel-space) so their footprints
         // never overlap the road area.
         const craneOff  = 12.0 + rng.next() * 2.5;
-        // renderDepth 9.4 places cranes near the top of the scenery
-        // band so they occlude distant Seattle skyline backdrops behind
-        // them (those use the standard 9.5→7 distance ramp and at the
-        // far end fall into the 7-8 range — without the bump cranes at
-        // depth 2 were drawn UNDER the skyline towers, which looked
-        // wrong because the cranes are nearer in world space).  The old
-        // low depth was meant to let the bridge deck (depth 4) paint
-        // over crane bases, but cranes spawn at ±12-14 lateral offset
-        // and never visually overlap the road surface, so the bridge
-        // cover-up wasn't doing anything anyway.
+        // The bridge deck is repainted at depth 4 in Road.js. Keeping
+        // cranes at depth 2 puts their bases behind that opaque deck so
+        // the player never sees a crane through the roadway.
         if (rng.bool(0.55)) sprites.push({
           type: 'building', texKey: craneKeyL,
           offset: -(craneOff),    // LEFT side
           baseW: 900, baseH: 2400, collected: false,
-          renderDepth: 9.4,
+          renderDepth: 2,
         });
         if (rng.bool(0.55)) sprites.push({
           type: 'building', texKey: craneKeyR,
           offset: +(craneOff),    // RIGHT side
           baseW: 900, baseH: 2400, collected: false,
-          renderDepth: 9.4,
+          renderDepth: 2,
         });
       }
     }
@@ -830,10 +1014,9 @@ export function buildRoute(count = ROUTE_SEGS) {
 
       // ── Cycle spawn — buildings appear at regular intervals along
       //    the road, alternating left and right with directional
-      //    variants where they exist.  Density is denser for homes
-      //    regions (West Seattle / Mercer Island residential streets
-      //    need a row of houses, not a sparse cycle) and standard for
-      //    skyline regions (one per ~1/20 mi each side).
+      //    variants where they exist. West Seattle retains dense home
+      //    frontage; Mercer is forest-only and skips building spawn;
+      //    skyline regions stay at one placement per ~1/20 mi per side.
       //
       // Mile 0–1.05 (West Seattle approach + the bridge on-ramp gap
       // before the crane block at 1.05) has Elliott Bay on the LEFT,
@@ -842,30 +1025,54 @@ export function buildRoute(count = ROUTE_SEGS) {
       // forward, easily reaching the bridge on-ramp slot — a left-side
       // home spawned there reads as floating in the bay.
       const inWestSeattleApproach = (mileNow >= 0 && mileNow < 1.05);
-      if (!inWestSeattleApproach && cyclePool && cyclePool.left.length > 0 && densityScale > 0.2) {
-        // Homes regions: 1 building per ~1/80 mile per side (4× denser).
-        // Skyline regions: 1 building per ~1/20 mile per side.
+      const isMercerForestOnly = _regionKeyForPool === 'mercer_island';
+      if (!inWestSeattleApproach && !isMercerForestOnly
+          && cyclePool && cyclePool.left.length > 0 && densityScale > 0.2) {
+        // Mercer intentionally bypasses this block: its roadside lots are
+        // filled with reusable tree sprites below instead of houses.
         const slotsPerMile  = poolIsHomes ? 80 : 20;
         const segsPerSlot   = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / slotsPerMile;
         const slotNow  = Math.floor(i / segsPerSlot);
         const slotPrev = i > 0 ? Math.floor((i - 1) / segsPerSlot) : -1;
         if (slotNow > slotPrev) {
-          // 20 % chance per slot to skip entirely — leaves natural gaps
-          // (vacant lots, parks, side streets) so the drive feels less
-          // like a checkerboard wall of buildings.
+          // Vacant lots, parks, and side streets keep dense frontage from
+          // feeling like a checkerboard wall of buildings.
           const skipSlot = rng.bool(0.20);
           if (!skipSlot) {
             // Each side cycles its own pool independently so directional
             // variants line up with the side they're spawned on.
             const leftKey  = cyclePool.left[slotNow % cyclePool.left.length];
             const rightKey = cyclePool.right[(slotNow + 3) % cyclePool.right.length];
-            // ONE car width off the sidewalk — sidewalk runs ~1.0 to ~1.7;
-            // a car is ~0.35 wide in normalized lane units, so the building's
-            // near edge sits around offset 2.05.  Slight jitter (~0.20) so
-            // the row doesn't look ruler-straight.
-            const baseOff  = 2.05;
+            // Per-region "car-widths past the fog line" gaps — see
+            // fogLineOffset() block comment near the top of this file.
+            //
+            //   • West Seattle homes: 1.25 — tight residential frontage,
+            //     RIGHT SIDE ONLY (water on left), so the row only
+            //     hems in one peripheral.
+            //   • Issaquah homes: 1.25 — single-sided frontage like
+            //     West Seattle, keep tight.
+            //   • Bellevue skyline + downtown Seattle skyline: 4.0 — tall
+            //     wide cluster art needs the city block of buffer the
+            //     old CITY_BUILDING_SETBACK provided, but expressed now
+            //     in fog-line units instead of an absolute number.
+            //
+            // Skyline rows retain small jitter; residential frontage is
+            // fixed so a row of homes stays parallel to the fog line.
+            const carWidthsPastFog = (() => {
+              switch (_regionKeyForPool) {
+                case 'seattle_urban':    return RESIDENTIAL_FRONTAGE_GAP_CARS;
+                case 'downtown_seattle': return 4.00;   // skyline, unchanged
+                case 'eastside_urban':   return 4.00;   // skyline, unchanged
+                case 'eastside':         return RESIDENTIAL_FRONTAGE_GAP_CARS;
+                default:                 return 0.90;   // was 0.60
+              }
+            })();
             const makeOne  = (sign, texKey, rampClearance) => {
-              const off  = sign * (baseOff + rng.next() * 0.20);
+              const isResidentialFrontage = poolIsHomes || _regionKeyForPool === 'eastside';
+              const gapCars = isResidentialFrontage
+                ? carWidthsPastFog
+                : carWidthsPastFog + rng.next() * 0.25;
+              const off  = fogLineOffset(texKey, sign, gapCars);
               const isCodexSkyline = CODEX_SKYLINE_BACKDROPS.has(texKey);
               sprites.push({
                 type:      'building',
@@ -875,18 +1082,20 @@ export function buildRoute(count = ROUTE_SEGS) {
                                        : (800  + Math.floor(rng.next() * 500)),
                 baseH:     poolIsHomes ? (4200 + Math.floor(rng.next() * 1400))
                                        : (2200 + Math.floor(rng.next() * 1500)),
+                roadEdgeGapCars: isResidentialFrontage ? gapCars : undefined,
                 collected: false,
-                visualMinOffset: isCodexSkyline ? CITY_BUILDING_SETBACK : undefined,
+                // visualMinOffset intentionally omitted — fog-line
+                // spawn (off = fogLineOffset(...)) already places this
+                // sprite at the correct setback for its asset width.
+                // Forcing CITY_BUILDING_SETBACK here would override the
+                // per-region car-widths-past-fog math the spawn just
+                // ran.
                 // rampClearance tells the renderer to push this sprite
                 // PAST the off-ramp's outer edge so the house sits on
                 // the far side of the ramp, not in the gore wedge.
                 rampClearance:   rampClearance || undefined,
                 // Explicit collidable: true per user spec — every
-                // cycle-spawned building is a solid obstacle.  Skyline
-                // buildings sit at CITY_BUILDING_SETBACK (5.35) which is
-                // well past the exit ramp's outer edge (4.30); the
-                // player can reach them via the extended ramp p.x
-                // clamp (see GameScene line 2613 area).
+                // cycle-spawned building is a solid obstacle.
                 collidable:      true,
                 heightBoost:     isCodexSkyline ? 3.0                    : undefined,
               });
@@ -938,44 +1147,63 @@ export function buildRoute(count = ROUTE_SEGS) {
         // (parks / cul-de-sacs / vacant lots).  Within a block, both
         // sides share roughly the same setback so homes line up like a
         // planned subdivision instead of zig-zagging.
+        //
+        // Why fog-line model: previously each row used an absolute
+        // center offset (`blockSetback ≈ 2.45–3.05`).  That centered a
+        // skinny house and a wide cluster at the same place, so wider
+        // assets ended up with their NEAR edge in the road.  Now we
+        // pick "car-widths past the fog line" for each row depth and
+        // the helper adds back the asset's half-width.
         const block        = Math.floor(i / 50);
         const blockHash    = (block * 7919 + 13) % 100;
         const blockHasHomes= blockHash < 70;
         const blockMul     = blockHasHomes ? 1.6 : 0.10;
-        const blockSetback = 2.45 + ((block * 1117 + 5) % 60) / 100;  // 2.45–3.05
-        const jitter       = () => (rng.next() - 0.5) * 0.12;
+        // Per-block gap variance (0.0–0.6 car-widths) so adjacent
+        // blocks don't all sit at identical setback.
+        const blockGapJ    = ((block * 1117 + 5) % 60) / 100;
+        const jitterCW     = () => (rng.next() - 0.5) * 0.30;  // ±0.15 car-widths
+        // Front row was 0.60 — bumped to 0.90 per user "30-50 px off
+        // the road" feedback.  Deep + back rows track the front so the
+        // subdivision still reads as parallel streets.
+        const frontGap     = 0.90 + blockGapJ;                 // procedural-homes front row
+        const deepGap      = frontGap + 3.0;                   // ~1.4 normalized units back
+        const backGap      = frontGap + 6.5;                   // ~3.0 normalized units back
         const frontP       = traits.buildingDensity * 0.30 * densityScale * blockMul;
-        if (rng.bool(frontP)) sprites.push(makeBuilding( blockSetback + jitter(), style));
-        if (rng.bool(frontP)) sprites.push(makeBuilding(-blockSetback + jitter(), style));
+        if (rng.bool(frontP)) sprites.push(makeBuildingAtFog( +1, frontGap + jitterCW(), style));
+        if (rng.bool(frontP)) sprites.push(makeBuildingAtFog( -1, frontGap + jitterCW(), style));
         // Second-row homes — typical of a subdivision with parallel
         // streets behind the frontage.  Half the rate so the back row
         // reads as sparser depth fill, not a doubled wall.
         const deepP = traits.buildingDensity * 0.35 * densityScale * blockMul;
-        if (rng.bool(deepP)) sprites.push(makeBuilding( blockSetback + 1.4 + jitter(), style));
-        if (rng.bool(deepP)) sprites.push(makeBuilding(-blockSetback - 1.4 + jitter(), style));
+        if (rng.bool(deepP)) sprites.push(makeBuildingAtFog( +1, deepGap + jitterCW(), style));
+        if (rng.bool(deepP)) sprites.push(makeBuildingAtFog( -1, deepGap + jitterCW(), style));
         // Far-back row — homes way out at the edge of perception.  Cheap
         // pseudo-3D depth: each segment is just a few extra rng.bool()
         // rolls + sprite slots, no per-frame cost.  Quarter rate so the
         // distance reads as dotted houses on the horizon, not another wall.
         const backP = traits.buildingDensity * 0.18 * densityScale * blockMul;
-        if (rng.bool(backP)) sprites.push(makeBuilding( blockSetback + 3.0 + jitter(), style));
-        if (rng.bool(backP)) sprites.push(makeBuilding(-blockSetback - 3.0 + jitter(), style));
+        if (rng.bool(backP)) sprites.push(makeBuildingAtFog( +1, backGap + jitterCW(), style));
+        if (rng.bool(backP)) sprites.push(makeBuildingAtFog( -1, backGap + jitterCW(), style));
       } else {
         if (poolIsCodexSkyline) {
           // City photo clusters should feel roadside, but not glued to
-          // the sidewalk.  Keep the front row about two car widths back
-          // and allow a modest second row for skyline depth.
+          // the sidewalk.  Front row sits ~4 car-widths past the fog
+          // line (skyline-region default); back row adds another ~3.5
+          // car-widths of depth for the layered city look.
           const skylineP = Math.min(0.034, traits.buildingDensity * 0.20) * densityScale * 0.25;
-          if (rng.bool(skylineP)) sprites.push(makeBuilding( rng.range(CITY_BUILDING_SETBACK, CITY_BUILDING_BACKROW), style));
-          if (rng.bool(skylineP)) sprites.push(makeBuilding(-rng.range(CITY_BUILDING_SETBACK, CITY_BUILDING_BACKROW), style));
+          if (rng.bool(skylineP)) sprites.push(makeBuildingAtFog( +1, 4.0 + rng.next() * 1.5, style));
+          if (rng.bool(skylineP)) sprites.push(makeBuildingAtFog( -1, 4.0 + rng.next() * 1.5, style));
         } else {
-          // Original generic placement — used by tower / midrise regions.
+          // Generic tower / midrise placement — front row at ~0.9
+          // car-widths past the fog line (was 0.6; bumped per user
+          // "30-50 px off the road" feedback), deep row a few car-widths
+          // back.
           const frontageP = traits.buildingDensity * 0.30 * densityScale;
-          if (rng.bool(frontageP)) sprites.push(makeBuilding( rng.range(2.35, 3.15), style));
-          if (rng.bool(frontageP)) sprites.push(makeBuilding(-rng.range(2.35, 3.15), style));
+          if (rng.bool(frontageP)) sprites.push(makeBuildingAtFog( +1, 0.90 + rng.next() * 0.50, style));
+          if (rng.bool(frontageP)) sprites.push(makeBuildingAtFog( -1, 0.90 + rng.next() * 0.50, style));
           const deepP = traits.buildingDensity * 0.70 * densityScale;
-          if (rng.bool(deepP)) sprites.push(makeBuilding( rng.range(3.2, 5.6), style));
-          if (rng.bool(deepP)) sprites.push(makeBuilding(-rng.range(3.2, 5.6), style));
+          if (rng.bool(deepP)) sprites.push(makeBuildingAtFog( +1, 2.5 + rng.next() * 3.0, style));
+          if (rng.bool(deepP)) sprites.push(makeBuildingAtFog( -1, 2.5 + rng.next() * 3.0, style));
         }
         }
       }
@@ -991,32 +1219,58 @@ export function buildRoute(count = ROUTE_SEGS) {
     let _treeSlotsPerMile = 0;
     let _shrubPool = null;
     let _shrubSlotsPerMile = 0;
+    let _denseStreetTrees = false;
+    let _treeHeightBoost = 1;       // base per-spawn vertical scale, 1 = native
+    let _treeBigBoostChance = 0;    // probability a given tree spawns much taller
+    let _treeBigBoostMin = 2;       // min boost for the "big" variant
+    let _treeBigBoostMax = 3;       // max boost for the "big" variant
     switch (_regionKeyForPool) {
       case 'seattle_urban':
         // West Seattle homes — maples & conifers between the house row
         // and the road.  Suppressed during the dense home frontage
         // (mile 0–1.05) by the guard below; spawns elsewhere if the
         // region runs past that window.
-        _treePool = URBAN_PNW_MIX;
-        _treeSlotsPerMile = 14;
+        _treePool = SEATTLE_STREET_TREES;
+        _treeSlotsPerMile = 100;
+        _denseStreetTrees = true;
         break;
       case 'downtown_seattle':
-        // SoDo → downtown Seattle.  Trees line the surface streets
-        // beside the I-90 corridor — fewer than residential but enough
-        // to break up the tower-cluster backdrop.
-        _treePool = URBAN_PNW_MIX;
-        _treeSlotsPerMile = 10;
+        // SoDo → downtown Seattle.  Tree-lined surface streets,
+        // approach to the Mercer Island floating bridge.  User asked
+        // for ~5× the trees and bigger/taller, so bumped from 120 →
+        // 600 slots/mile and added a 1.5× heightBoost on each spawn.
+        // Heavily deciduous SEATTLE_STREET_TREES pool.  Trees co-
+        // exist with the regional building spawn — separate sprite
+        // type written by SPAWN_TREE, not part of the building if/
+        // else chain.
+        _treePool = SEATTLE_STREET_TREES;
+        _treeSlotsPerMile = 600;
+        _treeHeightBoost  = 1.5;
+        _denseStreetTrees = true;
         break;
       case 'mercer_island':
-        // Suburban island — tree-lined residential streets in real life.
-        _treePool = URBAN_PNW_MIX;
-        _treeSlotsPerMile = 18;
+        // Suburban island — continuous mixed mature canopy.  User
+        // wants way more trees with height variation: bumped 60 → 400
+        // slots/mile (was 300) and 35% of spawns get a 2-3× boost so
+        // tall giants are sprinkled among the curb row.  A separate
+        // outer-row spawn below ALSO drops tall giants at offset
+        // 3.5-5.5 (deeper into the wooded yard) so the canopy reads
+        // as multi-layered, not a single flat ribbon.
+        _treePool = MERCER_ISLAND_TREES;
+        _treeSlotsPerMile = 400;
+        _denseStreetTrees = true;
+        _treeBigBoostChance = 0.35;
+        _treeBigBoostMin    = 2.0;
+        _treeBigBoostMax    = 3.0;
         break;
       case 'eastside_urban':
         // Bellevue downtown — buildings dominate but the city has heavy
-        // street-tree planting.  Mix of maples + conifers.
-        _treePool = URBAN_PNW_MIX;
-        _treeSlotsPerMile = 12;
+        // street-tree planting.  With buildings at ~20 slots/mile, 150
+        // paired tree slots/mile gives each building interval a planted
+        // run of roughly 7-8 maples per side rather than occasional props.
+        _treePool = BELLEVUE_STREET_TREES;
+        _treeSlotsPerMile = 150;
+        _denseStreetTrees = true;
         break;
       case 'eastside':
         // Bellevue tail → Issaquah → North Bend — dense roadside
@@ -1056,13 +1310,15 @@ export function buildRoute(count = ROUTE_SEGS) {
       if (!_suppressTrees) {
         const SPAWN_TREE = (pool, slotsPerMile, kind /* 'tree' | 'shrub' */) => {
           if (!pool || slotsPerMile <= 0) return;
+          const isDenseStreetRow = kind === 'tree' && _denseStreetTrees;
           const segsPerSlot = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / slotsPerMile;
           const slotNow  = Math.floor(i / segsPerSlot);
           const slotPrev = i > 0 ? Math.floor((i - 1) / segsPerSlot) : -1;
           if (slotNow <= slotPrev) return;
           // ~15% slot skip — natural gaps between clusters so the row
-          // doesn't look like a procedural picket fence.
-          if (rng.bool(0.15)) return;
+          // doesn't look like a procedural picket fence. Bellevue's
+          // landscaped street row intentionally stays continuous.
+          if (!isDenseStreetRow && rng.bool(0.15)) return;
           // Each side picks its own variant.  Offset jitter: trees sit
           // 1.85–2.6 from centerline (just past the rumble strip);
           // shrubs sit slightly closer (1.55–2.2).
@@ -1072,6 +1328,19 @@ export function buildRoute(count = ROUTE_SEGS) {
           const rightKey = pool[(slotNow + 1)  % pool.length];
           const pushOne = (sign, texKey) => {
             const off = sign * (baseMin + rng.next() * (baseMax - baseMin));
+            // Per-spawn height boost.  Three layers:
+            //   1. Regional base boost (_treeHeightBoost, e.g. 1.5 in
+            //      downtown Seattle for mature street trees)
+            //   2. Random "giant" variant — rolls _treeBigBoostChance,
+            //      if hit picks a heightBoost in [Min, Max] so a few
+            //      trees per region tower over the rest
+            //   3. Fallback: undefined (renderer treats as 1.0)
+            let boost = _treeHeightBoost;
+            if (kind === 'tree' && _treeBigBoostChance > 0
+                && rng.next() < _treeBigBoostChance) {
+              boost = _treeBigBoostMin
+                    + rng.next() * (_treeBigBoostMax - _treeBigBoostMin);
+            }
             sprites.push({
               type:      kind,
               texKey,
@@ -1084,16 +1353,147 @@ export function buildRoute(count = ROUTE_SEGS) {
               // eastside isn't a meat grinder.  GameScene reads `damage`
               // off the sprite in _triggerSceneryRespawn.
               damage:    5,
+              heightBoost: (kind === 'tree' && boost !== 1) ? boost : undefined,
             });
           };
-          // 75% chance of both sides, 25% of one-side-only — keeps the
-          // forest from feeling perfectly mirrored.
-          const bothSides = rng.bool(0.75);
+          // Wild forest rows keep some asymmetry. Bellevue is deliberately
+          // planted on both curbs so buildings read as tree-lined blocks.
+          const bothSides = isDenseStreetRow || rng.bool(0.75);
           pushOne( 1, leftKey);
           if (bothSides) pushOne(-1, rightKey);
         };
         SPAWN_TREE(_treePool,  _treeSlotsPerMile,  'tree');
         SPAWN_TREE(_shrubPool, _shrubSlotsPerMile, 'shrub');
+      }
+    }
+
+    // ── Mercer wooded lots ─────────────────────────────────────────────
+    // Reuse the loaded tree textures and existing scene-sprite pool rather
+    // than adding forest bitmap assets or allocating a second render pool.
+    // These deeper trees supply dense canopy behind the curbside row; the
+    // curbside row above remains the only collision-relevant tree layer.
+    const _inMercerForestLots =
+      _regionKeyForPool === 'mercer_island'
+      && mileNow >= 7.30 && mileNow < 9.70
+      && !(mileNow >= MERCER_LID_TUNNEL_RANGE[0] && mileNow < MERCER_LID_TUNNEL_RANGE[1]);
+    if (_inMercerForestLots) {
+      // Bumped 72 → 130 slots/mi for noticeably denser canopy.
+      const FOREST_SLOTS_PER_MILE = 130;
+      const segsPerForestSlot = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / FOREST_SLOTS_PER_MILE;
+      const forestSlotNow  = Math.floor(i / segsPerForestSlot);
+      const forestSlotPrev = i > 0 ? Math.floor((i - 1) / segsPerForestSlot) : -1;
+      if (forestSlotNow > forestSlotPrev) {
+        // Outer rows scale up (bigger trees the further from the road)
+        // so the silhouette behind the curbside row reads as mature
+        // forest receding to a tall back wall.  bigChance gives a
+        // sprinkle of 2-3× giants in the outer two rows.
+        const LOT_ROWS = [
+          { min: 3.00, max: 4.25, keep: 0.85, scale: 1.10, bigChance: 0.00 },
+          { min: 4.80, max: 6.40, keep: 0.95, scale: 1.55, bigChance: 0.20 },
+          { min: 6.70, max: 9.00, keep: 0.80, scale: 2.10, bigChance: 0.30 },
+        ];
+        let speciesOffset = 0;
+        for (const row of LOT_ROWS) {
+          for (const sign of [-1, 1]) {
+            if (!rng.bool(row.keep)) continue;
+            const key = MERCER_ISLAND_TREES[
+              (forestSlotNow + speciesOffset++) % MERCER_ISLAND_TREES.length
+            ];
+            const big = row.bigChance > 0 && rng.next() < row.bigChance;
+            const boost = big
+              ? (2.0 + rng.next() * 1.0)        // 2-3× giants
+              : row.scale * (0.92 + rng.next() * 0.18);
+            sprites.push({
+              type:        'tree',
+              texKey:      key,
+              offset:      sign * (row.min + rng.next() * (row.max - row.min)),
+              baseW:       1500,
+              baseH:       2400,
+              collected:   false,
+              collidable:  false,
+              flipX:       rng.bool(0.45),
+              heightBoost: boost,
+            });
+          }
+        }
+      }
+    }
+
+    // ── DENSE FOREST overlay: North Bend (30–40) + Snoqualmie Pass
+    //    (40–60) ─────────────────────────────────────────────────────────
+    // Drops hundreds of conifers per visible window so those zones read
+    // as wall-of-trees PNW forest instead of sparse roadside.  Spawned
+    // in FOUR parallel rows at increasing offsets so the trees span
+    // from the road shoulder all the way to the screen border.  Each
+    // sprite gets:
+    //   • random texKey from a 5-PNG conifer pool
+    //   • 45 % chance flipped horizontally
+    //   • random sizeMult 1.4–2.6 for varied silhouettes
+    //   • collidable ONLY when offset < 3.0 (player only crashes into
+    //     trees they could plausibly drift into; far ones are visual)
+    const _inDenseForest = (mileNow >= 30 && mileNow < 60);
+    if (_inDenseForest && !traits.water) {
+      const DENSE_FOREST_POOL = [
+        'tree_douglas_fir_1', 'tree_red_cedar_1',
+        'tree_hemlock1',      'tree_hemlock2', 'tree_cedar1',
+      ];
+      // 200 slots/mile per row × 4 rows × 2 sides ≈ 1600 spawn ROLLS
+      // per mile; with 30 % keep rate ≈ 480 trees/mile actually pushed.
+      // Visible window ~0.24 mi → ~115 trees per frame from this pass
+      // alone, on top of the baseline tree spawn above.
+      const DENSE_SLOTS_PER_MILE = 200;
+      const segsPerSlot = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / DENSE_SLOTS_PER_MILE;
+      const slotNow  = Math.floor(i / segsPerSlot);
+      const slotPrev = i > 0 ? Math.floor((i - 1) / segsPerSlot) : -1;
+      if (slotNow > slotPrev) {
+        // Skip the close rows on this side when the segment is part of
+        // a rest-stop off-ramp window — exit ramps open on the RIGHT
+        // for ~1 mi before each stop.  Without this, trees would spawn
+        // on the painted exit asphalt.  Far rows still spawn (they're
+        // past the ramp's outer edge ~4.3 either way).
+        const _segOnRamp = REST_STOPS.some(rs =>
+          mileNow >= rs.mileage - 1.0 && mileNow <= rs.mileage + 0.3
+        );
+        // Four parallel rows: trees push TIGHT to the road shoulder
+        // (close row sits 1.10–1.50 — just past the fog line at ±1.0,
+        // so trees feel "almost right off the roadway" per spec).
+        // Rows step outward to span border-to-border.
+        const ROWS = [
+          { min: 1.10, max: 1.50, keep: 0.55, closeRow: true  },   // shoulder edge
+          { min: 1.80, max: 2.70, keep: 0.55, closeRow: true  },   // mid-close
+          { min: 3.20, max: 4.80, keep: 0.45, closeRow: false },   // mid-far
+          { min: 5.50, max: 9.00, keep: 0.30, closeRow: false },   // far horizon
+        ];
+        for (const row of ROWS) {
+          for (const sign of [-1, 1]) {
+            // Right-side close rows are suppressed during ramp windows
+            // so the off-ramp asphalt stays clear.  Trees can sit just
+            // past the ramp's outer edge via the far rows.
+            if (row.closeRow && sign === 1 && _segOnRamp) continue;
+            if (!rng.bool(row.keep)) continue;
+            const key = DENSE_FOREST_POOL[
+              Math.floor(rng.next() * DENSE_FOREST_POOL.length)
+            ];
+            const off  = sign * (row.min + rng.next() * (row.max - row.min));
+            const flip = rng.bool(0.45);
+            // sizeMult 1.4–2.6 — bigger for closer rows, smaller for far.
+            const sizeMult = 1.4 + rng.next() * 1.2;
+            sprites.push({
+              type:        'tree',
+              texKey:      key,
+              offset:      off,
+              baseW:       1500,
+              baseH:       2400,
+              collected:   false,
+              flipX:       flip,
+              sizeMult,
+              damage:      5,
+              // Far rows are pure visual filler — non-collidable so
+              // the player isn't pinged when drifting 4+ units sideways.
+              collidable:  Math.abs(off) < 3.0 ? undefined : false,
+            });
+          }
+        }
       }
     }
 
@@ -1165,7 +1565,10 @@ export function buildRoute(count = ROUTE_SEGS) {
       gradePct:  realGradePctSmooth[i],   // real-world grade fraction (0.06 = 6%)
       lanes:     traits.lanes,
       roadScale: roadScales[i],
-      urban:     !!traits.buildings,   // drives sidewalk drawing in Road.js
+      // Sidewalk gate: only urban segments inside city limits get the
+      // concrete band.  Past mile 38 (heading into Snoqualmie Pass)
+      // the road is pure forest highway — sidewalks don't belong.
+      urban:     (!!traits.buildings) && (mileNow < 38),
       water:     !!traits.water,        // drives bridge guardrails + water tile
       sprites,
       cars: [],
@@ -1201,6 +1604,10 @@ export function buildRoute(count = ROUTE_SEGS) {
       const seg = segments[i];
       if (!seg) continue;
       seg.tunnel = true;
+      // The Mercer lid turns inside the covered structure. Its distant
+      // entrance must show an interior back wall before enough curved
+      // shell segments are close enough to project visibly.
+      seg.curvedTunnelClosure = true;
       seg.water  = false;
       if (seg.sprites?.length) {
         seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
@@ -1243,6 +1650,10 @@ export function buildRoute(count = ROUTE_SEGS) {
       const seg = segments[i];
       if (!seg) continue;
       seg.bridge = true;
+      const mile = i / SEGS_PER_MILE_FOR_TUNNEL(count);
+      seg.bridgeWaterChannel = WEST_SEATTLE_WATER_CHANNEL_RANGES.some(
+        ([start, end]) => mile >= start && mile < end
+      );
       if (seg.sprites?.length) {
         seg.sprites = seg.sprites.filter(sp => sp.isCollectible || isCraneTex(sp.texKey));
       }
@@ -1318,6 +1729,46 @@ export function buildRoute(count = ROUTE_SEGS) {
       seg.water  = true;
       if (seg.sprites?.length) {
         seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
+      }
+    }
+  }
+
+  // ── Floating-bridge water aprons ─────────────────────────────────────
+  // Flag a ~0.10 mi water apron BEFORE and AFTER each lake bridge so the
+  // off-road clamps + water-dunk safety net fire when the player drifts
+  // sideways into water near a bridge.  Without this, Mercer Island's
+  // approach to the East Channel bridge let the player drive off into
+  // the lake (regular land segment → no water rail) even though the
+  // visual water is painted around the road. The high West Seattle port
+  // bridge is excluded: it crosses mostly paved port land interrupted by
+  // two channels, not open lake water. Only the `water` flag is set on
+  // aprons (not `bridge`) so structure does not render outside its range.
+  {
+    const APRON_MI = 0.10;
+    const segsPerMi = SEGS_PER_MILE_FOR_TUNNEL(count);
+    const apronSegs = Math.floor(APRON_MI * segsPerMi);
+    for (const range of [MURROW_BRIDGE_RANGE, EAST_CHANNEL_BRIDGE_RANGE]) {
+      const ts = Math.floor(range[0] * segsPerMi) % count;
+      const te = Math.floor(range[1] * segsPerMi) % count;
+      // Pre-bridge apron (entering the bridge).
+      for (let k = 1; k <= apronSegs; k++) {
+        const idx = (ts - k + count) % count;
+        const seg = segments[idx];
+        if (!seg || seg.bridge) continue;
+        seg.water = true;
+        if (seg.sprites?.length) {
+          seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
+        }
+      }
+      // Post-bridge apron (leaving the bridge).
+      for (let k = 0; k < apronSegs; k++) {
+        const idx = (te + k) % count;
+        const seg = segments[idx];
+        if (!seg || seg.bridge) continue;
+        seg.water = true;
+        if (seg.sprites?.length) {
+          seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
+        }
       }
     }
   }
@@ -1663,6 +2114,21 @@ export function buildRoute(count = ROUTE_SEGS) {
         sp.offset = side * nextOffset;
         sp.rampClearance = true;
       }
+    }
+
+    // Trees are allowed beside an exit, but never planted on its paved
+    // lane. Clear the whole painted approach, not only the final merge
+    // area, since the first Seattle exit already shows the ramp for a
+    // full mile before the stop.
+    const rampTreeWindowFull = RAMP_WINDOW_SEG + AFTER_SEGS;
+    for (let k = 0; k < rampTreeWindowFull; k++) {
+      const segIdx = (exitSeg - RAMP_WINDOW_SEG + 1 + k + count) % count;
+      const seg = segments[segIdx];
+      if (!seg?.sprites) continue;
+      seg.sprites = seg.sprites.filter(sp => {
+        const off = sp.offset ?? 0;
+        return sp.type !== 'tree' || off <= 1.0 || off >= 4.9;
+      });
     }
 
     const rampWindowFull = RAMP_CLEAR_BEFORE_SEG + AFTER_SEGS;

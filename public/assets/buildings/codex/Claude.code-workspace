@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../../../../.."
+		},
+		{
+			"path": "../../../../../../../Desktop/kohya"
+		}
+	],
+	"settings": {
+		"godotTools.editorPath.godot4": "/Applications/Godot.app"
+	}
+}

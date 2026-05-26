@@ -2,11 +2,12 @@ import Phaser from 'phaser';
 import {
   SCREEN_W, SCREEN_H, SEG_LENGTH, ROUTE_SEGS, ROAD_WIDTH, DRAW_DIST,
   MAX_SPEED, ACCEL, BRAKE, DECEL, TURN_SPEED, OFFROAD_SLOW, CENTRIFUGAL,
-  PTS_DIST, PTS_CRASH, PTS_HITCH, DRUG_MULT, DRUG_PTS,
+  PTS_DIST, PTS_CRASH, PTS_HITCH, DRUG_MULT, DRUG_PTS, FULL_BAR_THRESHOLD,
   DRUGS, DRUG_CONFIG, DRUG_COMBOS, CHECKPOINTS, TOTAL_ROUTE_MILES, REST_STOPS,
   getLocationName,
   CAR_LEN_Z, CAR_WIDTH_LANES, PLAYER_VIRTUAL_Z,
   VEHICLES, GAS_LIGHT_AT_MI,
+  setCameraMode, CAM,
 } from '../constants.js';
 import { clamp, lerp } from '../utils/Helpers.js';
 import { Road }          from '../road/Road.js';
@@ -30,41 +31,48 @@ const SCENERY_IMAGE_PROFILES = {
   // City-photo cutouts need height-led sizing. Width-led sizing makes
   // tall tower assets gigantic and wide skyline assets oddly squat. Near
   // skyline caps land around 4-6 player-car heights.
-  codex_seattle_skyline:        { heightMult: 3.90, maxW: 500, maxH: PLAYER_CAR_VISUAL_H * 5.4, minOffset: 4.75, groundDrop: 0.010 },
-  codex_seattle_office_cluster: { heightMult: 3.80, maxW: 500, maxH: PLAYER_CAR_VISUAL_H * 5.3, minOffset: 4.75, groundDrop: 0.010 },
-  codex_seattle_tower_pair:     { heightMult: 4.60, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 4.35, groundDrop: 0.010 },
-  // Bellevue buildings: uniform 6× car height cap so the row reads as a
-  // consistent skyline; minOffset 2.05 = one car width past the sidewalk.
-  codex_bellevue_skyline:       { heightMult: 6.0, maxW: 560, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_bellevue_wavy_residential: { heightMult: 6.0, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_bellevue_city_center_dark: { heightMult: 6.0, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_bellevue_braced_glass_tower: { heightMult: 6.0, maxW: 210, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_bellevue_residential_cluster: { heightMult: 6.0, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_seattle_columbia_center: { heightMult: 5.90, maxW: 170, maxH: PLAYER_CAR_VISUAL_H * 6.7, minOffset: 4.55, groundDrop: 0.010 },
-  codex_seattle_rainier_square:  { heightMult: 5.45, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 6.1, minOffset: 4.65, groundDrop: 0.010 },
-  codex_seattle_two_union_square: { heightMult: 5.35, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 4.60, groundDrop: 0.010 },
-  codex_seattle_1201_third:      { heightMult: 5.15, maxW: 210, maxH: PLAYER_CAR_VISUAL_H * 5.8, minOffset: 4.55, groundDrop: 0.010 },
-  codex_seattle_municipal_tower: { heightMult: 5.05, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 5.7, minOffset: 4.65, groundDrop: 0.010 },
-  codex_seattle_f5_tower:        { heightMult: 5.25, maxW: 180, maxH: PLAYER_CAR_VISUAL_H * 5.9, minOffset: 4.50, groundDrop: 0.010 },
-  codex_seattle_safeco_plaza:    { heightMult: 4.70, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 5.3, minOffset: 4.65, groundDrop: 0.010 },
-  codex_seattle_city_centre:     { heightMult: 4.55, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 5.1, minOffset: 4.65, groundDrop: 0.010 },
-  codex_seattle_russell_investments: { heightMult: 4.55, maxW: 260, maxH: PLAYER_CAR_VISUAL_H * 5.1, minOffset: 4.85, groundDrop: 0.010 },
+  //
+  // Why minOffset 1.05 (was 2.05–4.85): the fog-line spawn model
+  // (RouteData.js: fogLineOffset) now computes per-asset placement that
+  // accounts for the building's own half-width, so the renderer no
+  // longer needs to floor it.  Keeping a low floor (1.05 = just past
+  // the fog line) as a safety net so a bug can never place a building
+  // INSIDE the road, but real positioning is now spawn-time.
+  codex_seattle_skyline:        { heightMult: 3.90, maxW: 500, maxH: PLAYER_CAR_VISUAL_H * 5.4, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_office_cluster: { heightMult: 3.80, maxW: 500, maxH: PLAYER_CAR_VISUAL_H * 5.3, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_tower_pair:     { heightMult: 4.60, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_bellevue_skyline:       { heightMult: 6.0, maxW: 560, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_bellevue_wavy_residential: { heightMult: 6.0, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_bellevue_city_center_dark: { heightMult: 6.0, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_bellevue_braced_glass_tower: { heightMult: 6.0, maxW: 210, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_bellevue_residential_cluster: { heightMult: 6.0, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_columbia_center: { heightMult: 5.90, maxW: 170, maxH: PLAYER_CAR_VISUAL_H * 6.7, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_rainier_square:  { heightMult: 5.45, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 6.1, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_two_union_square: { heightMult: 5.35, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_1201_third:      { heightMult: 5.15, maxW: 210, maxH: PLAYER_CAR_VISUAL_H * 5.8, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_municipal_tower: { heightMult: 5.05, maxW: 230, maxH: PLAYER_CAR_VISUAL_H * 5.7, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_f5_tower:        { heightMult: 5.25, maxW: 180, maxH: PLAYER_CAR_VISUAL_H * 5.9, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_safeco_plaza:    { heightMult: 4.70, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 5.3, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_city_centre:     { heightMult: 4.55, maxW: 220, maxH: PLAYER_CAR_VISUAL_H * 5.1, minOffset: 1.05, groundDrop: 0.010 },
+  codex_seattle_russell_investments: { heightMult: 4.55, maxW: 260, maxH: PLAYER_CAR_VISUAL_H * 5.1, minOffset: 1.05, groundDrop: 0.010 },
   codex_seattle_lumen_field:     { widthMult: 5.75, maxW: 540, maxH: PLAYER_CAR_VISUAL_H * 3.8, minOffset: 5.25, groundDrop: 0.045 },
   codex_seattle_tmobile_park:    { widthMult: 5.65, maxW: 540, maxH: PLAYER_CAR_VISUAL_H * 3.9, minOffset: 5.45, groundDrop: 0.045 },
   codex_bellevue_roadside_strip: { widthMult: 3.45, maxW: 480, maxH: PLAYER_CAR_VISUAL_H * 2.75, minOffset: 4.50, groundDrop: 0.010 },
-  // Directional Bellevue variants — uniform 6× car height + close offset.
-  codex_pse_bellevue_office_left:         { heightMult: 6.0, maxW: 300, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_pse_bellevue_office_right:        { heightMult: 6.0, maxW: 300, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_pse_bellevue_second_office_left:  { heightMult: 6.0, maxW: 320, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_pse_bellevue_second_office_right: { heightMult: 6.0, maxW: 320, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  codex_bellevue_twin_residential_left:   { heightMult: 6.0, maxW: 340, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.05, groundDrop: 0.010 },
-  // West Seattle homes — same 6× height + close offset rule applied uniformly.
-  west_seattle_1: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
-  west_seattle_2: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
-  west_seattle_3: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
-  west_seattle_4: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
-  west_seattle_5: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
-  west_seattle_6: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 2.20, groundDrop: 0.15 },
+  // Directional Bellevue variants — uniform 6× car height; minOffset
+  // 1.05 (was 2.05) lets fog-line spawn math win, see top-of-table note.
+  codex_pse_bellevue_office_left:         { heightMult: 6.0, maxW: 300, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_pse_bellevue_office_right:        { heightMult: 6.0, maxW: 300, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_pse_bellevue_second_office_left:  { heightMult: 6.0, maxW: 320, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_pse_bellevue_second_office_right: { heightMult: 6.0, maxW: 320, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  codex_bellevue_twin_residential_left:   { heightMult: 6.0, maxW: 340, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.010 },
+  // West Seattle homes retain proportional roadside scale. Their fixed
+  // spawn offset is selected from a 1.25-car-width fog-line setback.
+  west_seattle_1: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.15 },
+  west_seattle_2: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.15 },
+  west_seattle_3: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.15 },
+  west_seattle_4: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.15 },
+  west_seattle_5: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.15 },
+  west_seattle_6: { heightMult: 6.0, maxW: 460, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 1.05, groundDrop: 0.15 },
   // Container cranes — strict left/right pairing.  Same dimensions across
   // all variants (6.6× car height, generous maxW for the wider rigs).
   codex_ws_crane_crate_left:        { heightMult: 25, maxW: 1900, maxH: PLAYER_CAR_VISUAL_H * 25, minOffset: 6.0, groundDrop: 0.15 },
@@ -75,9 +83,11 @@ const SCENERY_IMAGE_PROFILES = {
   // Issaquah / Eastside suburbs — close roadside houses and small-town
   // frontage, not skyline backdrop. Keep them just past the sidewalk and
   // size by height so they don't read as tiny piles in the field.
-  codex_issaquah_front_supply:  { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 2.65, groundDrop: 0.010 },
-  codex_issaquah_highlands:     { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 2.65, groundDrop: 0.010 },
-  codex_issaquah_cottage:       { heightMult: 4.4, maxW: 440, maxH: PLAYER_CAR_VISUAL_H * 4.4, minOffset: 2.45, groundDrop: 0.010 },
+  // Issaquah residences — fixed offsets are selected from a 1.25-car-width
+  // shoulder setback; minOffset is only a safety floor.
+  codex_issaquah_front_supply:  { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 1.05, groundDrop: 0.010 },
+  codex_issaquah_highlands:     { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 1.05, groundDrop: 0.010 },
+  codex_issaquah_cottage:       { heightMult: 4.4, maxW: 440, maxH: PLAYER_CAR_VISUAL_H * 4.4, minOffset: 1.05, groundDrop: 0.010 },
   codex_issaquah_roadside_strip_perspective: { widthMult: 3.35, maxW: 420, maxH: PLAYER_CAR_VISUAL_H * 2.25, minOffset: 2.65, groundDrop: 0.010 },
   codex_west_seattle_horizon_left:  { widthMult: 4.15, maxW: 560, maxH: PLAYER_CAR_VISUAL_H * 2.4, minOffset: 5.35, groundDrop: 0.010 },
   codex_west_seattle_horizon_right: { widthMult: 4.15, maxW: 560, maxH: PLAYER_CAR_VISUAL_H * 2.4, minOffset: 5.35, groundDrop: 0.010 },
@@ -152,9 +162,11 @@ export class GameScene extends Phaser.Scene {
     // distance (mile 0 → destination), so warping forward isn't a
     // free fuel skip on top of being a clock/trophy skip.
     this._warpedForward  = !!data?.warpForward;
-    // Restart-from-checkpoint after death: position only, NO score/stars.
-    // GameOverScene's "RESTART FROM CHECKPOINT" button passes this.
+    // Restart-from-checkpoint after death: position + the pre-crash
+    // score (half-survives the crash per user spec).  GameOverScene's
+    // "RESTART FROM CHECKPOINT" button passes both.
     this._resumeFromPosition = data?.resumeFromPosition ?? null;
+    this._crashRestartScore  = data?.crashRestartScore  ?? 0;
     // Slider-restart drug levels (technical-loss / custom-mode flow) —
     // applied once after the scene reaches gameplay.
     this._customStartLevels  = data?.startDrugLevels ?? null;
@@ -429,6 +441,13 @@ export class GameScene extends Phaser.Scene {
     this.overlayGfx   = this.add.graphics().setDepth(10);
     this.vignetteGfx  = this.add.graphics().setDepth(11);
     this.hudFlashGfx  = this.add.graphics().setDepth(12);
+    // Rain / snow particle overlay.  Sits above scenery (depth 7.5
+    // ramp) but below crash flash + vignette, so weather paints over
+    // the world without obscuring HUD effects.
+    this.weatherFxGfx = this.add.graphics().setDepth(9.7);
+    // Windshield wipers — drawn ABOVE the weather FX (so they appear
+    // to clear droplets) but BELOW the HUD vignette.
+    this.wipersGfx    = this.add.graphics().setDepth(9.8);
     this.effects.setGraphics(this.overlayGfx, this.vignetteGfx, this.hudFlashGfx);
 
     // Weed cushion: dampen all crash-shake intensity by phys.collisionShakeDamp.
@@ -468,9 +487,9 @@ export class GameScene extends Phaser.Scene {
       padding: { x: 5, y: 3 },
     }).setDepth(19).setScrollFactor?.(0).setVisible(false);
     this._debugLegend.setText([
-      'RED   collision rect (base band)',
-      'YEL   render AABB',
-      'OLV   culled by renderer',
+      'RED   active collision band',
+      'BLU   PNG frame (transparent allowed)',
+      'GRAY  PNG frame skipped',
       'CYN   sprite anchor',
       'LIME  player trapezoid (chassis)',
       'ORG   NPC AABB',
@@ -500,6 +519,19 @@ export class GameScene extends Phaser.Scene {
         this.playerSprite.setTint(_vehTint);
       }
     }
+
+    // ── First-person cockpit (currently beater only) ──────────────────
+    // Transparent dashboard overlay covers the lower screen; the upper
+    // windshield region of the PNG is transparent so world / weather
+    // remain visible through it.  Other vehicles still use the third-
+    // person playerSprite above until their own cockpit art ships.
+    //
+    // Build the cockpit overlay objects up-front (so the V toggle
+    // doesn't pay the first-press build cost), then immediately leave
+    // cockpit so the game defaults to 3rd-person.  Beater drivers
+    // opt into cockpit via the V key.
+    this._buildCockpit();
+    this._leaveCockpitView();
 
     // ── Vehicle sprite pool — same SHAPE as player car, white-bodied
     // texture so each car's tint comes through cleanly. Uses Phaser Images
@@ -565,7 +597,12 @@ export class GameScene extends Phaser.Scene {
     // draw call — keeping the active count down is the single biggest
     // perf win for scenery-heavy regions.
     this._sceneSpritePool = [];
-    for (let i = 0; i < 400; i++) {
+    // Pool size 1900 (was 400 → 1500 → 2500 → 1900).  Drops 600
+    // Image-instance startup cost + memory; per-frame perf is dominated
+    // by VISIBLE count not pool size, so this only helps startup +
+    // memory pressure.  If frame rate still drags, the next lever is
+    // dropping tree DENSE_SLOTS_PER_MILE in RouteData.js.
+    for (let i = 0; i < 1900; i++) {
       const s = this.add.image(0, 0, 'codex_bellevue_skyline')
         .setOrigin(0.5, 1).setDepth(7.5).setVisible(false);
       this._sceneSpritePool.push(s);
@@ -627,11 +664,11 @@ export class GameScene extends Phaser.Scene {
       2:   7,   // Lacey V Murrow Bridge
       3:   9,   // Mercer Island climb
       4:  11,   // East Channel Bridge
-      5:  45,   // Snoqualmie Pass climb
-      6:  52,   // Snoqualmie Pass summit
-      7: 132,   // Vantage descent
-      8: 220,   // Palouse hills
-      9: 285,   // Pullman approach
+      5:  31,   // North Bend (rain zone — Exit 31)
+      6:  45,   // Snoqualmie Pass climb
+      7:  52,   // Snoqualmie Pass summit
+      8: 132,   // Vantage descent
+      9: 220,   // Palouse hills
     };
     this._devWarpHandler = (ev) => {
       const n = Number(ev.key);
@@ -682,6 +719,32 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this._cameraToggleHandler);
     this.events.once('shutdown', () => this.input.keyboard?.off('keydown', this._cameraToggleHandler));
     this.events.once('destroy',  () => this.input.keyboard?.off('keydown', this._cameraToggleHandler));
+
+    // V key toggles between FIRST-PERSON cockpit and THIRD-PERSON
+    // rear-view sprite.  Only meaningful in the beater (the only car
+    // with cockpit art so far); silently no-ops otherwise.
+    this._viewToggleHandler = (ev) => {
+      if (ev.code !== 'KeyV' && ev.key !== 'v' && ev.key !== 'V') return;
+      ev.preventDefault?.();
+      this._toggleCockpit();
+    };
+    this.input.keyboard?.on('keydown', this._viewToggleHandler);
+    this.events.once('shutdown', () => this.input.keyboard?.off('keydown', this._viewToggleHandler));
+    this.events.once('destroy',  () => this.input.keyboard?.off('keydown', this._viewToggleHandler));
+
+    // K key toggles cockpit CALIBRATION mode — needles sweep through
+    // 0 → 50 % → 100 % on a 3-second cycle so gauge positioning can
+    // be visually confirmed without driving / refueling / pausing.
+    // Off by default; only fires in cockpit view.
+    this._cockpitCalibHandler = (ev) => {
+      if (ev.code !== 'KeyK' && ev.key !== 'k' && ev.key !== 'K') return;
+      ev.preventDefault?.();
+      this._cockpitCalibrate = !this._cockpitCalibrate;
+      this._showPopup?.(`Cockpit calib: ${this._cockpitCalibrate ? 'ON' : 'OFF'}`, '#FFCC00');
+    };
+    this.input.keyboard?.on('keydown', this._cockpitCalibHandler);
+    this.events.once('shutdown', () => this.input.keyboard?.off('keydown', this._cockpitCalibHandler));
+    this.events.once('destroy',  () => this.input.keyboard?.off('keydown', this._cockpitCalibHandler));
 
     this._debugToggleHandler = (ev) => {
       if (ev.code !== 'F3' && ev.key !== 'F3') return;
@@ -957,9 +1020,12 @@ export class GameScene extends Phaser.Scene {
     // stop's road position and restore the saved score / stars.  Skip the
     // title overlay so the player drops right back into action.
     if (this._resumeFromPosition != null) {
-      // Death-respawn at last checkpoint — score/stars/drugs all zeroed.
+      // Death-respawn at last checkpoint — per user spec, the crash
+      // costs HALF of pre-crash money and the player respawns at 50 %
+      // HP (which they have to refill at rest stops).  Stars + drugs
+      // still zero so the chase / chemical state genuinely resets.
       this.player.position = this._resumeFromPosition;
-      this.score           = 0;
+      this.score           = Math.floor((this._crashRestartScore ?? 0) / 2);
       this.cops.stars         = 0;
       this.cops.cops          = [];
       this.cops.bumpCount     = 0;
@@ -986,7 +1052,12 @@ export class GameScene extends Phaser.Scene {
         this.cops.stars     = this._customStartStars;
         this.cops.starTimer = 4;
       }
+      // Half-HP respawn (per user spec).  reset() puts the model at
+      // full HP; immediately set durability to 50 % of the current
+      // vehicle's max so the player has to refill the rest at a stop.
       this.damage?.reset?.();
+      const _vehHpForResume = VEHICLES[this.player.vehicleId]?.hp ?? 100;
+      this.damage?.setDurability?.(_vehHpForResume * 0.5);
       // Skip the title overlay so the player drops straight back in.
       this._awaitingStart = false;
       this._introDone     = true;
@@ -1047,6 +1118,19 @@ export class GameScene extends Phaser.Scene {
           // overridden to 100 by RestStopScene._applyPurchase in that case).
           if (typeof buys.durabilityOnResume === 'number' && this.damage?.setDurability) {
             this.damage.setDurability(buys.durabilityOnResume);
+          }
+          // Sex Worker bonus HP — extra above the vehicle's max, granted
+          // immediately on resume.  Implemented by bumping the cap and
+          // adding HP both, so the player visibly sees "60/60" instead
+          // of "50/50 (+10)".  Damage naturally consumes it first since
+          // takeDamage just subtracts.  Stacks across multiple visits.
+          if ((buys.bonusHp ?? 0) > 0 && this.damage?.setMax && this.damage?.setDurability) {
+            const _curMax = this.damage.getDurability?.() != null
+              ? (this.damage._max ?? buys.durabilityOnResume ?? 100)
+              : 100;
+            const _curDur = this.damage.getDurability?.() ?? _curMax;
+            this.damage.setMax(_curMax + buys.bonusHp);
+            this.damage.setDurability(_curDur + buys.bonusHp);
           }
           // Restore drug levels from the rest-stop snapshot FIRST — drug
           // status is paused during the menu, so the player resumes at the
@@ -1157,6 +1241,7 @@ export class GameScene extends Phaser.Scene {
             const newVeh = VEHICLES[newId];
             if (newVeh) {
               this.player.vehicleId = newId;
+              if (newId !== 'beater') this._leaveCockpitView?.();
               this.registry.set('vehicleId', newId);
               this.player.gasMaxMi = newVeh.rangeMi;
               this.player.gasMi    = Math.round(newVeh.rangeMi * 0.5);   // half tank
@@ -1229,6 +1314,7 @@ export class GameScene extends Phaser.Scene {
     this._worldObjects.push(
       ...[
         this.roadGfx, this.ghostGfx, this.propsGfx, this.bridgeFrontGfx, this.tunnelFacadeGfx, this.tunnelGfx, this._tunnelMaskGfx, ...this._signGfxPool, this._explosionGfx, this.overlayGfx, this.vignetteGfx,
+        this.weatherFxGfx, this.wipersGfx,
         this.hudFlashGfx, this.playerSprite,
         this._copLightGfx,
         ...this._carSpritePool,
@@ -1285,7 +1371,14 @@ export class GameScene extends Phaser.Scene {
         // interactive objects), any tap landing in the top-button
         // band keeps the game paused so the music / pause / map /
         // garage buttons stay usable mid-pause.
-        if (onUI || p.y < 64) return;
+        // Also: if a modal (map / garage / achievements / etc.) is
+        // open OR was just closed by this same tap, the tap is part
+        // of dismissing the modal — NOT a "resume gameplay" intent.
+        const _modalActive = this._anyModalOpen?.()
+          || this._mapModalJustClosed
+          || this._garageModalJustClosed
+          || this._achievementsModalJustClosed;
+        if (onUI || p.y < 64 || _modalActive) return;
         this._togglePause();
         return;
       }
@@ -1989,14 +2082,30 @@ export class GameScene extends Phaser.Scene {
     }
     {
       const mile = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
-      const wiperActive = (this.gameTime ?? 0) < (this._wiperUntil ?? 0);
+      // Mode > 0 = wipers actively sweeping.
+      const wiperActive = (this._wiperMode ?? 0) > 0;
+      // Sweep pulse — true for exactly ONE frame each time a wiper
+      // frame transitions (set in _renderCockpit / _renderWipers).
+      // EffectsSystem reads this to incrementally clear windshield
+      // droplets — multi-sweep clean rather than instant wipe.
+      const wiperSweepPulse = !!this._wiperSweepPulse;
+      this._wiperSweepPulse = false;   // one-shot
       if (!this._perf?.noEffects) {
-        this.effects.update(rawDt, this.drugs, this.cameras.main, { mile, wiperActive });
+        this.effects.update(rawDt, this.drugs, this.cameras.main, { mile, wiperActive, wiperSweepPulse });
       }
-      // Show the wiper HUD button only while it's actually raining.
-      const showWiper = Weather.isRain(mile);
-      if (this.hudWiperBtn) this.hudWiperBtn.setVisible(showWiper);
-      if (this.hudWiperLbl) this.hudWiperLbl.setVisible(showWiper);
+      // Weather / wiper indicator — visible during BOTH rain AND snow.
+      // Icon is the custom wiper-blade drawing in drawWiper() above;
+      // the text label here shows the current mode (OFF / SLOW / FAST).
+      const wState = Weather.state?.(mile);
+      const showWeatherBtn = (wState === 'rain' || wState === 'snow');
+      if (this.hudWiperBtn) this.hudWiperBtn.setVisible(showWeatherBtn);
+      if (this.hudWiperLbl) {
+        this.hudWiperLbl.setVisible(showWeatherBtn);
+        if (showWeatherBtn) {
+          const modeLbl = this._wiperMode ? 'ON' : 'OFF';
+          if (this.hudWiperLbl.text !== modeLbl) this.hudWiperLbl.setText(modeLbl);
+        }
+      }
     }
     // Custom-mode "No police" — keep stars + cops fully suppressed.
     // `starDisplay` is a getter on CopSystem (= Math.floor(stars)), so
@@ -2198,14 +2307,15 @@ export class GameScene extends Phaser.Scene {
       let penalty   = 0;
 
       if (dispMph < 120 && !fentActive && !weedHigh && !drugSlowing) {
-        // -25 pt/sec floor at 60 mph, linear up to 0 at 120 mph.
+        // -$5/sec floor at 60 mph, linear up to 0 at 120 mph.
         const slowness = Math.min(1, (120 - dispMph) / 60);
-        penalty += 25 * slowness * mult;
+        penalty += 5 * slowness * mult;
       }
       if (Math.abs(this.player.x) > 1) {
-        // -20 pt/sec when off the road; scales by how deep into the dirt.
+        // -$10/sec when off the road; scales by how deep into the dirt.
+        // Weed ≥ 60 % halves the penalty (the player is in chill mode).
         const depth = Math.min(1, (Math.abs(this.player.x) - 1) / 1.0);
-        let offroad = 20 * (0.5 + 0.5 * depth) * mult;
+        let offroad = 10 * (0.5 + 0.5 * depth) * mult;
         if (weedHigh) offroad *= 0.5;
         penalty += offroad;
       }
@@ -2397,6 +2507,7 @@ export class GameScene extends Phaser.Scene {
       if (this.hudGas)       { this.hudGas.x       = x; this.hudGas.setOrigin(ox, 0.5); }
       if (this.hudHPDamage)  { this.hudHPDamage.setOrigin(ox, 0.5); }
       this._applyTopRowHandedness?.();
+      this._applyPedalHandedness?.();
       this._appliedLeftHanded = this._leftHanded;
     }
 
@@ -2409,18 +2520,18 @@ export class GameScene extends Phaser.Scene {
   _updatePlayer(dt, phys) {
     const p = this.player;
 
-    // Speed: cruise at 120 mph by default. Holding UP boosts toward 140; holding
-    // DOWN slows toward 60. Cocaine pickups raise both top and cruise by 4 mph each.
-    // Meth pickups also raise top + cruise by 4 mph each — without this, _displayMPH
-    // shows the meth boost on the dial but the car never actually accelerates to it.
-    // NOS tier (per-vehicle accessory) adds +5 mph per tier to BOTH cruise
-    // and boost (3 tiers max → +15 mph at full).
+    // Speed: cruise at the vehicle's topMph; boost adds vehicle.boostMph
+    // on top.  Cocaine + meth pickups raise both cruise + boost by 4 mph
+    // each.  NOS tier (per-vehicle accessory) adds +5 mph per tier.
+    // Pass-3 change: cruise / boost are now PER-VEHICLE instead of
+    // hardcoded 120 / 140 — sports cars cruise faster, trucks slower.
+    const _vehSpec  = VEHICLES[this.player.vehicleId] ?? VEHICLES.beater;
     const cokeBonus = this.drugs.getCocaineSpeedBonusMPH?.() ?? 0;
     const methBonus = this.drugs.getMethSpeedBonusMPH?.() ?? 0;
     const nosTier   = this._vehicleAccessories?.().nos ?? 0;
     const nosBonus  = nosTier * 5;
-    const cruiseMph = 120 + cokeBonus + methBonus + nosBonus;
-    const boostMph  = 140 + cokeBonus + methBonus + nosBonus;
+    const cruiseMph = _vehSpec.topMph + cokeBonus + methBonus + nosBonus;
+    const boostMph  = _vehSpec.topMph + (_vehSpec.boostMph ?? 20) + cokeBonus + methBonus + nosBonus;
     const slowMph   = 60;
     const mphToUnits = (mph) => MAX_SPEED * (mph / 120);
 
@@ -2464,7 +2575,20 @@ export class GameScene extends Phaser.Scene {
       // Weed (when alone) reduces ACCEL — slower throttle response.
       p.speed = Math.min(targetSpeed, p.speed + ACCEL * (phys.accelMul ?? 1) * dt * 60);
     } else if (p.speed > targetSpeed) {
-      p.speed = Math.max(targetSpeed, p.speed - BRAKE * dt * 60);
+      // Brake decel scales with weather grip — wet/snowy roads lengthen
+      // the stopping distance.  Quick local peek at Weather so the
+      // braking math doesn't depend on the grip block farther down.
+      const _mileNow = (p.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+      const _wState  = Weather.state?.(_mileNow);
+      const _wInten  = Weather.intensity?.(_mileNow) ?? 0;
+      // Brake decel also scales with severity — wet/icy roads at peak
+      // storm need significantly more stopping distance.
+      const _wSev = Weather.severity?.(_mileNow) ?? 1;
+      let brakeGrip = 1;
+      if (_wState === 'rain') brakeGrip = 1 - 0.25 * _wInten * _wSev;
+      if (_wState === 'snow') brakeGrip = 1 - 0.45 * _wInten * _wSev;
+      brakeGrip = Math.max(0.20, brakeGrip);   // floor so brake never fully fails
+      p.speed = Math.max(targetSpeed, p.speed - BRAKE * brakeGrip * dt * 60);
     }
 
     // Steering with momentum — ramps to full turn speed in ~0.12s, bleeds off in ~0.45s
@@ -2489,46 +2613,14 @@ export class GameScene extends Phaser.Scene {
         : (this._isLeft() ? -1 : this._isRight() ? 1 : 0);
     const steerDir = phys.invertSteering ? -steerIn : steerIn;
 
-    // ── Snow slip: last commitment locks for 0.05-0.35s ───────────
-    // On snow the player loses traction.  Once they commit to a
-    // direction by pressing it, the car STAYS in that direction for
-    // 0.05-0.35s even if they release OR press the opposite direction
-    // mid-slide.  Mimics not being able to counter-steer on ice.
+    // Pass-1 snow-lockout removed in pass 2.  Steering input is never
+    // overridden by weather anymore — grip handles the "slippery" feel
+    // via slower lateralVelocity settling.  The only weather-driven
+    // input event left is a rare ICE PATCH slip (initialised below in
+    // the grip block) which briefly drops grip without disabling input.
     const _mileForSnow = (p.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
     const _inSnow = Weather.isSnow(_mileForSnow);
     let effectiveSteerDir = steerDir;
-    if (_inSnow) {
-      const slipRunning = this._slipDir
-                       && this._slipDir !== 0
-                       && (this._slipTimer ?? 0) < (this._slipMax ?? 0);
-      if (steerDir !== 0 && steerDir === this._slipDir) {
-        // Holding the same direction — refresh commitment, no tick.
-        this._slipTimer = 0;
-      } else if (slipRunning && steerDir !== this._slipDir) {
-        // Either released OR counter-pressed during the slip window —
-        // ignore the change, keep going in the original slip direction
-        // and tick the timer toward expiry.
-        effectiveSteerDir = this._slipDir;
-        this._slipTimer = (this._slipTimer ?? 0) + dt;
-      } else if (steerDir !== 0) {
-        // Fresh commitment (slip expired or no prior direction) —
-        // capture this direction and roll a new slip duration.  Halved
-        // from 0.05–0.35s → 0.025–0.175s so Flappy mode (which never
-        // releases — always pulling one way or the other) doesn't feel
-        // like driving on ice for full minute stretches.
-        this._slipDir   = steerDir;
-        this._slipTimer = 0;
-        this._slipMax   = 0.025 + Math.random() * 0.15;
-      } else {
-        // Idle on snow with slip expired.
-        this._slipDir   = 0;
-        this._slipTimer = 0;
-      }
-    } else {
-      // Off-snow: instantaneous control, reset any leftover slip state.
-      this._slipDir   = 0;
-      this._slipTimer = 0;
-    }
 
     // ── Alcohol overcorrection holdover ──────────────────────────
     // Layered AFTER snow slip (snow takes priority — if snow already
@@ -2559,52 +2651,184 @@ export class GameScene extends Phaser.Scene {
       this._alcHoldTimer = 0;
     }
 
-    // Heroin "input lag" extends both ramp + bleed time constants, so
-    // inputs feel late and heavy (the sedation feel).  No effect when
-    // sober (inputLag=0, steerReturnSlow=0).
-    const activeTau  = 0.12 + (phys.inputLag ?? 0);
-    const releaseTau = 0.45 + (phys.steerReturnSlow ?? 0);
-    if (effectiveSteerDir !== 0) {
-      // Ramp toward target velocity (slowed by inputLag on heroin).
-      p.steerVelocity = lerp(p.steerVelocity, effectiveSteerDir * TURN_SPEED * phys.steerSensitivity, 1 - Math.pow(0.01, dt / activeTau));
-    } else {
-      // Bleed off (slowed by steerReturnSlow on heroin).
-      p.steerVelocity = lerp(p.steerVelocity, 0, 1 - Math.pow(0.01, dt / releaseTau));
-    }
-    // Microsleep — at hero ≥ 0.65 + nod peak, the player briefly loses
-    // grip on the wheel.  Bleed steerVelocity faster to approximate
-    // hands-off drift for that frame.
-    if (phys.microsleep) {
-      p.steerVelocity *= 0.75;
-    }
+    // ── Grip-based lateral-velocity model (pass-1 driving overhaul) ──
+    // Replaces the old "lerp steerVelocity toward target then add it to
+    // x" snap with a tire-grip simulation:
+    //
+    //   1. Steering input + drugs produce a DESIRED lateral velocity
+    //      (where the driver wants the car to go).
+    //   2. Tire grip pulls the car's ACTUAL lateral velocity toward
+    //      the desired, at a rate proportional to grip.
+    //   3. Curve push, drug drift, microsleep all add to lateral
+    //      velocity directly (impulses) — grip then drags those back.
+    //   4. Position integrates from lateral velocity.
+    //
+    // The field is still called `steerVelocity` so the ~15 wall-bounce
+    // and reset callers don't need migration; semantically it's now
+    // the car's lateral velocity in lane-units / sec.
+    //
+    // Pass 1 deliberately uses ONLY the Used Sedan's baseline grip
+    // (1.0 across the board).  Per-vehicle handling, weather-tuned
+    // grip changes, and skid FX all come in passes 2-4.
 
-    const seg        = this.road.getSegment(p.position);
-    const centrifugal = seg ? seg.curve * p.speed * CENTRIFUGAL * 0.001 : 0;
-
-    // Weather grip — wet pavement / snow reduce steering authority and
-    // amplify centrifugal force, so curves push wider when traction is
-    // bad.  Two composable reductions of the slide penalty:
-    //   • 4x4 drivetrain          → -60 %
-    //   • Traction tires accessory → -40 % (per-vehicle, ANY car)
-    // Together: 4x4 + tires = -100 % (full grip in any weather).
-    //           Non-4x4 + tires = -40 % of the slide penalty.
-    //           4x4 alone = -60 % of the slide penalty.
-    //           Non-4x4 alone = full slide penalty (legacy behaviour).
+    // ── Pass-2 weather + terrain grip ─────────────────────────────────
+    //
+    // Two stacked grip sources, both reduce traction in the same way
+    // (slower lateral-velocity settle, more pronounced curve push):
+    //
+    //   WEATHER  → rain trims 15 %, snow chops 35 % at full intensity;
+    //              4x4 + traction tires reduce these slide penalties.
+    //   TERRAIN  → fog-line (|x|>1.0) starts costing grip the moment
+    //              the player crosses the white stripe.  Rumble strip,
+    //              grass, deep off-road each get harder to recover from.
+    //
+    // Plus an occasional ICE PATCH event on snow zones: ~6 %/sec roll
+    // drops grip to 0.30 for ~0.35 s and gives the player a small,
+    // recoverable slip.  Does NOT lock steering input (that was the
+    // pass-1 mechanic the user wanted gone).
     const _mileForGrip = (p.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
-    const rawGrip = Weather.gripMul(_mileForGrip);
-    const slidePen = 1 - rawGrip;           // 0 dry, 0.25 rain, 0.40 snow (ish)
+
+    // WEATHER grip — rain -25 / snow -45 base, multiplied by Weather
+    // .severity() which ramps 1.0 → 2.4 across each window per user spec
+    // ("140 % worse at the end").  Storms build progressively so the
+    // back half of each weather zone is genuinely punishing.
+    const wState = Weather.state?.(_mileForGrip);
+    const wInten = Weather.intensity?.(_mileForGrip) ?? 0;
+    const wSev   = Weather.severity?.(_mileForGrip) ?? 1;
+    let weatherSlide = 0;
+    if (wState === 'rain') weatherSlide = 0.25 * wInten * wSev;
+    if (wState === 'snow') weatherSlide = 0.45 * wInten * wSev;
+    // Clamp so severity ramp can't push slide past total grip loss.
+    weatherSlide = Math.min(0.92, weatherSlide);
     const _is4x4   = VEHICLES[this.player.vehicleId]?.drive === '4x4';
     const _hasTrac = !!(this._vehicleAccessories?.().traction);
     const penReduction = Math.min(1, (_is4x4 ? 0.60 : 0) + (_hasTrac ? 0.40 : 0));
-    const gripMul = 1 - slidePen * (1 - penReduction);
-    const slipMul = 1 + (1 - gripMul) * 1.5;   // 1.0 dry, scales with effective grip
+    const weatherGrip = 1 - weatherSlide * (1 - penReduction);
 
-    p.x += (
-      p.steerVelocity  * dt * gripMul
-      + phys.steerDrift   * dt
-      + centrifugal        * dt * slipMul
-      + phys.extraCurve    * p.speed * 0.001 * dt
-    );
+    // TERRAIN grip — based on how far off the painted road the car is.
+    // Bands: ≤1.0 on road, 1.0–1.06 rumble strip, 1.06–1.5 grass / dirt,
+    // >1.5 deep off-road.  Off-road bleed damage is separate (see the
+    // _applyDamage('offroad_bleed') call elsewhere).
+    // Pass-3: scale OFF-ROAD bands by vehicle.offroadGrip so an SUV
+    // (1.25) handles grass much better than a Sports Car (0.65).
+    // On-road (≤1.0) is unaffected — vehicle.grip handles dry-pavement.
+    const _ax = Math.abs(this.player.x);
+    const _orGrip = _vehSpec.offroadGrip ?? 1.0;
+    let terrainGrip;
+    if      (_ax <= 1.00) terrainGrip = 1.00;
+    else if (_ax <= 1.06) terrainGrip = 0.92 * _orGrip;   // rumble strip
+    else if (_ax <= 1.50) terrainGrip = 0.65 * _orGrip;   // grass / shoulder
+    else                  terrainGrip = 0.45 * _orGrip;   // deep off-road
+    // Clamp so a sports car can't have NEGATIVE grip in deep mud.
+    terrainGrip = Math.max(0.20, Math.min(1.0, terrainGrip));
+
+    // ICE PATCH slip — only fires in snow zones.  Random ~6 %/sec roll
+    // arms a timer; while the timer is positive, grip is crushed (0.30)
+    // so the next steering input feels late and the car drifts a bit.
+    // Replaces the old _slipDir input-lockout mechanic.
+    if (_inSnow && wInten > 0.2 && (this._iceSlipTimer ?? 0) <= 0) {
+      if (Math.random() < 0.06 * dt * 60) {
+        this._iceSlipTimer = 0.25 + Math.random() * 0.20;   // 0.25–0.45 s
+      }
+    }
+    if ((this._iceSlipTimer ?? 0) > 0) this._iceSlipTimer -= dt;
+    const iceSlipFactor = (this._iceSlipTimer ?? 0) > 0 ? 0.30 : 1.00;
+
+    const surfaceGrip = weatherGrip * terrainGrip * iceSlipFactor;
+    const slipMul     = 1 + (1 - surfaceGrip) * 1.5;
+
+    // Speed-grip falloff: tires get nervous near top speed.  At cruise
+    // (speedRatio ~0.86 vs boost top) penalty is ~15 %; at full boost
+    // it's ~18 %.  Forgiving at low speed, twitchy when flying.
+    const _boostTopUnits = mphToUnits(boostMph);
+    const speedRatio     = Math.max(0, Math.min(1.05, p.speed / Math.max(1, _boostTopUnits)));
+    const speedGripPen   = 1 - speedRatio * 0.18;
+
+    // Brake-in-turn → controlled skid: holding brake while steering
+    // costs ~30 % of grip, so the rear breaks loose a bit and the
+    // turn over-rotates briefly before settling.
+    const _brakingHard = !!this._isBrake?.();
+    const brakeInTurnPen = (_brakingHard && Math.abs(effectiveSteerDir) > 0.1) ? 0.70 : 1;
+
+    // Per-vehicle handling stats (pass-3).  Sedan baseline = 1.0 for
+    // every field.  Sports cars have high grip + sharp turnRate but
+    // poor stability and terrible offroad.  Trucks lower grip + slow
+    // turnRate but high stability + great offroad.  See VEHICLES table.
+    const vehicleGrip      = _vehSpec.grip      ?? 1.0;
+    const vehicleTurnRate  = _vehSpec.turnRate  ?? 1.0;
+    const vehicleStability = _vehSpec.stability ?? 1.0;
+
+    const grip = vehicleGrip * surfaceGrip * speedGripPen * brakeInTurnPen;
+
+    // Desired lateral velocity from the driver's intent.  Snow slip +
+    // alcoholHoldover already baked into effectiveSteerDir above.
+    const desiredLateral = effectiveSteerDir * TURN_SPEED
+                         * (phys.steerSensitivity ?? 1)
+                         * vehicleTurnRate;
+
+    // Heroin "input lag" — slows the settle in both directions.
+    // steerReturnSlow further slows the release (when the driver isn't
+    // holding any input).  Sober: both are 0, scaling = 1.
+    const lagScale     = 1 / (1 + (phys.inputLag ?? 0));
+    const releaseScale = effectiveSteerDir === 0
+                         ? 1 / (1 + (phys.steerReturnSlow ?? 0))
+                         : 1;
+    // Base settle rate 8 (per the user's pseudocode) → ~63 % toward
+    // target in 0.12 s at full grip.  Slower than the old lerp's
+    // snap-y ~48 %/frame, which is the point.  Stability boosts the
+    // settle rate (a planted truck snaps to its target lateral faster
+    // even though it turns slowly overall — high stability = "doesn't
+    // wander").  Sports cars sit < 1 here → nervous.
+    const settleRate = 8 * lagScale * releaseScale * vehicleStability;
+
+    // Tire grip pulls lateral velocity toward desired.
+    // Capture the gap BEFORE updating — used below to detect a skid
+    // (driver wants more lateral than the tires can deliver).
+    const _slipGap = Math.abs(desiredLateral - p.steerVelocity);
+    p.steerVelocity += (desiredLateral - p.steerVelocity) * grip * dt * settleRate;
+
+    // Skid detection — the car is sliding when grip is poor AND the
+    // wanted lateral exceeds what the tires are achieving by a wide
+    // margin.  Used to drive a continuous haptic buzz (handhelds
+    // vibrate during the slide) plus a flag any future skid-SFX
+    // listener can read.
+    const _skidding = (grip < 0.65 && _slipGap > 1.5)
+                   || ((this._iceSlipTimer ?? 0) > 0 && Math.abs(p.steerVelocity) > 0.8);
+    this._isSkidding = _skidding;
+    if (_skidding) {
+      this._skidHapticT = (this._skidHapticT ?? 0) + dt;
+      if (this._skidHapticT > 0.15) {
+        this._skidHapticT = 0;
+        this.haptics?.pulse?.(2);
+      }
+    } else {
+      this._skidHapticT = 0;
+    }
+
+    // Curve push — speed² so 60 mph is forgiving and 140 mph is
+    // threatening.  Old code was linear in speed.  Stability divides
+    // the curve push so heavy / planted vehicles (trucks, SUV) resist
+    // being thrown wide; nervous vehicles (sports / roadster) get
+    // thrown more.
+    const seg         = this.road.getSegment(p.position);
+    const curveAmount = (seg?.curve ?? 0)
+                      * (0.35 + speedRatio * speedRatio * 1.25);
+    const curvePush   = curveAmount * p.speed * CENTRIFUGAL * 0.001 / vehicleStability;
+    p.steerVelocity += curvePush * dt * slipMul;
+
+    // Drug drift (alcohol) + drug-induced extra curve flow through
+    // lateral velocity as impulses — grip drags them back toward zero
+    // over time, so a steady drunk drift becomes a fight against the
+    // wheel rather than an instant lane jump.
+    p.steerVelocity += (phys.steerDrift ?? 0) * dt;
+    p.steerVelocity += (phys.extraCurve ?? 0) * p.speed * 0.001 * dt;
+
+    // Microsleep — hands-off the wheel briefly: bleed lateral velocity
+    // a little extra so the car drifts unsteered.
+    if (phys.microsleep) p.steerVelocity *= 0.75;
+
+    // Integrate position from lateral velocity.
+    p.x += p.steerVelocity * dt;
 
     // Lateral collision impulse (bounce from crash)
     if (p.xImpulse) {
@@ -2707,6 +2931,35 @@ export class GameScene extends Phaser.Scene {
         p.speed    = Math.max(p.speed * 0.92, MAX_SPEED * 0.45);
       }
     }
+
+    // ── Water dunk safety net ─────────────────────────────────────────
+    // The rails above clamp |p.x| to 0.95–1.05 on water/bridge segments,
+    // so the car SHOULDN'T be able to reach this point — but a high-
+    // severity head-on impulse, a glitched i-frame, or future content
+    // could push it deep past the rail in a single frame.  If that ever
+    // happens, treat it as "went in the water": -10 HP, splash popup,
+    // warp back to road center, hard speed cut.  Cool-down so a single
+    // dunk only costs 10 HP, even if the impulse keeps the car past
+    // the threshold across several frames.
+    const _onWater = !!(seg?.water || seg?.bridge || seg?.waterLeft || seg?.waterRight);
+    if (_onWater && Math.abs(p.x) > 1.5 && (this._waterDunkCooldown ?? 0) <= 0) {
+      // Bypass i-frame for the splash — landing in a lake should always
+      // hurt, regardless of recent crash invincibility.
+      const _ivu = this._invincibleUntil;
+      this._invincibleUntil = 0;
+      this._applyDamage(10, 'water_dunk');
+      this._invincibleUntil = _ivu;
+      this._showPopup('💦 SPLASH!\n−10 HP', '#44AAFF');
+      this.effects?.triggerShake?.(600, 0.018);
+      // Reset to road center + hard speed cut (sinking + climbing out).
+      p.x             = 0;
+      p.steerVelocity = 0;
+      p.xImpulse      = 0;
+      p.speed         = Math.max(p.speed * 0.30, MAX_SPEED * 0.20);
+      // 1.5 s lock-out so the splash only fires once per dunk.
+      this._waterDunkCooldown = 1.5;
+    }
+    if ((this._waterDunkCooldown ?? 0) > 0) this._waterDunkCooldown -= dt;
     if (seg?.tunnel) {
       // Tunnel-wall scrape — same model as the bridge rail now.
       // 3 HP/SECOND continuous (dt-scaled) instead of the old
@@ -2816,12 +3069,14 @@ export class GameScene extends Phaser.Scene {
       p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
     }
 
-    // Visual lean — follows steer velocity so it lingers after key release.
-    // Centered-camera mode (F4 toggle) also shifts the sprite by the
-    // player's lane offset × the road's projected half-width at the
-    // player's depth — because the road no longer slides under the
-    // camera, the sprite has to visibly move across lanes itself.
-    const leanDir = p.steerVelocity / (TURN_SPEED || 1);  // normalised -1..1
+    // Visual lean — follows the car's actual lateral velocity (post
+    // Pass 1, steerVelocity IS the lateral velocity).  Clamp at ±1.4
+    // so a huge slide leans the car expressively without throwing it
+    // off-screen.  Slight smoothing on the angle so fast lateral-vel
+    // oscillations (snow ice patches, drug drift) don't jitter the
+    // sprite frame-to-frame.
+    const rawLean = p.steerVelocity / (TURN_SPEED || 1);
+    const leanDir = Math.max(-1.4, Math.min(1.4, rawLean));
     let targetX = SCREEN_W / 2 - leanDir * 22;
     if (this.road?._cameraTracksPlayer === false) {
       const proj = this.road?.sampleSurface?.(PLAYER_VIRTUAL_Z, 0, { allowClipped: true });
@@ -2840,7 +3095,11 @@ export class GameScene extends Phaser.Scene {
       const DEFAULT_W = 78, DEFAULT_H = 49;
       this._applyPlayerSpriteDisplaySize(DEFAULT_W, DEFAULT_H);
       this.playerSprite.x = p.screenX;
-      this.playerSprite.angle = leanDir * 6;
+      // Lerp the angle for smoothness (raw leanDir can twitch on snow
+      // ice patches / impulses).  0.18 reaches 85 % of target in
+      // ~150 ms — fast enough to look responsive, slow enough to damp.
+      const targetAng = leanDir * 6;
+      this.playerSprite.angle = lerp(this.playerSprite.angle ?? 0, targetAng, 0.18);
       // Crash i-frame blink — 7 Hz alpha toggle so the player can see
       // they're temporarily invulnerable.  Outside the window keep the
       // sprite fully opaque (other systems don't touch alpha).
@@ -3178,8 +3437,12 @@ export class GameScene extends Phaser.Scene {
           let visualOffset = sp.offset ?? 0;
           const profileForOff = SCENERY_IMAGE_PROFILES[sp.texKey];
           if (sp.type === 'building' || sp.type === 'house') {
+            // Floors are now safety nets, not positioning.  Real
+            // placement is spawn-time (fogLineOffset in RouteData.js).
+            // 1.05 = just past the white fog line; ensures no spawn bug
+            // can ever put a building's center inside the road.
             const profileMin = profileForOff?.minOffset ?? 0;
-            const spriteMin  = sp.visualMinOffset ?? (sp.type === 'house' ? 2.35 : 2.15);
+            const spriteMin  = sp.visualMinOffset ?? 1.05;
             const minOffset  = Math.max(profileMin, spriteMin);
             const sign = visualOffset >= 0 ? 1 : -1;
             visualOffset = sign * Math.max(Math.abs(visualOffset), minOffset);
@@ -3238,7 +3501,11 @@ export class GameScene extends Phaser.Scene {
               : isTree ? SCREEN_H * 0.44
               : sp.type === 'house' ? SCREEN_H * 0.36
               : SCREEN_H * 0.68);
-          const shrink = Math.min(
+          // A fixed frontage offset only stays visually fixed when its
+          // image grows with the same perspective as the road. Capping its
+          // width while the projected offset keeps expanding makes it look
+          // like the house moves away from the shoulder.
+          const shrink = Number.isFinite(sp.roadEdgeGapCars) ? 1 : Math.min(
             1,
             (maxW * heightBoost) / Math.max(1, targetW),
             (maxH * heightBoost) / Math.max(1, targetH),
@@ -3246,14 +3513,16 @@ export class GameScene extends Phaser.Scene {
           targetW *= shrink;
           targetH *= shrink;
           if (sp.rampClearance && proj.roadHalfW > 1) {
-            // Mirror renderer: scale push to actual rampStrength.
-            // Threshold matches renderer (0.30) so hitbox tracks paint.
+            // Mirror renderer: clear the ramp with the visible sprite edge,
+            // not just its center. This matters for skyline composites whose
+            // bases are several lanes wide.
             const rs = seg.rampStrength ?? 0;
             if (rs > 0.30) {
               const sign = visualOffset >= 0 ? 1 : -1;
               const tEdge = rs * rs * (3 - 2 * rs);
               const rampOuterEdge = 1 + 3.30 * tEdge;
-              const neededOffset = rampOuterEdge + 0.30;
+              const visibleHalfWidth = (targetW * 0.5) / proj.roadHalfW;
+              const neededOffset = rampOuterEdge + 0.30 + visibleHalfWidth;
               if (Math.abs(visualOffset) < neededOffset) {
                 visualOffset = sign * neededOffset;
                 const shifted = this.road.sampleSurface?.(
@@ -3282,6 +3551,7 @@ export class GameScene extends Phaser.Scene {
           const isWsHome = typeof sp.texKey === 'string'
             && sp.texKey.startsWith('west_seattle_');
           if (!isCopRand && !isWsHome && !isCitySkyline
+              && !Number.isFinite(sp.roadEdgeGapCars)
               && !sp.rampClearance && proj.roadHalfW > 1) {
             const sign = visualOffset >= 0 ? 1 : -1;
             const clearPx = proj.sw * SCENERY_ROAD_CLEARANCE_CAR_LENGTHS;
@@ -3307,16 +3577,16 @@ export class GameScene extends Phaser.Scene {
           // the actual building art, so a 0.30 fraction overshoots into
           // empty pixels.  0.22 lines the red collision rect up with
           // the visible building edges (verified via debug overlay).
-          // West Seattle / Mercer Island photo homes are spawned as
-          // type='building' (not 'house') but share the same padded PNGs,
-          // so they need the same narrow 0.22 — without this they keep
-          // hitting empty padding pixels and read as phantom crashes
-          // (the "home pulls away at the last second but I still crash"
-          // ~25 % of West Seattle drive-bys).
+          // West Seattle / Mercer Island photo homes: these PNGs actually
+          // fill most of their frame (unlike the type='house' Mercer
+          // PNGs which have ~30 % transparent padding per side).  0.70
+          // (bumped from 0.55 per "about a car width bigger" feedback)
+          // covers the bulk of the home + adjacent fence/yard so a car
+          // brushing the porch corner registers.
           const isPhotoHome = typeof sp.texKey === 'string'
             && sp.texKey.startsWith('west_seattle_');
           const collisionWidthFraction = sp.type === 'house' ? 0.22
-                                       : isPhotoHome         ? 0.22
+                                       : isPhotoHome         ? 0.70
                                        : sp.type === 'shrub' ? 0.50
                                        : sp.type === 'tree'  ? 0.40
                                        : isCitySkyline       ? 0.90
@@ -4053,6 +4323,7 @@ export class GameScene extends Phaser.Scene {
         this.registry.set('vehicleId', vid);
         if (this.player) {
           this.player.vehicleId = vid;
+          if (vid !== 'beater') this._leaveCockpitView?.();
           this.player.gasMaxMi  = v.rangeMi;
           this.player.gasMi     = v.rangeMi;       // full tank on title swap
           if (this.damage?.setMax)        this.damage.setMax(v.hp);
@@ -4373,23 +4644,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   _applyDamage(amount, source) {
-    if (!this.damage) return;
+    if (!this.damage) return 0;
     // Crash i-frames — silently absorb any incoming damage (collision or
     // offroad bleed alike) until the invincibility window expires.
-    if ((this.time?.now ?? 0) < this._invincibleUntil) return;
+    if ((this.time?.now ?? 0) < this._invincibleUntil) return 0;
     const drugs = this.drugs;
     const isCollision = source && source !== 'offroad_bleed';
 
     // Custom-mode "No NPC damage" — skip any traffic / cop / collision
     // damage; offroad bleed still applies (otherwise it's not really
     // driving, it's flying).
-    if (isCollision && this._customFlags?.noNpcDamage) return;
+    if (isCollision && this._customFlags?.noNpcDamage) return 0;
 
     if (isCollision) {
       const fent = drugs?.get?.(DRUGS.FENTANYL) ?? 0;
-      if (fent >= 0.25) return;
+      if (fent >= 0.25) return 0;
       const alc = drugs?.get?.(DRUGS.ALCOHOL) ?? 0;
-      if (alc >= 1.0 && /sideswipe|corner/i.test(source) && Math.random() < 0.5) return;
+      if (alc >= 1.0 && /sideswipe|corner/i.test(source) && Math.random() < 0.5) return 0;
     }
 
     let adj = amount * (Difficulty.damageMul() ?? 1);
@@ -4415,6 +4686,9 @@ export class GameScene extends Phaser.Scene {
       this._noDamageTimer = 0;
       this._noDamageFlags = { '1m': false, '2m': false, '3m': false, '5m': false };
     }
+    // Return the effective damage (after difficulty / drug / bumper
+    // modifiers) so crash sites can score `$5 × damage received`.
+    return adj;
   }
 
   /** Read the accessory map for the currently-driven vehicle.  Returns
@@ -4515,12 +4789,15 @@ export class GameScene extends Phaser.Scene {
         isHeadOn ? 420 + impact.severity * 360 : 260 + impact.severity * 280,
         isHeadOn ? 0.014 + impact.severity * 0.012 : 0.010 + impact.severity * 0.010,
       );
-      this.score += PTS_CRASH * this._scoreMult() * (isHeadOn ? 1.5 : 1);
       const label = car.isCop ? 'COP CAR RAMMED!\n⭐+1'
                   : isHeadOn   ? 'HEAD-ON!'
                   :              'REAR-END!';
       this._showPopup(label, isHeadOn ? '#FF2222' : '#FF8800');
-      this._applyDamage(isHeadOn ? 3 + impact.severity * 3 : 1 + impact.severity * 2, isHeadOn ? 'head_on' : 'traffic');
+      // Score is $5 × damage received × _scoreMult().  Computed from the
+      // _applyDamage return value so bumper / drug / difficulty mods are
+      // reflected — protected cars get less score, but also take less.
+      const dmg = this._applyDamage(isHeadOn ? 3 + impact.severity * 3 : 1 + impact.severity * 2, isHeadOn ? 'head_on' : 'traffic');
+      this.score += Math.round(5 * dmg * this._scoreMult());
       if (isHeadOn) {
         // Spin / roll the player car to the difficulty-appropriate
         // recovery lane and grant 2-second i-frame.  All subsequent
@@ -4552,9 +4829,10 @@ export class GameScene extends Phaser.Scene {
       p.xImpulse  = sideDir * (0.35 + impact.severity * 0.75);
       p.speed     = Math.max(1000, p.speed * clamp(0.98 - impact.severity * 0.10, 0.88, 0.97));
       this.effects.triggerShake(80 + impact.severity * 120, 0.003 + impact.severity * 0.005);
-      this.score += Math.round(PTS_CRASH * 0.3 * this._scoreMult());
       this._showPopup('SIDESWIPE!', '#FFEE44');
-      this._applyDamage(0.4 + impact.severity * 0.9, 'sideswipe');
+      // Score = $5 × damage received × _scoreMult().
+      const dmg = this._applyDamage(0.4 + impact.severity * 0.9, 'sideswipe');
+      this.score += Math.round(5 * dmg * this._scoreMult());
       car.alive      = false;
       car.crashed    = true;
       car.crashTimer = 1.4;
@@ -4575,9 +4853,10 @@ export class GameScene extends Phaser.Scene {
     p.xImpulse  = sideDir * (0.9 + impact.severity * 1.2);
     p.speed     = Math.max(800, p.speed * clamp(0.91 - impact.severity * 0.22, 0.68, 0.87));
     this.effects.triggerShake(140 + impact.severity * 230, 0.006 + impact.severity * 0.010);
-    this.score += Math.round(PTS_CRASH * 0.55 * this._scoreMult());
     this._showPopup('CORNER CLIP!', '#FFAA44');
-    this._applyDamage(0.6 + impact.severity * 1.4, 'corner');
+    // Score = $5 × damage received × _scoreMult().
+    const dmgC = this._applyDamage(0.6 + impact.severity * 1.4, 'corner');
+    this.score += Math.round(5 * dmgC * this._scoreMult());
     car.alive      = false;
     car.crashed    = true;
     car.crashTimer = 1.5;
@@ -4912,13 +5191,15 @@ export class GameScene extends Phaser.Scene {
       // is just a frustrating restart.  Treat it as a no-op.
       const _customMode = Difficulty.mode?.() === 'custom';
       if (result.overdose && !_customMode) { this._onOverdose(result.drug); return; }
-      const basePts  = DRUG_PTS[result.drug] ?? 10;
-      const isFull   = this.drugs.get(result.drug) >= 0.95;
-      const mult     = (isFull ? 2 : 1) * this._scoreMult();
-      const earned   = Math.round(basePts * mult);
+      // Per-drug { base, full } payout table (constants.js) — full-bar
+      // bonus kicks in at FULL_BAR_THRESHOLD (0.80) instead of 0.95.
+      const drugPay  = DRUG_PTS[result.drug] ?? { base: 10, full: 20 };
+      const isFull   = this.drugs.get(result.drug) >= FULL_BAR_THRESHOLD;
+      const basePts  = isFull ? drugPay.full : drugPay.base;
+      const earned   = Math.round(basePts * this._scoreMult());
       this.score    += earned;
       const label    = DRUG_CONFIG[result.drug]?.label ?? sprite.type;
-      const suffix   = isFull ? '\n★ FULL BAR ×2!' : `  +$${earned}`;
+      const suffix   = isFull ? `\n★ FULL BAR  +$${earned}!` : `  +$${earned}`;
       this._showPopup(`${label}${suffix}`, isFull ? '#FF8800' : '#FFFF44');
       this.effects.triggerShake(55, 0.002);
     }
@@ -4986,7 +5267,7 @@ export class GameScene extends Phaser.Scene {
     }
     // ── 15% — sketchy stranger robs score ─────────────────────────────
     if (r < 0.85) {
-      const loss = Math.min(this.score, 600);
+      const loss = Math.min(this.score, 500);
       this.score -= loss;
       this._showPopup(`💀 ROBBED!\n−$${loss}`, '#FF4444');
       return;
@@ -5002,7 +5283,7 @@ export class GameScene extends Phaser.Scene {
         stolen = tokens[idx];
         tokens.splice(idx, 1);
       }
-      const loss = Math.min(this.score, 400);
+      const loss = Math.min(this.score, 250);
       this.score -= loss;
       this._showPopup(
         stolen
@@ -5066,6 +5347,16 @@ export class GameScene extends Phaser.Scene {
       grenade:    'grenade-fwd',
     };
     return map[baseType] ?? baseType;
+  }
+
+  /** Render-time camera Z.  In cockpit mode the camera is shifted
+   *  forward by CAM.eyeForwardZ (3000) so the viewpoint sits at the
+   *  driver seat.  In chase mode this returns the raw physics position.
+   *  Sprite render functions (`_renderSceneSprites`, `_renderVehicles`,
+   *  `_renderDrugSprites`, etc.) use this for `relZ = sprite.position -
+   *  cameraZ` so the world projects relative to the right viewpoint. */
+  _renderCamPos() {
+    return this.player.position + (CAM.eyeForwardZ ?? 0);
   }
 
   /** Single source of truth for "is ANY modal up?" so scene-level
@@ -5136,6 +5427,24 @@ export class GameScene extends Phaser.Scene {
    *  whole row visually swaps sides along with the weapon column +
    *  HP/Mi readouts.  Called from update() when _leftHanded changes
    *  and from the end of _buildHUD for the initial state. */
+  /** Move the GAS/BRAKE pedal stack to the edge opposite the weapon
+   *  column for the current handedness setting. Called from update() when
+   *  _leftHanded changes; the build-time placement in _buildHUD uses
+   *  the same math so first paint is correct.  Pedals are Phaser
+   *  rectangles with origin (0.5, 1) — setting .x repositions both
+   *  the visible body and the input hit area. */
+  _applyPedalHandedness() {
+    if (!this._gasBtn || !this._brakeBtn) return;
+    const PEDAL_W = this._pedalDim?.w ?? 70;
+    const x = this._leftHanded
+      ? (SCREEN_W - PEDAL_W / 2 - 4)
+      : (PEDAL_W / 2 + 4);
+    this._gasBtn.x   = x;
+    this._brakeBtn.x = x;
+    if (this._gasLbl)   this._gasLbl.x   = x;
+    if (this._brakeLbl) this._brakeLbl.x = x;
+  }
+
   _applyTopRowHandedness() {
     if (!this._topRowButtons?.length) return;
     const lh  = !!this._leftHanded;
@@ -5455,7 +5764,7 @@ export class GameScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     const css = `#${textColor.toString(16).padStart(6, '0')}`;
     const txt = this.add.text(cx, cy, label, {
-      fontSize: '14px', fontFamily: 'Impact, Arial Black, sans-serif',
+      fontSize: '22px', fontFamily: 'Impact, Arial Black, sans-serif',
       color: css, align: 'center',
     }).setOrigin(0.5).setDepth(63).setVisible(false);
     bg.on('pointerover', () => bg.setFillStyle(fillColor, 0.85));
@@ -5612,7 +5921,14 @@ export class GameScene extends Phaser.Scene {
     mg.clear();
     const segs = this.road?.segments;
     if (!segs?.length) return;
-    const segIdx = ((Math.floor(this.player.position / SEG_LENGTH)) % segs.length + segs.length) % segs.length;
+    // Use the RENDER camera so the "are we visually inside a tunnel?"
+    // check matches what the road actually projected this frame.  In
+    // cockpit mode the eye sits CAM.eyeForwardZ ahead of the player;
+    // keying off raw player.position would say "outside" while the
+    // visible interior walls render — leaving the mask clipped to the
+    // mouth rect that no longer corresponds to anything on screen.
+    const camPos = this._renderCamPos();
+    const segIdx = ((Math.floor(camPos / SEG_LENGTH)) % segs.length + segs.length) % segs.length;
     const inTunnel = !!segs[segIdx]?.tunnel;
     const firstTunnelN = this.road?._firstTunnelN ?? -1;
     // Full-screen mask cases — interior walls should render unrestricted:
@@ -5644,13 +5960,23 @@ export class GameScene extends Phaser.Scene {
     const progress = this.player.position / (ROUTE_SEGS * SEG_LENGTH);
     const palette  = getPaletteAtProgress(Math.min(progress, 0.999));
 
+    // Cockpit forward-bias: in cockpit mode the rendered camera sits
+    // PLAYER_VIRTUAL_Z (3000) units AHEAD of the player's physics
+    // position, putting the viewpoint at the driver seat where the
+    // rear-view sprite used to be.  Cached so every per-frame render
+    // path uses the same value.  Read via `this._renderPos()` below.
+    this._renderEyeOffset = CAM.eyeForwardZ ?? 0;
+    const _renderPos = this.player.position + this._renderEyeOffset;
+
     this.road.render(
       this.roadGfx, this.ghostGfx,
-      this.player.position, this.player.x,
+      _renderPos, this.player.x,
       palette, {
         doubleVision: this.effects.doubleVision,
         currentStars: this.cops.starDisplay,
         shroomsBar:   this.drugs?.get?.(DRUGS.SHROOMS) ?? 0,
+        shroomMelt:   this.effects.shroomMelt ?? 0,
+        shroomPhase:  this.effects.time ?? 0,
       },
       this.propsGfx,
       this.bridgeFrontGfx,
@@ -5671,13 +5997,520 @@ export class GameScene extends Phaser.Scene {
     this._renderSignText();       // text labels on top of green/brown signs
     this._renderSignDecals();     // hwy-shield + brand-logo images on signs
     this._renderExplosions();
+    this._renderWeatherFx();
+    if (this._cockpitActive) {
+      // Image-based wipers + dashboard cover the procedural wipers, so
+      // skip the line-drawn ones to avoid double-rendering.
+      this._renderCockpit();
+    } else {
+      this._renderWipers();
+    }
     this._renderDebugOverlay();
 
   }
 
+  // ── First-person cockpit (BEATER ONLY) ────────────────────────────
+  //
+  // Layering: world → weather → pivoted wiper arms → cockpit_base → needles
+  //           → low-fuel light → steering wheel → HUD/vignette.
+  //
+  // Needle / light positions calibrated against the dashboard art at
+  // 800×450 viewport scale.  Constants live below — adjust if the art
+  // changes (or to fine-tune dial alignment).  Angle math uses Phaser
+  // image rotation (radians, 0 = pointing right, positive = clockwise
+  // when y-axis points down).
+  //
+  // Speedometer dial sweep: needle rotates from MIN angle at 0 mph
+  // through MAX angle at the dial's printed top (≈ 180 mph here).
+  // Fuel gauge: needle rotates from MIN angle at empty through MAX
+  // angle at full tank.
+  static _BEATER_COCKPIT = {
+    // Vertical SHIFT of the dashboard overlay (positive = down).
+    // Bumped from 0 → 65 per user spec: lower the dashboard so the
+    // lower tape player crops off the bottom of the viewport and a
+    // larger windshield band opens up at the top.  Every gauge / wheel
+    // / lamp Y below is already in its POST-shift screen position.
+    shiftY:  65,
+    // Speedometer needle.  Source PNG is 882×1783 (vertical needle
+    // pointing UP).  Display at small absolute pixel size — NEVER use
+    // a `scale` fraction; the source is huge and 0.30× still produces
+    // a 265×535 bar across the windshield.  Pivot at origin (0.5, 1)
+    // = bottom-center, so rotation pivots at the needle's base.
+    // X/Y tuned via K-key calibration mode (press K in cockpit).
+    speedo: {
+      x:        146,                // centre of painted speedo dial
+      y:        367 + 65,           // tracks dashboard shift
+      displayW: 8,
+      displayH: 32,
+      originX:  0.50,
+      originY:  1.00,
+      minAng:   -2.36,
+      maxAng:    2.36,
+      mphAtMax: 160,
+    },
+    // Fuel needle.  Source PNG 1028×1530 (vertical needle, pointing UP).
+    // E sits to the LEFT of UP, F to the RIGHT.  Needle pivots from
+    // bottom-center and sweeps a ~90° arc across the top of the dial:
+    //   minAng -0.78 (≈ -45°)  → needle points UP-LEFT  (E)
+    //   maxAng +0.78 (≈ +45°)  → needle points UP-RIGHT (F)
+    fuel: {
+      x:        254,
+      y:        367 + 65,
+      displayW: 6,
+      displayH: 22,
+      originX:  0.50,
+      originY:  1.00,
+      minAng:   -0.78,
+      maxAng:    0.78,
+    },
+    // Low-fuel warning lamp.  Square PNG 1254×1254.
+    lowFuel: {
+      x:               89,
+      y:               386 + 65,
+      displayW:        18,
+      displayH:        18,
+      thresholdFrac:   0.15,
+    },
+    // Separate foreground wheel — rotates with the player's actual
+    // steering input.  Bumped maxTurnRad 35°→60° for visible feedback
+    // when the player presses arrows / taps / tilts; smoothing 0.18→0.28
+    // so the wheel snaps with input rather than lagging behind.
+    wheel: {
+      x:              146,
+      y:              437 + 65,
+      displayW:       275,
+      displayH:       275,
+      maxTurnRad:     Phaser.Math.DegToRad(60),
+      smoothing:      0.28,
+    },
+    // Wiper arms — pivots anchored at the COWL line (top of dashboard
+    // / bottom of windshield).  Both use the same beater_wiper_arm
+    // asset (887×1774 source).  Origin (0.5, 1) puts the BOTTOM-centre
+    // of the PNG at the pivot, so the arm extends UP from there.
+    // Driver wiper parks pointing RIGHT (parkAng +1.55 = +89°) and
+    // sweeps upward to the LEFT.  Passenger MIRRORS the driver — parks
+    // pointing LEFT (parkAng -1.55) so its tip stays on-screen, sweeps
+    // upward to the RIGHT.  At peak both arms meet near top-centre.
+    // 85 × 500 display size: big enough to read as full wiper blades
+    // across the windshield without dwarfing the gauges.
+    wipers: {
+      driver: {
+        x: 220, y: 392, displayW: 85, displayH: 500,
+        parkAng:  1.55, sweepAng: -0.15,
+      },
+      passenger: {
+        x: 540, y: 392, displayW: 85, displayH: 500,
+        parkAng: -1.55, sweepAng:  0.15,
+      },
+      cycleSec: { slow: 1.5, fast: 0.5 },
+    },
+  };
+
+  /** Build the beater cockpit overlay objects.  Skipped for any other
+   *  vehicle (those continue to use the third-person playerSprite).
+   *  Image positions are tuned to fill the 800×450 viewport; native
+   *  PNG dimensions are 1672×941. */
+  _buildCockpit() {
+    this._cockpitActive = this.player.vehicleId === 'beater';
+    if (!this._cockpitActive) {
+      setCameraMode('chase');
+      return;
+    }
+    // First-person view → swap to the cockpit camera profile (lower
+    // height + tighter FOV — see constants.js setCameraMode) and hide
+    // the rear-view player car sprite.
+    setCameraMode('cockpit');
+    if (this.playerSprite) this.playerSprite.setVisible(false);
+    // Always start with calibration OFF — prevents needles from
+    // bouncing through their full sweep if the K-key handler picked
+    // up a stray keystroke during a previous session.
+    this._cockpitCalibrate = false;
+
+    const C = GameScene._BEATER_COCKPIT;
+    // Dashboard base — full-frame transparent overlay.  Sits above
+    // weather (depth 9.7) and the procedural wipers (9.8), below the
+    // HUD overlays (10+).  9.85 / 9.86 / 9.87 leaves headroom.
+    this.cockpitBase = this.add.image(SCREEN_W / 2, SCREEN_H / 2 + C.shiftY, 'beater_cockpit_base')
+      .setOrigin(0.5)
+      .setDisplaySize(SCREEN_W, SCREEN_H)
+      .setDepth(9.85);
+    // Wipers live on the glass behind the dashboard and instruments.
+    // Both rotate from a hidden cowl pivot using the same single asset.
+    this.cockpitWipers = [C.wipers.driver, C.wipers.passenger].map(w =>
+      this.add.image(w.x, w.y, 'beater_wiper_arm')
+        .setOrigin(0.5, 1)
+        .setDisplaySize(w.displayW, w.displayH)
+        .setRotation(w.parkAng)
+        .setDepth(9.84),
+    );
+    // Needles: setDisplaySize with EXPLICIT pixel sizes.  The source
+    // PNGs are 882×1783 / 1028×1530 — setScale fractions would still
+    // render hundreds of pixels of bar.  Origin (0.5, 1.0) puts the
+    // pivot at the bottom-center of the needle so rotation revolves
+    // around the dial's pin.
+    this.cockpitSpeedNeedle = this.add.image(C.speedo.x, C.speedo.y, 'beater_speedometer_needle')
+      .setOrigin(C.speedo.originX, C.speedo.originY)
+      .setDisplaySize(C.speedo.displayW, C.speedo.displayH)
+      .setDepth(9.86)
+      .setRotation(C.speedo.minAng);
+    this.cockpitFuelNeedle = this.add.image(C.fuel.x, C.fuel.y, 'beater_fuel_needle')
+      .setOrigin(C.fuel.originX, C.fuel.originY)
+      .setDisplaySize(C.fuel.displayW, C.fuel.displayH)
+      .setDepth(9.86)
+      .setRotation(C.fuel.minAng);
+    this.cockpitLowFuel = this.add.image(C.lowFuel.x, C.lowFuel.y, 'beater_low_fuel_light')
+      .setOrigin(0.5)
+      .setDisplaySize(C.lowFuel.displayW, C.lowFuel.displayH)
+      .setDepth(9.86)
+      .setVisible(false);
+    // Foreground wheel is separate so steering animation also occludes
+    // portions of the gauge needles like a real driver-seat view.
+    this.cockpitWheel = this.add.image(C.wheel.x, C.wheel.y, 'beater_steering_wheel')
+      .setOrigin(0.5)
+      .setDisplaySize(C.wheel.displayW, C.wheel.displayH)
+      .setDepth(9.87);
+    // Calibration markers — visible ONLY in K-mode.  Small filled
+    // circles + text labels at each needle pivot so the painter can
+    // see exactly where the anchors sit vs the painted dials.
+    this.cockpitCalibGfx  = this.add.graphics().setDepth(9.88).setVisible(false);
+    this.cockpitCalibText = [
+      this.add.text(C.speedo.x  + 12, C.speedo.y  - 6, 'speedo', { fontSize: '10px', color: '#FF66FF', stroke: '#000', strokeThickness: 2 }).setDepth(9.88).setVisible(false),
+      this.add.text(C.fuel.x    + 12, C.fuel.y    - 6, 'fuel',   { fontSize: '10px', color: '#66FFFF', stroke: '#000', strokeThickness: 2 }).setDepth(9.88).setVisible(false),
+      this.add.text(C.lowFuel.x + 12, C.lowFuel.y - 6, 'lamp',   { fontSize: '10px', color: '#FFFF66', stroke: '#000', strokeThickness: 2 }).setDepth(9.88).setVisible(false),
+    ];
+    // Register all with _worldObjects so the UI camera ignores them
+    // (otherwise they double-render on UI cam pass).
+    const _wo = this._worldObjects;
+    const _allCockpit = [...this.cockpitWipers, this.cockpitBase, this.cockpitSpeedNeedle,
+      this.cockpitFuelNeedle, this.cockpitLowFuel, this.cockpitWheel,
+      this.cockpitCalibGfx, ...this.cockpitCalibText];
+    if (_wo) _wo.push(..._allCockpit);
+    this._uiCam?.ignore?.(_allCockpit);
+    this._cockpitWiperPhase = 0;
+  }
+
+  _leaveCockpitView() {
+    if (!this._cockpitActive) return;
+    setCameraMode('chase');
+    this._cockpitActive = false;
+    if (this.cockpitBase)        this.cockpitBase.setVisible(false);
+    if (this.cockpitSpeedNeedle) this.cockpitSpeedNeedle.setVisible(false);
+    if (this.cockpitFuelNeedle)  this.cockpitFuelNeedle.setVisible(false);
+    if (this.cockpitLowFuel)     this.cockpitLowFuel.setVisible(false);
+    this.cockpitWipers?.forEach(w => w.setVisible(false));
+    if (this.cockpitWheel)       this.cockpitWheel.setVisible(false);
+    if (this.playerSprite)       this.playerSprite.setVisible(true);
+  }
+
+  /** Flip between cockpit (first-person) and third-person rear-view.
+   *  Only the beater currently has cockpit art — pressing V on any
+   *  other vehicle shows a hint instead of silently doing nothing. */
+  _toggleCockpit() {
+    if (this.player?.vehicleId !== 'beater') {
+      this._showPopup?.('Cockpit art only ships for the Used Sedan.', '#FFCC00');
+      return;
+    }
+    if (this._cockpitActive) {
+      this._leaveCockpitView();
+      this._showPopup?.('View: 3RD-PERSON', '#FFCC00');
+      return;
+    }
+    // Switch to first-person — apply cockpit camera profile.
+    setCameraMode('cockpit');
+    // Build the images lazily if this is the first toggle after a
+    // session that started in third-person.
+    if (!this.cockpitBase) {
+      this._buildCockpit();
+      if (!this.cockpitBase) return;          // build failed (missing tex)
+    }
+    this._cockpitActive = true;
+    if (this.cockpitBase)        this.cockpitBase.setVisible(true);
+    if (this.cockpitSpeedNeedle) this.cockpitSpeedNeedle.setVisible(true);
+    if (this.cockpitFuelNeedle)  this.cockpitFuelNeedle.setVisible(true);
+    if (this.cockpitLowFuel)     this.cockpitLowFuel.setVisible(false); // _renderCockpit re-decides
+    this.cockpitWipers?.forEach(w => w.setVisible(true));
+    if (this.cockpitWheel)       this.cockpitWheel.setVisible(true);
+    if (this.playerSprite)       this.playerSprite.setVisible(false);
+    this._showPopup?.('View: COCKPIT (1ST-PERSON)', '#FFCC00');
+  }
+
+  /** Per-frame update for the beater cockpit: rotate needles, toggle
+   *  low-fuel lamp, step wiper-frame animation. */
+  _renderCockpit() {
+    if (!this._cockpitActive || !this.cockpitBase) return;
+    const C = GameScene._BEATER_COCKPIT;
+
+    // Calibration mode: sweep needles 0→1→0 on a 3-sec cycle so gauge
+    // positioning can be eyeballed without driving / pause.
+    let speedT, tankFrac;
+    if (this._cockpitCalibrate) {
+      const phase = ((this.time?.now ?? 0) % 3000) / 3000;   // 0..1
+      const tri   = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+      speedT   = tri;
+      tankFrac = tri;
+    } else {
+      // Speedometer — use existing display-MPH so the dial matches
+      // the HUD speedo (cocaine / meth boosts included).
+      const mph = Math.max(0, Math.min(C.speedo.mphAtMax, this._displayMPH?.() ?? 0));
+      speedT = mph / C.speedo.mphAtMax;
+      tankFrac = Math.max(0, Math.min(1,
+        (this.player.gasMi ?? 0) / Math.max(1, this.player.gasMaxMi ?? 1)));
+    }
+    this.cockpitSpeedNeedle.setRotation(
+      C.speedo.minAng + (C.speedo.maxAng - C.speedo.minAng) * speedT,
+    );
+    this.cockpitFuelNeedle.setRotation(
+      C.fuel.minAng + (C.fuel.maxAng - C.fuel.minAng) * tankFrac,
+    );
+    // Rotate the foreground wheel from the car's lateral steering motion
+    // so keyboard, touch, tilt, drift and slippery-road settling all read
+    // consistently in cockpit view.
+    if (this.cockpitWheel) {
+      const steerVisual = Phaser.Math.Clamp(
+        (this.player.steerVelocity ?? 0) / (TURN_SPEED || 1), -1, 1,
+      );
+      const targetWheelRot = steerVisual * C.wheel.maxTurnRad;
+      this.cockpitWheel.rotation = Phaser.Math.Linear(
+        this.cockpitWheel.rotation ?? 0, targetWheelRot, C.wheel.smoothing,
+      );
+    }
+    // Low-fuel warning — under threshold OR (in calibration) flashing
+    // at low end of sweep so we can confirm placement.
+    const showLowFuel = this._cockpitCalibrate
+      ? tankFrac <= C.lowFuel.thresholdFrac
+      : tankFrac <= C.lowFuel.thresholdFrac;
+    this.cockpitLowFuel.setVisible(showLowFuel);
+    // Calibration markers — visible only in K-mode.  Filled dots at
+    // each pivot so we can SEE where the anchors land vs the painted
+    // dials.  Labels are positioned just to the right.
+    const calOn = !!this._cockpitCalibrate;
+    if (this.cockpitCalibGfx) {
+      this.cockpitCalibGfx.setVisible(calOn);
+      this.cockpitCalibGfx.clear();
+      if (calOn) {
+        this.cockpitCalibGfx.fillStyle(0xFF66FF, 1);     // magenta — speedo
+        this.cockpitCalibGfx.fillCircle(C.speedo.x,  C.speedo.y,  3);
+        this.cockpitCalibGfx.fillStyle(0x66FFFF, 1);     // cyan    — fuel
+        this.cockpitCalibGfx.fillCircle(C.fuel.x,    C.fuel.y,    3);
+        this.cockpitCalibGfx.fillStyle(0xFFFF66, 1);     // yellow  — lamp
+        this.cockpitCalibGfx.fillCircle(C.lowFuel.x, C.lowFuel.y, 3);
+      }
+    }
+    if (this.cockpitCalibText) for (const t of this.cockpitCalibText) t.setVisible(calOn);
+
+    // Wipers use one real arm sprite per side, rotating from hidden
+    // cowl pivots.  Mode 0 parks the arms; active modes cycle smoothly.
+    this.wipersGfx?.clear();
+    const mode = this._wiperMode ?? 0;
+    let sweepT = 0;
+    if (mode === 0) {
+      this._cockpitWiperPhase = 0;
+    } else {
+      // Single-speed wiper (was OFF/SLOW/FAST → now OFF/ON).  Always
+      // use the fast cycle so the windshield clears effectively on
+      // a single tap.
+      const cycleSec = C.wipers.cycleSec.fast;
+      const dt = (this.game?.loop?.delta ?? 16) / 1000;
+      const prevPhase = this._cockpitWiperPhase ?? 0;
+      this._cockpitWiperPhase = (prevPhase + dt / cycleSec) % 1;
+      // Sweep-pulse signal — fires once per complete wiper cycle (when
+      // the phase wraps around).  EffectsSystem reads this to apply
+      // an incremental droplet-clear instead of an instant full wipe.
+      if (this._cockpitWiperPhase < prevPhase) this._wiperSweepPulse = true;
+      sweepT = this._cockpitWiperPhase < 0.5
+        ? this._cockpitWiperPhase * 2
+        : (1 - this._cockpitWiperPhase) * 2;
+    }
+    [C.wipers.driver, C.wipers.passenger].forEach((w, i) => {
+      this.cockpitWipers?.[i]?.setRotation(
+        Phaser.Math.Linear(w.parkAng, w.sweepAng, sweepT),
+      );
+    });
+  }
+
+  /** Two procedural windshield-wiper arms, tandem sweep across the
+   *  lower screen.  Mode 0 = parked (hidden); mode 1 = slow (1.5 s/cycle);
+   *  mode 2 = fast (0.5 s/cycle).  Each arm rotates from a pivot just
+   *  off-screen at the bottom, with the rubber blade drawn slightly
+   *  thicker than the metal arm for a real-wiper silhouette. */
+  _renderWipers() {
+    const g = this.wipersGfx;
+    if (!g) return;
+    g.clear();
+    const mode = this._wiperMode ?? 0;
+    if (mode === 0) {
+      this._wiperPhase = 0;     // park
+      return;
+    }
+    // Single-speed wiper — always use the fast cycle (was slow/fast).
+    const cycleSec = 0.5;
+    const dt = (this.game?.loop?.delta ?? 16) / 1000;
+    const prevPhase = this._wiperPhase ?? 0;
+    this._wiperPhase = (prevPhase + dt / cycleSec) % 1;
+    // Sweep-pulse — fires once per complete cycle so EffectsSystem
+    // can incrementally clear droplets (multi-sweep clean).
+    if (this._wiperPhase < prevPhase) this._wiperSweepPulse = true;
+    // Phase: 0→0.5 = sweep up, 0.5→1 = sweep back.  Triangle-wave t.
+    const t = this._wiperPhase < 0.5
+      ? this._wiperPhase * 2
+      : (1 - this._wiperPhase) * 2;
+    // Angle interp — start at -25° (parked, pointing up-right) through
+    // -155° (swept, pointing up-left).  Mirrors automatically for the
+    // right-side wiper.
+    const restAng = -25 * Math.PI / 180;
+    const peakAng = -155 * Math.PI / 180;
+    const ang = restAng + (peakAng - restAng) * t;
+    const drawArm = (px, py, angle) => {
+      const ARM_LEN   = SCREEN_H * 0.55;     // arm length
+      const ARM_W     = 4;                   // metal arm thickness
+      const BLADE_W   = 8;                   // blade thickness
+      const tx = px + Math.cos(angle) * ARM_LEN;
+      const ty = py + Math.sin(angle) * ARM_LEN;
+      // Metal arm (thin black line from pivot to ~25 % out).
+      const innerEnd = 0.25;
+      const ix = px + Math.cos(angle) * ARM_LEN * innerEnd;
+      const iy = py + Math.sin(angle) * ARM_LEN * innerEnd;
+      g.lineStyle(ARM_W, 0x0A0A0A, 0.95);
+      g.beginPath();
+      g.moveTo(px, py);
+      g.lineTo(ix, iy);
+      g.strokePath();
+      // Rubber blade (thicker, slightly grey-black, from 25 % to tip).
+      g.lineStyle(BLADE_W, 0x1A1A1A, 0.92);
+      g.beginPath();
+      g.moveTo(ix, iy);
+      g.lineTo(tx, ty);
+      g.strokePath();
+      // Small pivot cap so the base reads as hardware.
+      g.fillStyle(0x222222, 1);
+      g.fillCircle(px, py, 4);
+    };
+    // Driver-side pivot at lower-left third, passenger at lower-right
+    // third.  Both sweep in tandem (same direction same phase) for a
+    // classic Toyota-style pattern.  Y just below the visible bottom
+    // so the pivot itself is implied rather than drawn awkwardly.
+    const pivotY = SCREEN_H + 6;
+    drawArm(SCREEN_W * 0.30, pivotY, ang);
+    // Passenger wiper mirrors the angle horizontally (PI - ang) so it
+    // sweeps the opposite half in sync.
+    drawArm(SCREEN_W * 0.70, pivotY, Math.PI - ang);
+  }
+
+  /** Rain + snow particle overlay — scales count, size, and speed with
+   *  Weather.intensity() × Weather.severity() so the storm builds toward
+   *  a 2.4× peak at the end of each window.  Rain droplets streak at a
+   *  wind-angle that gusts slightly mile-by-mile ("multiple directions"
+   *  per user spec); snowflakes drift left/right gently and fall slower.
+   *
+   *  Both particle pools are screen-space — they spawn at the top, fall
+   *  off the bottom, and recycle.  Cheap: ~120 fillRect / fillCircle
+   *  draws max per frame at peak severity. */
+  _renderWeatherFx() {
+    const g = this.weatherFxGfx;
+    if (!g) return;
+    g.clear();
+    if (!this._renderHUDWasReady) {
+      // Render even on title screen (frozen world drift) so the visual
+      // matches grip math which is also Weather-dependent.
+    }
+    const mile  = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+    const state = Weather.state?.(mile);
+    if (state !== 'rain' && state !== 'snow') {
+      // No weather: kill any leftover particles so they don't keep
+      // animating after the player drives out of a window.
+      if (this._rainDrops) this._rainDrops.length = 0;
+      if (this._snowFlakes) this._snowFlakes.length = 0;
+      return;
+    }
+    const inten = Weather.intensity?.(mile) ?? 0;
+    const sev   = Weather.severity?.(mile)  ?? 1;
+    const eff   = Math.max(0, Math.min(2.4, inten * sev));
+    // dt for particle update — use the same Phaser delta the scene runs at.
+    const dt = (this.game?.loop?.delta ?? 16) / 1000;
+
+    if (state === 'rain') {
+      this._snowFlakes && (this._snowFlakes.length = 0);
+      const MAX_DROPS = 220;
+      const targetCount = Math.round(MAX_DROPS * (eff / 2.4));
+      const pool = (this._rainDrops = this._rainDrops ?? []);
+      // Wind angle gusts slowly mile-by-mile so the rain doesn't fall
+      // perfectly vertical — gives the "multiple directions" feel.
+      const windRad = Math.sin(mile * 0.7) * 0.35;   // ±20° tilt
+      // Speed scales with severity — late-storm rain falls faster.
+      const fallSpeed = 600 + 500 * (eff / 2.4);
+      // Stream length scales with speed (motion-blur streak effect).
+      const streakLen = 12 + 14 * (eff / 2.4);
+      // Spawn new drops up to targetCount.
+      while (pool.length < targetCount) {
+        pool.push({
+          x:  Math.random() * (SCREEN_W + 80) - 40,
+          y:  Math.random() * SCREEN_H * -1,
+          v:  fallSpeed * (0.85 + Math.random() * 0.3),
+        });
+      }
+      // Trim excess drops (severity dropped).
+      if (pool.length > targetCount) pool.length = targetCount;
+      const sinW = Math.sin(windRad);
+      const cosW = Math.cos(windRad);
+      // Bigger drops at peak severity.
+      const dropW = 1 + 0.8 * (eff / 2.4);
+      g.fillStyle(0xAACCDD, 0.55);
+      for (const d of pool) {
+        d.x += d.v * sinW * dt;
+        d.y += d.v * cosW * dt;
+        if (d.y > SCREEN_H + 4) {
+          d.y = -streakLen;
+          d.x = Math.random() * (SCREEN_W + 80) - 40;
+        }
+        if (d.x < -20) d.x = SCREEN_W + 10;
+        else if (d.x > SCREEN_W + 20) d.x = -10;
+        // Draw streak as a thin slanted rectangle.
+        g.fillRect(d.x, d.y, dropW, streakLen);
+      }
+      // Subtle sky darkening at peak storm.
+      g.fillStyle(0x101820, 0.10 * (eff / 2.4));
+      g.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    } else if (state === 'snow') {
+      this._rainDrops && (this._rainDrops.length = 0);
+      const MAX_FLAKES = 260;
+      const targetCount = Math.round(MAX_FLAKES * (eff / 2.4));
+      const pool = (this._snowFlakes = this._snowFlakes ?? []);
+      // Snow drifts more than rain — wider wind range, slower fall.
+      const windPhase = mile * 0.55;
+      const fallSpeed = 140 + 180 * (eff / 2.4);
+      while (pool.length < targetCount) {
+        pool.push({
+          x:    Math.random() * (SCREEN_W + 40) - 20,
+          y:    Math.random() * SCREEN_H * -1,
+          v:    fallSpeed * (0.6 + Math.random() * 0.7),
+          r:    1.0 + Math.random() * 2.0 * (0.5 + 0.5 * (eff / 2.4)),
+          phase: Math.random() * Math.PI * 2,
+        });
+      }
+      if (pool.length > targetCount) pool.length = targetCount;
+      g.fillStyle(0xFFFFFF, 0.85);
+      for (const f of pool) {
+        // Sinusoidal lateral drift gives the "swirling" snow look.
+        const drift = Math.sin((this.time?.now ?? 0) * 0.001 + f.phase + windPhase) * 30;
+        f.y += f.v * dt;
+        f.x += drift * dt;
+        if (f.y > SCREEN_H + 4) {
+          f.y = -4;
+          f.x = Math.random() * (SCREEN_W + 40) - 20;
+        }
+        if (f.x < -10) f.x = SCREEN_W + 5;
+        else if (f.x > SCREEN_W + 10) f.x = -5;
+        g.fillCircle(f.x, f.y, f.r);
+      }
+      // Sky desaturation at peak snow.
+      g.fillStyle(0xCEDADE, 0.08 * (eff / 2.4));
+      g.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    }
+  }
+
   // ── DEBUG OVERLAY ───────────────────────────────────────────────────
   // Visualizes the four systems we keep getting confused between:
-  //  1. RENDER bbox — yellow stroke — what _renderSceneSprites draws
+  //  1. PNG frame — blue stroke — may contain transparent padding
   //  2. COLLISION bbox — red stroke — what _updatePhysics tests
   //  3. Sprite anchor — cyan dot — proj.sx, proj.sy from sampleSurface
   //  4. Player AABB — lime stroke — the player rect collision uses
@@ -5731,7 +6564,7 @@ export class GameScene extends Phaser.Scene {
       g.strokeRect(tm.x, tm.y, tm.w, tm.h);
     }
 
-    // ── Scenery sprites: render bbox (yellow) + collision bbox (red) ──
+    // ── Scenery sprites: PNG frame (blue) + collision band (red) ──
     const segs = this.road?.segments;
     let sceneryCount = 0;
     let collidableCount = 0;
@@ -5757,17 +6590,17 @@ export class GameScene extends Phaser.Scene {
           const culledByTunnel = pastTunnel && isStructure;
           const profile = SCENERY_IMAGE_PROFILES[sp.texKey];
 
-          // Mirror renderer minOffset logic
+          // Mirror renderer minOffset logic (1.05 safety net, see renderer note)
           let visualOffset = sp.offset ?? 0;
           if (isStructure) {
             const profileMin = profile?.minOffset ?? 0;
-            const spriteMin  = sp.visualMinOffset ?? (sp.type === 'house' ? 2.35 : 2.15);
+            const spriteMin  = sp.visualMinOffset ?? 1.05;
             const minOffset  = Math.max(profileMin, spriteMin);
             const sign = visualOffset >= 0 ? 1 : -1;
             visualOffset = sign * Math.max(Math.abs(visualOffset), minOffset);
           }
           const relZ = n * SEG_LENGTH + SEG_LENGTH / 2;
-          const proj = this.road.sampleSurface?.(
+          let proj = this.road.sampleSurface?.(
             relZ, visualOffset,
             isStructure ? { allowClipped: true } : undefined,
           );
@@ -5799,13 +6632,37 @@ export class GameScene extends Phaser.Scene {
               : isTree ? SCREEN_H * 0.44
               : sp.type === 'house' ? SCREEN_H * 0.36
               : SCREEN_H * 0.68);
-          const shrink = Math.min(
+          const shrink = Number.isFinite(sp.roadEdgeGapCars) ? 1 : Math.min(
             1,
             (maxW * heightBoost) / Math.max(1, targetW),
             (maxH * heightBoost) / Math.max(1, targetH),
           );
           targetW *= shrink; targetH *= shrink;
-
+          // Mirror the live ramp-clearance displacement. Without this,
+          // F3 shows a stale frame/hitbox in the ramp even after the
+          // skyline has been moved clear by the renderer.
+          if (sp.rampClearance && proj.roadHalfW > 1) {
+            const rs = seg.rampStrength ?? 0;
+            if (rs > 0.30) {
+              const sign = visualOffset >= 0 ? 1 : -1;
+              const tEdge = rs * rs * (3 - 2 * rs);
+              const rampOuterEdge = 1 + 3.30 * tEdge;
+              const visibleHalfWidth = (targetW * 0.5) / proj.roadHalfW;
+              const neededOffset = rampOuterEdge + 0.30 + visibleHalfWidth;
+              if (Math.abs(visualOffset) < neededOffset) {
+                visualOffset = sign * neededOffset;
+                const shifted = this.road.sampleSurface?.(
+                  relZ, visualOffset,
+                  isStructure ? { allowClipped: true } : undefined,
+                );
+                if (!shifted) continue;
+                proj = shifted;
+              }
+              proj.sx += 80 * sign;
+              targetW *= 0.88;
+              targetH *= 0.88;
+            }
+          }
           const renderL = proj.sx - targetW * 0.5;
           const renderT = proj.sy - targetH;
           // Mirror the renderer's tunnel mouth-overlap cull (only
@@ -5820,12 +6677,13 @@ export class GameScene extends Phaser.Scene {
                          && renderT + targetH > r.y;
           }
           const culled = culledByTunnel || culledByMouth;
-          // Yellow render bbox — solid when drawn, dashed/dim when culled.
+          // Blue frame is the full PNG rectangle, not collision geometry;
+          // transparent pixels inside it are expected.
           if (culled) {
-            g.lineStyle(1, 0x888800, 0.35);   // dim olive = renderer skipped this sprite
+            g.lineStyle(1, 0x666666, 0.35);   // gray = renderer skipped this sprite
             culledCount++;
           } else {
-            g.lineStyle(1, 0xFFFF00, 0.8);
+            g.lineStyle(1, 0x3388FF, 0.55);
             sceneryCount++;
           }
           g.strokeRect(renderL, renderT, targetW, targetH);
@@ -5846,7 +6704,7 @@ export class GameScene extends Phaser.Scene {
             const isPhotoHome = typeof sp.texKey === 'string'
               && sp.texKey.startsWith('west_seattle_');
             const collisionWidthFraction = sp.type === 'house' ? 0.22
-                                         : isPhotoHome         ? 0.22
+                                         : isPhotoHome         ? 0.70
                                          : sp.type === 'shrub' ? 0.50
                                          : sp.type === 'tree'  ? 0.40
                                          : isCitySkyline       ? 0.90
@@ -5871,7 +6729,7 @@ export class GameScene extends Phaser.Scene {
     if (this.traffic?.length) {
       for (const car of this.traffic) {
         if (!car.alive) continue;
-        const relZ = car.position - this.player.position;
+        const relZ = car.position - this._renderCamPos();
         if (relZ < -800 || relZ > 60000) continue;
         const proj = this.road.getVehicleProjection?.(relZ, car.laneOffset ?? 0);
         if (!proj) continue;
@@ -5938,6 +6796,14 @@ export class GameScene extends Phaser.Scene {
 
   _renderVehicles() {
     const p = this.player;
+    // Shared render-camera position — cockpit shifts the eye 3000 units
+    // forward of physics, so traffic relZ, cops relativePos, and the
+    // tunnel-segment lookup below all key off the SAME camera the road
+    // projection uses (road.render() received this same value).  Mixing
+    // p.position here with the shifted road projection caused cars to
+    // render at the wrong size + Y and drop out of the tunnel correctly
+    // in cockpit mode.
+    const camPos = this._renderCamPos();
     const pool = this._carSpritePool;
     const ghostPool = this._carGhostPool;
     const dv = this.effects?.doubleVision ?? 0;
@@ -5945,6 +6811,9 @@ export class GameScene extends Phaser.Scene {
     const ghostAlpha  = dv > 0.01 ? dv * 0.62 : 0;
     let used = 0;
     let ghostUsed = 0;
+    const camSegIdx = ((Math.floor(camPos / SEG_LENGTH)) % this.road.segments.length
+      + this.road.segments.length) % this.road.segments.length;
+    const cameraInTunnel = !!this.road.segments[camSegIdx]?.tunnel;
 
     // Reset the shared tire-shadow canvas — we redraw all car shadows
     // fresh each frame, anchored to sampleSurface() (NOT sprite Y), so
@@ -5968,12 +6837,19 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    const cockpit = this._cockpitActive;
+    // Near-cull threshold.  Chase view culls at 0.65×PLAYER_VIRTUAL_Z
+    // so NPCs disappear once they pass behind the visible player car
+    // sprite (which sits at PLAYER_VIRTUAL_Z = 3000).  Cockpit has no
+    // player sprite to occlude and the eye sits in the driver seat —
+    // a same-direction car being overtaken should keep rendering as
+    // it grows huge in the windshield, then naturally slide off
+    // below the dashboard.  Drop the floor to 100 in cockpit so cars
+    // get nearly as tall as the player car before vanishing.
+    const nearCull = cockpit ? 100 : PLAYER_VIRTUAL_Z * 0.65;
     const place = (relZ, laneOffset, color, scaleHint, rotation, texKey) => {
-      // Cull NPCs that have passed the player's VISUAL position — they
-      // should appear in the rear-view mirror instead, not stick around
-      // floating below the sprite at the bottom of the screen.
-      if (relZ < PLAYER_VIRTUAL_Z * 0.65 || relZ > 76000) return;
-      const segIdx = Math.floor((p.position + relZ) / SEG_LENGTH) % this.road.segments.length;
+      if (relZ < nearCull || relZ > 76000) return;
+      const segIdx = Math.floor((camPos + relZ) / SEG_LENGTH) % this.road.segments.length;
       const inTunnel = !!this.road.segments[segIdx]?.tunnel;
       const tunnelLaneOffset = inTunnel ? clamp(laneOffset, -0.48, 0.48) : laneOffset;
       const proj = this.road.getVehicleProjection(relZ, tunnelLaneOffset);
@@ -5984,6 +6860,15 @@ export class GameScene extends Phaser.Scene {
       const baseH = tex?.height || 40;
       const targetW = proj.sw * (scaleHint ?? 1) * (inTunnel ? 0.88 : 1);
       const targetH = targetW * (baseH / baseW);
+      // Cars inside a curving tunnel paint above the shell so the curb
+      // does not cover cars on the exposed pavement. Cull only when the
+      // visible body is actually behind a nearer concrete side wall.
+      if (cameraInTunnel && inTunnel
+          && this.road.isTunnelVehicleOccluded?.(
+            relZ, proj.sx, proj.sy - targetH * 0.42,
+          )) {
+        return;
+      }
       // Tire shadow — NPC sprites use origin (0.5, 1), so the car's
       // BOTTOM (wheels) sit at proj.sy.  The shadow is anchored to
       // proj.sy and pulled slightly UP into the car's footprint so it
@@ -6009,13 +6894,17 @@ export class GameScene extends Phaser.Scene {
       // a *closer* sprite always paints over a *farther* one regardless of
       // type. Without this, cars (formerly depth 9) painted through any
       // building (depth 7.5) sitting between them and the camera.
-      // Tunnel walls/ceiling live on tunnelGfx at depth 9.82 and must
-      // occlude traffic outside the tunnel opening. Keep in-tunnel cars
-      // just below that overlay; the tunnel geometry leaves the roadway
-      // open, so legitimate lane traffic stays visible while cars behind
-      // the wall/ceiling get masked.
+      // Tunnel walls/ceiling live on tunnelGfx at depth 9.82.  When the
+      // camera is outside, keep tunnel traffic below that overlay so the
+      // entrance facade can hide cars behind its concrete sides.  Once
+      // the camera is inside, cars in a tunnel lane must paint above the
+      // wall shell: their billboard body rises above the road plane and
+      // otherwise gets covered by the wall polygon despite being on the
+      // drivable pavement.
       const baseDepth = 9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5;
-      const depth = inTunnel ? Math.min(baseDepth, 9.80) : baseDepth;
+      const depth = (cameraInTunnel && inTunnel)
+        ? 9.83
+        : (inTunnel ? Math.min(baseDepth, 9.80) : baseDepth);
       s.setPosition(proj.sx, proj.sy)
         .setDisplaySize(targetW, targetH)
         .setTint(color)
@@ -6050,7 +6939,7 @@ export class GameScene extends Phaser.Scene {
     // rear again as it spins out) instead of just one image rolling.
     const TWO_PI = Math.PI * 2;
     for (const t of this.traffic) {
-      const relZ = t.position - p.position;
+      const relZ = t.position - camPos;
       const baseFacing = (t.speed ?? 0) < 0 ? 'front' : 'back';
       let facing = baseFacing;
       if (t.crashed) {
@@ -6073,8 +6962,10 @@ export class GameScene extends Phaser.Scene {
 
     // Cache the cop list once per frame — getCopsForRender allocates a
     // filtered array, so reusing it across the two loops below saves
-    // one allocation + one O(n) traversal per frame.
-    const copsForRender = this.cops.getCopsForRender(p.position);
+    // one allocation + one O(n) traversal per frame.  Pass the render
+    // camera position so cop.relativePos matches the camera the road
+    // projection uses (cockpit-shifted in first-person view).
+    const copsForRender = this.cops.getCopsForRender(camPos);
 
     // Cops — pursuit-front cops drive same direction (player sees the
     // back), oncoming cops barrel head-on (front), barricade cops parked
@@ -6170,10 +7061,11 @@ export class GameScene extends Phaser.Scene {
       };
       for (const t of this.traffic) {
         if (t.crashed || !t.alive) continue;
-        const relZ = t.position - p.position;
-        // Cull at the visual-player-z plane so headlights don't keep
-        // shining from under the player sprite after a car has passed.
-        if (relZ < PLAYER_VIRTUAL_Z * 0.65 || relZ > 76000) continue;
+        const relZ = t.position - camPos;
+        // Match the cockpit-aware near-cull used by the sprite render
+        // loop above so headlights stay attached to NPC sprites all
+        // the way to the eye in cockpit, not just to PLAYER_VIRTUAL_Z.
+        if (relZ < nearCull || relZ > 76000) continue;
         const proj = this.road.getVehicleProjection(relZ, t.laneOffset);
         const oncoming = (t.speed ?? 0) < 0;
         drawHeadlights(proj, oncoming);
@@ -6225,7 +7117,11 @@ export class GameScene extends Phaser.Scene {
 
     const segs = this.road?.segments;
     if (segs?.length) {
-      const idx = ((Math.floor(this.player.position / SEG_LENGTH) % segs.length) + segs.length) % segs.length;
+      // Visual-camera tunnel check — cockpit eye may already be inside
+      // a tunnel before player.position reaches the mouth.  Strips are
+      // visual decoration, so hide them when the CAMERA is inside.
+      const camPos = this._renderCamPos();
+      const idx = ((Math.floor(camPos / SEG_LENGTH) % segs.length) + segs.length) % segs.length;
       if (segs[idx]?.tunnel) {
         hide();
         return;
@@ -6281,7 +7177,9 @@ export class GameScene extends Phaser.Scene {
     const planePool = this._strip3dPool ?? [];
     const segs = this.road.segments;
     if (!segs?.length) return;
-    const playerPos = this.player.position;
+    // Cockpit forward-bias: render scene sprites relative to the
+    // shifted camera Z (driver-seat viewpoint in cockpit mode).
+    const playerPos = this._renderCamPos();
     const startSeg  = Math.floor(playerPos / SEG_LENGTH);
     let used = 0;
     let usedPlanes = 0;
@@ -6393,8 +7291,10 @@ export class GameScene extends Phaser.Scene {
           // into it.  Now both pick the LARGER constraint so the
           // setback always wins when it's higher than the profile
           // floor.
+          // Floor is now a safety net (1.05 = just past fog line).
+          // Real placement is spawn-time via fogLineOffset.
           const profileMin = profile?.minOffset ?? 0;
-          const spriteMin  = sp.visualMinOffset ?? (sp.type === 'house' ? 2.35 : 2.15);
+          const spriteMin  = sp.visualMinOffset ?? 1.05;
           const minOffset  = Math.max(profileMin, spriteMin);
           const sign = visualOffset >= 0 ? 1 : -1;
           visualOffset = sign * Math.max(Math.abs(visualOffset), minOffset);
@@ -6480,16 +7380,18 @@ export class GameScene extends Phaser.Scene {
             : isTree ? SCREEN_H * 0.44
             : sp.type === 'house' ? SCREEN_H * 0.36
             : SCREEN_H * 0.68);
-        const shrink = Math.min(1, (maxW * heightBoost) / Math.max(1, targetW), (maxH * heightBoost) / Math.max(1, targetH));
+        // Do not cap fixed frontage: the fixed center offset and the image
+        // width must scale together or the inner edge appears to recede.
+        const shrink = Number.isFinite(sp.roadEdgeGapCars)
+          ? 1
+          : Math.min(1, (maxW * heightBoost) / Math.max(1, targetW), (maxH * heightBoost) / Math.max(1, targetH));
         targetW *= shrink;
         targetH *= shrink;
         if (sp.rampClearance && proj.roadHalfW > 1) {
-          // Push only as far as THIS segment's actual ramp footprint —
-          // the ramp peels open gradually over ~1 mi (low rampStrength
-          // = no visible ramp yet), so a fixed 4.6 push moves houses
-          // off-screen across most of the window where they should
-          // still render at their normal setback.  Match Road.js's
-          // smoothstep so visualOffset clears the ramp's outer edge.
+          // Push to this segment's actual ramp footprint, using the
+          // sprite's visible edge. Center-only clearance lets a wide
+          // skyline image continue across the on-ramp after its anchor
+          // is technically outside it.
           // Threshold 0.30 (was 0.40): at rs=0.35 the ramp paint already
           // reaches ~1.99 units — a home at the spawn baseOff (2.05) is
           // visually tangent to the ramp's outer edge, which read as
@@ -6500,7 +7402,8 @@ export class GameScene extends Phaser.Scene {
             const sign = visualOffset >= 0 ? 1 : -1;
             const tEdge = rs * rs * (3 - 2 * rs);
             const rampOuterEdge = 1 + 3.30 * tEdge;   // matches Road.js (gap 2.05 + width 1.25)
-            const neededOffset = rampOuterEdge + 0.30;
+            const visibleHalfWidth = (targetW * 0.5) / proj.roadHalfW;
+            const neededOffset = rampOuterEdge + 0.30 + visibleHalfWidth;
             if (Math.abs(visualOffset) < neededOffset) {
               visualOffset = sign * neededOffset;
               const shifted = this.road.sampleSurface?.(
@@ -6530,6 +7433,7 @@ export class GameScene extends Phaser.Scene {
         // screen-space nudge) and a second re-sample here would drop
         // the proj.sx adjust on the floor.
         if (!isCopRand && !isWestSeattleHome && !isCitySkyline
+            && !Number.isFinite(sp.roadEdgeGapCars)
             && !sp.rampClearance && proj.roadHalfW > 1) {
           const sign = visualOffset >= 0 ? 1 : -1;
           const clearPx = proj.sw * SCENERY_ROAD_CLEARANCE_CAR_LENGTHS;
@@ -6589,6 +7493,7 @@ export class GameScene extends Phaser.Scene {
           .setY(proj.sy + targetH * (profile?.groundDrop ?? 0))
           .setDepth(depth)
           .setAlpha(1)
+          .setFlipX(!!sp.flipX)
           .setVisible(true);
       }
     }
@@ -6685,7 +7590,11 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    const startSeg = Math.floor(this.player.position / SEG_LENGTH);
+    // Cockpit forward-bias: sign text + decals must use the same
+    // camera Z as the sign GRAPHIC (rendered through Road.js which
+    // received the biased playerPos).  Without this, the text drifts
+    // off the sign in cockpit mode.
+    const startSeg = Math.floor(this._renderCamPos() / SEG_LENGTH);
     for (let n = 0; n <= 380 && used < pool.length; n++) {
       const seg = segs[(startSeg + n) % segs.length];
       if (!seg?.sprites) continue;
@@ -6849,7 +7758,11 @@ export class GameScene extends Phaser.Scene {
          .setVisible(true);
     };
 
-    const startSeg = Math.floor(this.player.position / SEG_LENGTH);
+    // Cockpit forward-bias: sign text + decals must use the same
+    // camera Z as the sign GRAPHIC (rendered through Road.js which
+    // received the biased playerPos).  Without this, the text drifts
+    // off the sign in cockpit mode.
+    const startSeg = Math.floor(this._renderCamPos() / SEG_LENGTH);
     for (let n = 0; n <= 380 && used < pool.length; n++) {
       const seg = segs[(startSeg + n) % segs.length];
       if (!seg?.sprites) continue;
@@ -6909,7 +7822,8 @@ export class GameScene extends Phaser.Scene {
     if (!pool?.length) return;
     const segs = this.road.segments;
     if (!segs?.length) return;
-    const playerPos = this.player.position;
+    // Cockpit forward-bias — same as _renderSceneSprites.
+    const playerPos = this._renderCamPos();
     const startSeg  = Math.floor(playerPos / SEG_LENGTH);
     const ghostPool = this._drugGhostPool;
     const dv = this.effects?.doubleVision ?? 0;
@@ -7345,38 +8259,86 @@ export class GameScene extends Phaser.Scene {
     this._hudObjects?.push(this.hudSkipBtn, this.hudSkipLbl);
     registerTopBtn({ id: 'ff', bg: this.hudSkipBtn, lbl: this.hudSkipLbl, baseLeft: skipLeft, size: muteSize });
 
-    // Wiper button — same size as the cluster, immediately LEFT of skip.
-    // Hidden by default; only visible while it's raining.  Tapping it
-    // sets `_wiperUntil = gameTime + 4`, suppressing windshield droplets
-    // for 4 seconds (the wiper-sweep window).
-    // Wiper — only visible when it's raining.  Tucked far RIGHT of
-    // everything (past Garage) so when it pops in it doesn't push
-    // existing buttons around.
-    const wiperRight = MIRROR_RIGHT_X + TOP_GAP + 4 * (muteSize + TOP_GAP);
-    const wiperLeft  = wiperRight - muteSize;
+    // Weather / wiper button — bottom-right, just LEFT of the new
+    // stacked pedal column.  Pedals are at PEDAL_X = SCREEN_W - 117
+    // with PEDAL_W = 70; weather button sits 8 px left of the pedal
+    // column at the vertical centre of the stack.  Icon is a custom
+    // wiper-shape drawing (two angled blade lines) per user spec —
+    // emoji label removed.  Red border signals "negative weather
+    // effect" — both rain AND snow show the same icon now.
+    const _pedalLeftEdge = (SCREEN_W - 117) - 35;     // PEDAL_X - PEDAL_W/2
+    const wiperLeft  = _pedalLeftEdge - 8 - muteSize;
+    // Vertical centre of the stacked pedal column = midpoint of
+    // (GAS_Y - PEDAL_H) → BRAKE_Y = midpoint of (450-62-50) → (450-8)
+    // = midpoint(338, 442) = 390.  Button top = 390 - muteSize/2.
+    const _stackCenterY = SCREEN_H - 60;
+    const wiperTop   = _stackCenterY - muteSize / 2;
     this.hudWiperBtn = this.add.graphics().setDepth(62).setVisible(false);
     const drawWiper = (alpha = 0.85) => {
       this.hudWiperBtn.clear();
       this.hudWiperBtn.fillStyle(0x222222, alpha);
-      this.hudWiperBtn.fillRoundedRect(wiperLeft, muteTop, muteSize, muteSize, 10);
-      this.hudWiperBtn.lineStyle(3, 0x66CCFF, 1);
-      this.hudWiperBtn.strokeRoundedRect(wiperLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
+      this.hudWiperBtn.fillRoundedRect(wiperLeft, wiperTop, muteSize, muteSize, 10);
+      // Red stroke — weather is a NEGATIVE effect.
+      this.hudWiperBtn.lineStyle(3, 0xFF3333, 1);
+      this.hudWiperBtn.strokeRoundedRect(wiperLeft + 1.5, wiperTop + 1.5, muteSize - 3, muteSize - 3, 10);
+      // Wiper-blade icon — two angled black lines pivoting from the
+      // bottom-centre of the button, like a tandem wiper pair.  Drawn
+      // here in the same Graphics object so we don't need a separate
+      // Image asset for the icon.
+      const cx = wiperLeft + muteSize / 2;
+      const baseY = wiperTop + muteSize - 8;        // bottom of button
+      const ARM_LEN = muteSize * 0.55;
+      // Left wiper arm — angled up + slightly left.
+      const ang1 = -1.10;                            // ≈ -63° (up-left)
+      const tx1 = cx + Math.cos(ang1) * ARM_LEN;
+      const ty1 = baseY + Math.sin(ang1) * ARM_LEN;
+      // Right wiper arm — mirrored.
+      const ang2 = -2.05;                            // ≈ -117° (up-right when mirrored)
+      const tx2 = cx + Math.cos(ang2) * ARM_LEN;
+      const ty2 = baseY + Math.sin(ang2) * ARM_LEN;
+      // Arm shafts (thin black lines).
+      this.hudWiperBtn.lineStyle(2, 0x000000, 0.95);
+      this.hudWiperBtn.beginPath();
+      this.hudWiperBtn.moveTo(cx, baseY); this.hudWiperBtn.lineTo(tx1, ty1);
+      this.hudWiperBtn.moveTo(cx, baseY); this.hudWiperBtn.lineTo(tx2, ty2);
+      this.hudWiperBtn.strokePath();
+      // Blade rubbers — slightly thicker, at the outer 60 % of each arm.
+      this.hudWiperBtn.lineStyle(3, 0x111111, 0.95);
+      const innerT = 0.30;
+      this.hudWiperBtn.beginPath();
+      this.hudWiperBtn.moveTo(cx + Math.cos(ang1) * ARM_LEN * innerT, baseY + Math.sin(ang1) * ARM_LEN * innerT);
+      this.hudWiperBtn.lineTo(tx1, ty1);
+      this.hudWiperBtn.moveTo(cx + Math.cos(ang2) * ARM_LEN * innerT, baseY + Math.sin(ang2) * ARM_LEN * innerT);
+      this.hudWiperBtn.lineTo(tx2, ty2);
+      this.hudWiperBtn.strokePath();
+      // Pivot caps.
+      this.hudWiperBtn.fillStyle(0x000000, 1);
+      this.hudWiperBtn.fillCircle(cx, baseY, 2);
     };
     drawWiper();
-    this.hudWiperBtn.setInteractive(new Phaser.Geom.Rectangle(wiperLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
+    this.hudWiperBtn.setInteractive(new Phaser.Geom.Rectangle(wiperLeft, wiperTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
     this.hudWiperBtn.input.cursor = 'pointer';
-    this.hudWiperLbl = this.add.text(wiperLeft + muteSize / 2, muteTop + muteSize / 2, '🌧', {
-      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
-      stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(63).setVisible(false);
+    // Mode-indicator text in the lower-right corner of the button —
+    // shows "OFF" / "SLOW" / "FAST" so the player knows which speed
+    // the wipers are at.  Tiny so it doesn't crowd the wiper icon.
+    this.hudWiperLbl = this.add.text(wiperLeft + muteSize - 4, wiperTop + muteSize - 4, 'OFF', {
+      fontSize: '9px', fontFamily: IMPACT, color: '#FFFFFF',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(1, 1).setDepth(63).setVisible(false);
     this.hudWiperBtn.on('pointerover', () => drawWiper(1));
     this.hudWiperBtn.on('pointerout',  () => drawWiper(0.85));
     this.hudWiperBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
-      this._wiperUntil = (this.gameTime ?? 0) + 4;
+      // Toggle OFF ↔ ON (was 3-state OFF/SLOW/FAST).  Single ON speed
+      // matches what was previously FAST — keeps the windshield
+      // good-enough clear without the player picking a speed.
+      this._wiperMode = this._wiperMode ? 0 : 1;
     });
     this._hudObjects?.push(this.hudWiperBtn, this.hudWiperLbl);
-    registerTopBtn({ id: 'wiper', bg: this.hudWiperBtn, lbl: this.hudWiperLbl, baseLeft: wiperLeft, size: muteSize });
+    // NOT registered with _topRowButtons — the wiper moved to the
+    // bottom-right next to ACCEL, so the top-row handedness sweep
+    // would otherwise wipe its custom red border + reposition it back
+    // to the top.  It stays put on either handedness.
 
     // Custom-mode drug-slider button removed — drug levels are now set
     // by clicking/dragging the actual HUD drug bars directly when in
@@ -7486,23 +8448,32 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5, 0).setDepth(d + 5);
 
     // ── Phone-only GAS + BRAKE pedals — TOGGLE buttons (tap once to turn
-    //    on, tap again to turn off).  Mutually exclusive.  Pulled
-    //    inboard so the ACCEL pedal sits FULLY clear of the weapon
-    //    column (now 66 px wide), with the BRAKE mirrored at the same
-    //    distance from the opposite edge.
-    const PEDAL_W = 70, PEDAL_H = 50, PEDAL_Y = SCREEN_H - 8;
-    const BRAKE_X = 117;                      // 82 px inboard (matches GAS)
-    const GAS_X   = SCREEN_W - 117;           // fully left of the weapon stack
+    //    on, tap again to turn off). Mutually exclusive and stacked:
+    //    ACCEL on top, BRAKE below. They always occupy the edge opposite
+    //    the weapon stack so both thumbs have separate controls.
+    const PEDAL_W = 70, PEDAL_H = 50;
+    const PEDAL_GAP = 4;                              // gap between stacked pedals
+    // Pedal CENTER X.  Origin is (0.5, 1) so the rectangle's right
+    // edge sits at PEDAL_X + PEDAL_W/2. Side opposes the weapon edge:
+    // right for left-handed mode, left for right-handed mode.
+    // _applyPedalHandedness() below re-runs
+    // the same math when the flag flips mid-run.
+    this._pedalDim  = { w: PEDAL_W, h: PEDAL_H };
+    const PEDAL_X   = this._leftHanded
+      ? (SCREEN_W - PEDAL_W / 2 - 4)
+      : (PEDAL_W / 2 + 4);
+    const BRAKE_Y   = SCREEN_H - 8;                   // bottom
+    const GAS_Y     = BRAKE_Y - PEDAL_H - PEDAL_GAP;  // above brake
 
     const refreshGas   = () => this._gasBtn?.setFillStyle?.(this._touchBoost ? 0x55DD55 : 0x22AA22, this._touchBoost ? 0.95 : 0.55);
     const refreshBrake = () => this._brakeBtn?.setFillStyle?.(this._touchBrake ? 0xEE3333 : 0xCC2222, this._touchBrake ? 0.95 : 0.55);
     this._refreshPedals = () => { refreshGas(); refreshBrake(); };
 
     const gasBtn = this.add.rectangle(
-      GAS_X, PEDAL_Y, PEDAL_W, PEDAL_H, 0x22AA22, 0.55,
+      PEDAL_X, GAS_Y, PEDAL_W, PEDAL_H, 0x22AA22, 0.55,
     ).setOrigin(0.5, 1).setDepth(d + 1).setStrokeStyle(2, 0xAAFFAA);
     this._gasBtn = gasBtn;
-    const gasLbl = this.add.text(GAS_X, PEDAL_Y - PEDAL_H / 2,
+    const gasLbl = this.add.text(PEDAL_X, GAS_Y - PEDAL_H / 2,
       'ACCEL\n▲', {
         fontSize: '12px', fontFamily: IMPACT,
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3, align: 'center',
@@ -7517,10 +8488,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     const brakeBtn = this.add.rectangle(
-      BRAKE_X, PEDAL_Y, PEDAL_W, PEDAL_H, 0xCC2222, 0.55,
+      PEDAL_X, BRAKE_Y, PEDAL_W, PEDAL_H, 0xCC2222, 0.55,
     ).setOrigin(0.5, 1).setDepth(d + 1).setStrokeStyle(2, 0xFFAAAA);
     this._brakeBtn = brakeBtn;
-    const brakeLbl = this.add.text(BRAKE_X, PEDAL_Y - PEDAL_H / 2,
+    const brakeLbl = this.add.text(PEDAL_X, BRAKE_Y - PEDAL_H / 2,
       'BRAKE\n▼', {
         fontSize: '13px', fontFamily: IMPACT,
         color: '#FFFFFF', stroke: '#000', strokeThickness: 3, align: 'center',
@@ -8561,7 +9532,14 @@ export class GameScene extends Phaser.Scene {
     this._drawDrugBars();
     this._drawF12Inventory();
 
+    // Popup position depends on view mode.  Chase view: just below
+    // the rear-view mirror frame (y=62).  Cockpit view: there's no
+    // rear-view at the top and the dashboard fills the lower screen,
+    // so park popups on the dashboard panel so they read against the
+    // dark dash instead of getting lost on the road/sky.
+    const popupY = this._cockpitActive ? Math.floor(SCREEN_H * 0.72) : 62;
     this.hudPopup
+      .setY(popupY)
       .setVisible(this.popupTimer > 0)
       .setAlpha(Math.min(1, this.popupTimer * 2));
 

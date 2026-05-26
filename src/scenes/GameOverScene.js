@@ -282,7 +282,14 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   _restartAtCheckpoint(position) {
-    this.scene.start('Game', { resumeFromPosition: position });
+    // Pass the pre-crash score along — GameScene's resume path halves
+    // it (per user spec: "lose half your money" on crash) and starts
+    // the player at 50 % HP, so they have to earn the rest back at
+    // rest stops.
+    this.scene.start('Game', {
+      resumeFromPosition: position,
+      crashRestartScore:  this.finalScore ?? 0,
+    });
   }
 
   _startOver() {

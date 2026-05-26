@@ -48,6 +48,18 @@ export const Weather = {
     return 1;
   },
 
+  /** Progressive severity multiplier: 1.0 at the start of the weather
+   *  window, 2.4 at the end (140 % worse than start, per user spec).
+   *  Linear ramp across the full window — combined with intensity()
+   *  gives a storm that builds toward a peak.  Returns 1.0 outside any
+   *  weather window so callers can safely multiply unconditionally. */
+  severity(mile) {
+    if (!Difficulty.weather()) return 1;
+    if (mile >= 30 && mile < 40) return 1 + 1.4 * ((mile - 30) / 10);
+    if (mile >= 40 && mile < 88) return 1 + 1.4 * ((mile - 40) / 48);
+    return 1;
+  },
+
   /** NPC traffic spawn-cap multiplier.  Snow zones drop the cap by 30%
    *  (per user spec) on Normal AND Hard — Hard's +10% baseline still
    *  applies before this kicks in. */

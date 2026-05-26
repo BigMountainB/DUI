@@ -1,6 +1,6 @@
 import {
   SCREEN_W, SCREEN_H, ROAD_WIDTH, SEG_LENGTH, RUMBLE_SEGS, LANE_DASH_LEN, LANE_DASH_GAP,
-  LANES, DRAW_DIST, CAM_HEIGHT, CAM_DEPTH, FOG_DENSITY, ROUTE_SEGS, TOTAL_ROUTE_MILES,
+  LANES, DRAW_DIST, CAM, FOG_DENSITY, ROUTE_SEGS, TOTAL_ROUTE_MILES,
   PLAYER_VIRTUAL_Z,
 } from '../constants.js';
 import { project, fillTrap, rumbleW, laneW, toInt, SeededRNG, clamp } from '../utils/Helpers.js';
@@ -10,7 +10,16 @@ import { TimeOfDay } from '../world/TimeOfDay.js';
 import { Weather }   from '../world/Weather.js';
 
 const HALF_W = SCREEN_W / 2;
-const HALF_H = SCREEN_H / 2;
+// H() is no longer a constant — it's the screen-Y of the HORIZON
+// LINE, which CAM.horizonY now controls per camera mode (chase = 225,
+// cockpit = 175).  Read via the H() accessor so every horizon-anchored
+// element (road projection, sky, mountains, water silhouette, haze
+// band, ground decals) shifts together when the horizon moves.
+//
+// Anywhere you see SCREEN_H/2 still in this file, it's deliberately a
+// vertical SCALING factor in projection math (always half the canvas
+// height), NOT the horizon position.
+const H = () => CAM.horizonY;
 
 export class Road {
   constructor() {
@@ -112,7 +121,7 @@ export class Road {
     // approaching from a distance).  Bumped to 64 thin slices so the
     // lerp reads as a smooth gradient instead of stripes.
     const skyBands = 64;
-    const skyH     = HALF_H + 14;
+    const skyH     = H() + 14;
     // Cap the sky region with a solid block of the top-band colour so a
     // rotated camera (ketamine tilt) doesn't reveal black above the
     // gradient.
@@ -159,7 +168,7 @@ export class Road {
       // Moon — slow arc across the sky over the night portion of the run.
       const moonPhase = clamp((_mileNow - 150) / 143, 0, 1);
       const moonX = MARGIN * -1 + moonPhase * W;
-      const moonArcY = HALF_H * 0.18 + Math.abs(moonPhase - 0.5) * HALF_H * 0.55;
+      const moonArcY = H() * 0.18 + Math.abs(moonPhase - 0.5) * H() * 0.55;
 
       // Reusable integer-hash PRNG so star positions are deterministic
       // but look like actual scattered light (the previous golden-ratio
@@ -181,7 +190,7 @@ export class Road {
       // at 80 mph.
       const skyRot = playerPos * 7.5e-7;
       const rotCx  = SCREEN_W * 0.30;
-      const rotCy  = -HALF_H * 0.20;
+      const rotCy  = -H() * 0.20;
       const cosR   = Math.cos(skyRot);
       const sinR   = Math.sin(skyRot);
       const rotX = (x, y) => rotCx + (x - rotCx) * cosR - (y - rotCy) * sinR;
@@ -198,9 +207,9 @@ export class Road {
         // Flatter MW arc to match the user's Stellarium reference — the
         // band is mostly horizontal with a slight rise toward the middle
         // (was a steep "smile" before, with the apex too high).
-        const mwP0 = { x: -MARGIN - 40,         y: HALF_H * 0.78 };
-        const mwP1 = { x: SCREEN_W * 0.45,      y: HALF_H * 0.55 };
-        const mwP2 = { x: SCREEN_W + MARGIN + 40, y: HALF_H * 0.82 };
+        const mwP0 = { x: -MARGIN - 40,         y: H() * 0.78 };
+        const mwP1 = { x: SCREEN_W * 0.45,      y: H() * 0.55 };
+        const mwP2 = { x: SCREEN_W + MARGIN + 40, y: H() * 0.82 };
         // Bezier helper — returns the spine point at parameter t.
         const mwAt = (t) => {
           const oneT = 1 - t;
@@ -242,7 +251,7 @@ export class Road {
           const rx = rotX(px, py);
           const ry = rotY(px, py);
           if (rx < -40 || rx > SCREEN_W + 40) continue;
-          if (ry < -40 || ry > HALF_H + 20)   continue;
+          if (ry < -40 || ry > H() + 20)   continue;
           const radius = (3 + 5 * taper) * noise * (1 + coreBoost * 0.6);
           const brightMod = (0.40 + starHash(i * 113 + 7) * 0.65)
                           * (0.75 + 0.55 * coreBoost);
@@ -267,7 +276,7 @@ export class Road {
           const rx = rotX(dx, dy);
           const ry = rotY(dx, dy);
           if (rx < -40 || rx > SCREEN_W + 40) continue;
-          if (ry < -40 || ry > HALF_H + 20)   continue;
+          if (ry < -40 || ry > H() + 20)   continue;
           // Smaller dust patches now that we have more of them.
           const radius = 4 + starHash(i * 251 + 11) * 14;
           g.fillStyle(0x050B18, 0.40 * mwAlpha);
@@ -286,7 +295,7 @@ export class Road {
           const rx = rotX(kx, ky);
           const ry = rotY(kx, ky);
           if (rx < -40 || rx > SCREEN_W + 40) continue;
-          if (ry < -40 || ry > HALF_H + 20)   continue;
+          if (ry < -40 || ry > H() + 20)   continue;
           const radius = 3 + starHash(i * 421 + 17) * 8;
           g.fillStyle(0xE0DFC0, 0.16 * mwAlpha);
           g.fillCircle(rx, ry, radius * 1.5);
@@ -307,7 +316,7 @@ export class Road {
           const sx = rotX(baseSx, baseSy);
           const sy = rotY(baseSx, baseSy);
           if (sx < -8 || sx > SCREEN_W + 8) continue;
-          if (sy < -8 || sy > HALF_H + 12)  continue;
+          if (sy < -8 || sy > H() + 12)  continue;
           if (Math.abs(sx - moonX) < 28 && Math.abs(sy - moonArcY) < 28) continue;
           const a = (0.35 + starHash(i * 67 + 23) * 0.45) * mwAlpha;
           g.fillStyle(0xE0E8FF, a);
@@ -338,7 +347,7 @@ export class Road {
         const sy = rotY(baseSx, baseSy);
         // Cull rotated stars that landed outside the visible sky band.
         if (sx < -8 || sx > SCREEN_W + 8) continue;
-        if (sy < -8 || sy > HALF_H + 12) continue;
+        if (sy < -8 || sy > H() + 12) continue;
         if (Math.abs(sx - moonX) < 32 && Math.abs(sy - moonArcY) < 32) continue;
         const baseBright = 0.30 + starHash(i * 17 + 31) * 0.55;
         const phase      = starHash(i * 23 + 41) * Math.PI * 2;
@@ -356,7 +365,7 @@ export class Road {
       }
 
       // ── Named bright stars + photo-traced constellations ───────
-      // Positions normalised to [0..1] of (W, HALF_H), traced from the
+      // Positions normalised to [0..1] of (W, H()), traced from the
       // Stellarium reference screenshot.  Each entry has a colour for
       // the named star (slight blue / yellow tint per real spectral
       // class) and an optional connecting-line list for the
@@ -400,8 +409,8 @@ export class Road {
           for (const [ai, bi] of f.lines) {
             const [ax, ay] = f.stars[ai];
             const [bx, by] = f.stars[bi];
-            const bx1 = ax * W - MARGIN, by1 = ay * HALF_H;
-            const bx2 = bx * W - MARGIN, by2 = by * HALF_H;
+            const bx1 = ax * W - MARGIN, by1 = ay * H();
+            const bx2 = bx * W - MARGIN, by2 = by * H();
             const x1 = rotX(bx1, by1), y1 = rotY(bx1, by1);
             const x2 = rotX(bx2, by2), y2 = rotY(bx2, by2);
             if (Math.abs((x1 + x2) / 2 - moonX) < 28
@@ -414,7 +423,7 @@ export class Road {
           // Star pips.  Anchor (mainIdx) gets a bigger glow + bigger pip.
           for (let j = 0; j < f.stars.length; j++) {
             const [nx, ny] = f.stars[j];
-            const baseX = nx * W - MARGIN, baseY = ny * HALF_H;
+            const baseX = nx * W - MARGIN, baseY = ny * H();
             const x = rotX(baseX, baseY), y = rotY(baseX, baseY);
             if (Math.abs(x - moonX) < 32 && Math.abs(y - moonArcY) < 32) continue;
             const tw = 0.85 + 0.15 * Math.sin(j * 1.3 + playerPos * 0.00015);
@@ -443,7 +452,7 @@ export class Road {
         ];
         for (const pl of planets) {
           const px = pl.x * W - MARGIN;
-          const py = pl.y * HALF_H;
+          const py = pl.y * H();
           // Soft halo
           g.fillStyle(pl.col, 0.30 * planA);
           g.fillCircle(px, py, pl.r * 2.4);
@@ -491,7 +500,7 @@ export class Road {
     const outcropAmt= lerpClamp(0, 1, (mileProgress - 40) / 5);   // 40 → 45
     const vegAmt    = lerpClamp(0, 1, (mileProgress - 45) / 5);   // 45 → 50
 
-    const mBaseY = HALF_H + 2;
+    const mBaseY = H() + 2;
     // Helper: should this peak's screen X land in the road-pass gap?
     const inGap = (mx) => {
       if (passGap <= 0) return false;
@@ -579,9 +588,15 @@ export class Road {
       if (mx - mw < 0)        drawPeak(mx + SCREEN_W, mw, mh, nearColor, true);
     }
 
-    // Horizon haze band
+    // Horizon haze band — sky-side only.  Previously this extended 14 px
+    // BELOW the horizon as a "fail-safe world fill", but the resulting
+    // sky-tinted bar sat directly under far building sprite bases (which
+    // anchor at H()) and read as a shelf the buildings were floating on
+    // top of — especially noticeable in cockpit mode where the horizon
+    // sits higher on screen.  The void-fill role is already covered by
+    // the grass / water-band branches below.
     g.fillStyle(palette.horizon, 0.82);
-    g.fillRect(-MARGIN, HALF_H - 8, W, 22);
+    g.fillRect(-MARGIN, H() - 14, W, 14);
     // Fail-safe world fill. On steep descents the projected road can drop
     // below the horizon for a few frames, leaving the cleared Graphics
     // background visible as a black band. Paint a terrain/water backing
@@ -590,9 +605,16 @@ export class Road {
     const startSegIdx = Math.floor(playerPos / SEG_LENGTH) % this.segments.length;
     const startSeg = this.segments[startSegIdx];
     if (startSeg?.water || startSeg?.bridge) {
-      const waterTop = HALF_H - 5;
-      const waterA = startSeg.bridge ? 0x183852 : 0x2D5B82;
-      const waterB = startSeg.bridge ? 0x0E273D : 0x173A58;
+      const waterTop = H() - 5;
+      // Bridge segments use a near-black charcoal tone instead of the
+      // saturated blue used on plain water crossings (floating bridges,
+      // lake spans).  The blue read as "lake under the bridge" and
+      // made the port cranes look like they were floating in water;
+      // dark charcoal reads as "shaded underbridge / cityscape" so
+      // the cranes silhouette against an urban backdrop, with the
+      // existing skyline silhouette painting on top at horizon level.
+      const waterA = startSeg.bridge ? 0x1A1E22 : 0x2D5B82;
+      const waterB = startSeg.bridge ? 0x0E1014 : 0x173A58;
       const bands = 7;
       for (let b = 0; b < bands; b++) {
         const t = b / Math.max(1, bands - 1);
@@ -613,7 +635,7 @@ export class Road {
       // (looking back at the receding skyline), gone by the East Channel
       // bridge.  Implemented as `cityGap` — fraction of screen-width
       // around centre where peaks/blocks are skipped.
-      const horizonY     = HALF_H - 4;
+      const horizonY     = H() - 4;
       const farHillCol   = lerpColor(palette.horizon, 0x0E273D, 0.25);
       const buildingCol  = lerpColor(palette.horizon, 0x081A2E, 0.55);
       const buildingLit  = lerpColor(buildingCol, 0xFFE9A8, 0.18);   // warm window glow tint
@@ -669,19 +691,58 @@ export class Road {
           blockI++;
         }
       }
-      g.fillStyle(0xC8D8E0, 0.20);
-      g.fillRect(-MARGIN, HALF_H + 16, W, 3);
-      g.fillStyle(0xFFFFFF, 0.18);
-      for (let gl = 0; gl < 9; gl++) {
-        const gx = ((gl * 173 + Math.floor(playerPos / 400)) % (SCREEN_W + MARGIN * 2)) - MARGIN;
-        const gy = HALF_H + 34 + (gl % 3) * 12;
-        g.fillRect(gx, gy, 26 + (gl % 4) * 12, 2);
+      // Water surface foam + glint stripes.  Skipped on BRIDGE
+      // segments — those use a charcoal "underbridge / cityscape"
+      // tone now, and the light ripple stripes were reading as
+      // water reflections behind the port cranes.  Plain water
+      // crossings (floating bridges) keep the glints.
+      if (!startSeg.bridge) {
+        g.fillStyle(0xC8D8E0, 0.20);
+        g.fillRect(-MARGIN, H() + 16, W, 3);
+        g.fillStyle(0xFFFFFF, 0.18);
+        for (let gl = 0; gl < 9; gl++) {
+          const gx = ((gl * 173 + Math.floor(playerPos / 400)) % (SCREEN_W + MARGIN * 2)) - MARGIN;
+          const gy = H() + 34 + (gl % 3) * 12;
+          g.fillRect(gx, gy, 26 + (gl % 4) * 12, 2);
+        }
+      }
+      // ── Distant treeline along the far shore ──────────────────────
+      // Floating bridge crossings have water on both sides, so the
+      // tree-spawn system can't drop sprites there.  Paint a cheap
+      // tree-silhouette horizon band across the FULL screen width so
+      // the bridge view reads as "crossing the lake toward a wooded
+      // shore" instead of bare water meeting sky on the sides.
+      // Two layers: lower hill base in warm shore tone, then a
+      // sin-mix tree-top silhouette in forest green.  ~250 fillRect
+      // calls per frame max — well under the road's segment loop
+      // budget.  Skipped on bridge segments because those have their
+      // own foreground cranes filling the horizon area.
+      if (!startSeg.bridge) {
+        const shoreY  = H() - 2;
+        // Soft shore band — slightly lighter than water, fades the
+        // tree silhouette into the horizon.
+        g.fillStyle(0x4A5448, 0.85);
+        g.fillRect(-MARGIN, shoreY, W, 4);
+        // Treeline silhouette (rolling sin-mix bumps, 4-14 px tall,
+        // stepped every 5 px).  Forest green; alpha 0.95 so the
+        // shore band peeks through and softens hard edges.
+        const treeStep = 5;
+        g.fillStyle(0x1E2A18, 0.95);
+        for (let x = -MARGIN; x < SCREEN_W + MARGIN; x += treeStep) {
+          const n = Math.sin(x * 0.041) + Math.sin(x * 0.097 + 1.1) * 0.55
+                  + Math.sin(x * 0.187 + 2.3) * 0.32;
+          const treeH = 4 + Math.max(0, n + 1.4) * 4;       // 4-14 px tall
+          g.fillRect(x, shoreY - treeH + 2, treeStep + 1, treeH);
+        }
       }
     } else {
       // Extend grass past the screen bottom by MARGIN so a rotated camera
-      // doesn't reveal void below the painted area.
+      // doesn't reveal void below the painted area.  Start the grass
+      // AT the horizon line (not 10 px below it) so far building
+      // sprites that anchor near the horizon visibly sit on ground
+      // instead of floating in the haze band.
       g.fillStyle(palette.grass2, 1);
-      g.fillRect(-MARGIN, HALF_H + 10, W, SCREEN_H - HALF_H + 20 + MARGIN);
+      g.fillRect(-MARGIN, H(), W, SCREEN_H - H() + 20 + MARGIN);
     }
 
     // --- PROJECT VISIBLE SEGMENTS ---
@@ -706,7 +767,7 @@ export class Road {
     const _tZ     = cameraZ / SEG_LENGTH;
     const _yA     = _segA?.y ?? 0;
     const _yB     = _segB?.y ?? _yA;
-    const cameraY = CAM_HEIGHT + (_yA + (_yB - _yA) * _tZ);
+    const cameraY = CAM.height + (_yA + (_yB - _yA) * _tZ);
 
     let screenX     = 0;   // accumulated lateral offset (for curves)
     let screenDX    = 0;
@@ -763,6 +824,27 @@ export class Road {
     const pivotFIdx = (PLAYER_VIRTUAL_Z + cameraZ - SEG_LENGTH / 2) / SEG_LENGTH;
     const pivotOffset = _slopeAt(pivotFIdx);
 
+    // At high mushroom dosage, bend the projected world as one liquid
+    // surface. Entity placement reads the matching surface cache below, so
+    // traffic and pickups remain planted on the pavement while it ripples.
+    const shroomMelt = clamp(effects?.shroomMelt ?? 0, 0, 1);
+    const shroomPhase = effects?.shroomPhase ?? 0;
+    const _meltStrengthAt = (depthIdx) => {
+      const near = 1 - clamp(depthIdx / DRAW_DIST, 0, 1);
+      return 0.12 + Math.pow(near, 0.72) * 0.88;
+    };
+    const _meltXAt = (depthIdx) => {
+      if (shroomMelt <= 0.001) return 0;
+      const phase = shroomPhase * 0.95 + depthIdx * 0.115;
+      return (Math.sin(phase) + Math.sin(phase * 0.43 + 1.8) * 0.42)
+        * 18 * shroomMelt * _meltStrengthAt(depthIdx);
+    };
+    const _meltYAt = (depthIdx) => {
+      if (shroomMelt <= 0.001) return 0;
+      const phase = shroomPhase * 0.72 + depthIdx * 0.095 + 1.2;
+      return Math.sin(phase) * 4 * shroomMelt * _meltStrengthAt(depthIdx);
+    };
+
     // We store projected data so we can draw far→near
     const drawn = [];
 
@@ -776,8 +858,9 @@ export class Road {
       const p = project(
         0, seg.y, worldZ,
         cameraX, cameraY, cameraZ,
-        CAM_DEPTH, SCREEN_W, SCREEN_H,
-        ROAD_WIDTH * (seg.roadScale ?? 1)
+        CAM.depth, SCREEN_W, SCREEN_H,
+        ROAD_WIDTH * (seg.roadScale ?? 1),
+        H()
       );
 
       if (!p || p.y < 0) continue;
@@ -788,11 +871,12 @@ export class Road {
       // Slope offset — relative to the pivot at PLAYER_VIRTUAL_Z so
       // the road UNDER the visual player car stays planted on slopes.
       const slopeOffset = slopeRaw[n] - pivotOffset;
+      const meltIdx = n + 0.5;
       drawn.push({
         seg, n, fog,
         relZ:    worldZ - cameraZ,
-        screenX: p.x + screenX,
-        screenY: p.y + slopeOffset,
+        screenX: p.x + screenX + _meltXAt(meltIdx),
+        screenY: p.y + slopeOffset + _meltYAt(meltIdx),
         screenW: p.w,
         scale:   p.scale,
         visible: false,   // flipped to true in the render pass below if
@@ -839,44 +923,6 @@ export class Road {
       this._drawSegment(g, curr, next, palette, effects);
     }
 
-    // ── Inside-tunnel ceiling cover ───────────────────────────────────
-    // When in a tunnel, sky bands bleed through above the per-segment
-    // ceiling trapezoids.  Paint a "sheet" from the top of the screen
-    // down to the FARTHEST visible tunnel segment's ceiling line — that
-    // leaves the bright daylight at the tunnel EXIT (any non-tunnel
-    // segments past the last tunnel one) visible, while still hiding the
-    // sky bleed in the seams between ceilings.
-    //
-    // Cover ONLY when the camera is genuinely inside a tunnel segment —
-    // not approaching (the embankment hill already frames the mouth) and
-    // not just-exited (the open road should be fully visible).  This
-    // tighter trigger prevents the cover from bleeding over the road on
-    // either side of the actual tunnel run.
-    const segLen = this.segments.length;
-    const _camIdx = ((Math.floor(playerPos / SEG_LENGTH)) % segLen + segLen) % segLen;
-    const inTunnel = !!this.segments[_camIdx]?.tunnel;
-    if (inTunnel) {
-      // Find the FARTHEST visible tunnel segment.  Its ceiling line
-      // marks the bottom of the sky-cover sheet — anything below that
-      // (the tunnel exit / open road past it) shows through.
-      let farthestTunnel = null;
-      for (let k = 0; k < drawn.length; k++) {
-        const d = drawn[k];
-        if (d?.seg?.tunnel && d.screenY >= 0 && d.screenY <= SCREEN_H) {
-          farthestTunnel = d;
-        }
-      }
-      if (farthestTunnel) {
-        const H_CEIL    = 4500;
-        const ceilDrop  = farthestTunnel.scale * H_CEIL * SCREEN_H / 2;
-        const coverBotY = Math.max(0, farthestTunnel.screenY - ceilDrop);
-        if (coverBotY > -MARGIN) {
-          g.fillStyle(0x6B665B, 1);
-          g.fillRect(-MARGIN, -MARGIN, W, coverBotY + MARGIN);
-        }
-      }
-    }
-
     // ── Tunnel entrance: hillside silhouette + portal arch ────────────
     // The tunnel is cut INTO a hill, so what the player sees on the
     // horizon is a SLOPED hillside with the tunnel mouth as a notch in
@@ -913,14 +959,15 @@ export class Road {
           const p = project(
             0, s.y, worldZ,
             cameraX, cameraY, cameraZ,
-            CAM_DEPTH, SCREEN_W, SCREEN_H,
-            ROAD_WIDTH * (s.roadScale ?? 1)
+            CAM.depth, SCREEN_W, SCREEN_H,
+            ROAD_WIDTH * (s.roadScale ?? 1),
+            H()
           );
           if (p) {
             _embTunnelProj = {
               seg: s, n, scale: p.scale,
-              screenX: p.x + pSx,
-              screenY: p.y,
+              screenX: p.x + pSx + _meltXAt(n + 0.5),
+              screenY: p.y + _meltYAt(n + 0.5),
               screenW: p.w,
             };
           }
@@ -996,13 +1043,14 @@ export class Road {
           // lands here right after a position update.
           s.valid = false;
         } else {
-          const scale = CAM_DEPTH / cz;
+          const scale = CAM.depth / cz;
           const projX = (SCREEN_W / 2) + scale * (0 - cameraX) * SCREEN_W / 2;
-          const projY = (SCREEN_H / 2) - scale * (seg.y - cameraY) * SCREEN_H / 2;
+          // H() is horizon Y; SCREEN_H/2 is the elevation scaling factor.
+          const projY = H() - scale * (seg.y - cameraY) * SCREEN_H / 2;
           const projW = scale * (ROAD_WIDTH * (seg.roadScale ?? 1)) * SCREEN_W / 2;
           s.worldZ  = worldZ;
-          s.screenX = projX + bsx;
-          s.screenY = projY + (slopeBnd[n] - pivOff_B);
+          s.screenX = projX + bsx + _meltXAt(n);
+          s.screenY = projY + (slopeBnd[n] - pivOff_B) + _meltYAt(n);
           s.screenW = projW;
           s.scale   = scale;
           s.valid   = true;
@@ -1066,6 +1114,29 @@ export class Road {
     const playerPos = this._playerPos ?? 0;
     const camIdx = ((Math.floor(playerPos / SEG_LENGTH)) % segLen + segLen) % segLen;
     const inTunnel = !!this.segments[camIdx]?.tunnel;
+    // The opening mask limits the tunnel interior's shape, not its
+    // draw order.  On approach, keep it at portal distance so a nearer
+    // building can correctly occlude the mouth and interior.
+    if (inTunnel) {
+      g.setDepth(9.82);
+    } else {
+      let portalProjection = this._embTunnelProj;
+      if (!portalProjection) {
+        for (let i = 0; i < drawn.length; i++) {
+          if (drawn[i]?.seg?.tunnel) {
+            portalProjection = drawn[i];
+            break;
+          }
+        }
+      }
+      if (portalProjection) {
+        const tunnelRelZ = (portalProjection.n ?? DRAW_DIST) * SEG_LENGTH;
+        const sceneDepthAtTunnel = 9.5 - Math.max(0, Math.min(1, tunnelRelZ / 76000)) * 2.5;
+        g.setDepth(sceneDepthAtTunnel - 0.06);
+      } else {
+        g.setDepth(9.82);
+      }
+    }
     if (inTunnel) {
       let farthestTunnel = null;
       for (let k = 0; k < drawn.length; k++) {
@@ -1081,6 +1152,49 @@ export class Road {
         if (coverBotY > -150) {
           g.fillStyle(0x6B665B, 1);
           g.fillRect(-150, -150, SCREEN_W + 300, coverBotY + 150);
+        }
+      }
+    }
+    if (!inTunnel && this._tunnelMouthRect) {
+      // A curved tunnel must close the sightline through its entrance.
+      // Otherwise the unpainted centre of the shell exposes ordinary sky
+      // behind the bend until enough nearby wall segments grow on screen.
+      let entrance = null;
+      let bendClosure = null;
+      for (let k = 0; k < drawn.length; k++) {
+        const d = drawn[k];
+        if (!d?.seg?.tunnel) {
+          if (entrance) break;
+          continue;
+        }
+        if (!entrance) {
+          entrance = d;
+          continue;
+        }
+        const visibleShift = Math.abs(d.screenX - entrance.screenX);
+        if (visibleShift > Math.max(4, entrance.screenW * 0.12)) {
+          bendClosure = d;
+          break;
+        }
+      }
+      if (!entrance && this._embTunnelProj?.seg?.curvedTunnelClosure) {
+        entrance = this._embTunnelProj;
+      }
+      if (entrance?.seg?.curvedTunnelClosure) {
+        const r = this._tunnelMouthRect;
+        // On the first distant frame of the Mercer lid, the tagged mouth
+        // may be projected before any regular tunnel segment is drawn.
+        // Use a recessed rear-wall cap until the bend supplies the edge.
+        const capBottom = bendClosure
+          ? Math.min(r.y + r.h, bendClosure.screenY + 2)
+          : r.y + r.h * 0.82;
+        if (capBottom > r.y) {
+          // Draw before the nearer shell below; nearer walls/ceiling remain
+          // visible in front of this far wall and describe the curve.
+          g.fillStyle(0x8F8A7D, 1);
+          g.fillRect(r.x, r.y, r.w, capBottom - r.y);
+          g.fillStyle(0x6E6660, 0.32);
+          g.fillRect(r.x, Math.max(r.y, capBottom - 3), r.w, 3);
         }
       }
     }
@@ -1311,14 +1425,33 @@ export class Road {
       const archW = outerR - outerL;
       const lintelL = outerL - archThk * 0.4;
       const lintelW = archW + archThk * 0.8;
+      const lintelTopY = archTopY - archThk;
       // Concrete face of the lintel.
       g.fillStyle(0xC4BFA8, 1);
-      g.fillRect(lintelL, archTopY - archThk, lintelW, archThk);
+      g.fillRect(lintelL, lintelTopY, lintelW, archThk);
+      // ── Board-form imprints ─────────────────────────────────────────
+      // Real poured-concrete portal beams show vertical "form lines"
+      // where the wooden form panels met when the concrete was poured.
+      // Spacing in WORLD UNITS (10000) so the lines scale with
+      // perspective — invisible at distance, sharp at close range
+      // where the player can actually read the texture.
+      const formSpacingPx = Math.max(3, 10000 * sW);
+      if (formSpacingPx >= 3 && lintelW > formSpacingPx * 1.5) {
+        const formAlpha = clamp(rimAlpha * 0.55, 0.15, 0.55);
+        g.fillStyle(0x877F6C, formAlpha);
+        for (let lx = lintelL + formSpacingPx; lx < lintelL + lintelW; lx += formSpacingPx) {
+          g.fillRect(lx, lintelTopY, 1, archThk);
+        }
+        // Horizontal pour-seam — one slightly darker line at mid height
+        // (forms are stacked; the seam between two pours is visible).
+        g.fillStyle(0x6F6655, formAlpha * 0.9);
+        g.fillRect(lintelL, lintelTopY + Math.floor(archThk * 0.5), lintelW, 1);
+      }
       // Lighter rim band along the lintel TOP — same colour as the
       // hillside crest rim, so the silhouette reads as a single
       // continuous edge wrapping across the whole structure.
       g.fillStyle(0xCFC9B6, rimAlpha);
-      g.fillRect(lintelL, archTopY - archThk,
+      g.fillRect(lintelL, lintelTopY,
                  lintelW, Math.max(1, archThk * 0.22));
       // Soft shadow under the lintel.
       g.fillStyle(0x000000, 0.35);
@@ -1337,6 +1470,52 @@ export class Road {
       // Lintel underside (top of the mouth opening)
       g.fillRect(outerL - stroke * 0.5, archTopY - stroke * 0.3,
                  archW + stroke, stroke);
+      // ── Mouth shadow border ────────────────────────────────────────
+      // Subtle darker frame just inside the mouth opening on the
+      // concrete jambs + lintel underside — sells "concrete depth"
+      // by suggesting the opening is recessed into the structure.
+      const innerInset = Math.max(2, stroke * 1.4);
+      g.fillStyle(0x2A2620, 0.55);
+      // Inner left jamb shadow
+      g.fillRect(outerL + stroke * 0.5, archTopY,
+                 innerInset, Math.max(0, groundY - archTopY));
+      // Inner right jamb shadow
+      g.fillRect(outerR - stroke * 0.5 - innerInset, archTopY,
+                 innerInset, Math.max(0, groundY - archTopY));
+      // Inner lintel-underside shadow
+      g.fillRect(outerL + stroke * 0.5, archTopY + stroke * 0.7,
+                 archW - stroke, Math.max(1, innerInset * 0.7));
+    }
+
+    // ── Hillside weathering streaks ───────────────────────────────────
+    // Subtle vertical drainage marks running down the hill flanks so
+    // the silhouette doesn't read as a single flat painted shape.
+    // Drawn AFTER the rim band so streaks sit on top of the concrete
+    // face but under any lintel detail.  World-unit spacing so streaks
+    // scale with perspective.
+    if (sH > 0.06) {
+      const streakSpacingPx = Math.max(8, 24000 * sW);
+      const streakAlpha = clamp(rimAlpha * 0.30, 0.10, 0.30);
+      g.fillStyle(0x7E7868, streakAlpha);
+      const flankHalf = (baseRightX - baseLeftX) / 2;
+      if (streakSpacingPx >= 8 && flankHalf > streakSpacingPx) {
+        for (let sx = baseLeftX + streakSpacingPx;
+                 sx < baseRightX - streakSpacingPx;
+                 sx += streakSpacingPx) {
+          // Skip streaks that would land in the mouth opening
+          if (cutMouth && sx > outerL && sx < outerR) continue;
+          // Hillside surface Y at this column — linear approximation
+          // of the triangular flank silhouette (crest at centerX,
+          // ground at base edges).  Streak starts there and runs
+          // ~85% of the way down to groundY.
+          const tHill = Math.min(1, Math.abs(sx - centerX) / flankHalf);
+          const surfaceY = crestY + tHill * dropY;
+          const streakBotY = groundY - dropY * 0.15;
+          if (streakBotY > surfaceY + 2) {
+            g.fillRect(Math.floor(sx), surfaceY, 1, streakBotY - surfaceY);
+          }
+        }
+      }
     }
   }
 
@@ -1491,6 +1670,73 @@ export class Road {
         inNear_R + lightLenNear, ceilNy + lightThk,
         inNear_R,                ceilNy + lightThk);
     }
+  }
+
+  /**
+   * True when an inside-tunnel vehicle body point is hidden by a nearer
+   * side wall around a bend. Vehicles render above the tunnel shell so
+   * their bodies are not flattened by the floor/curb overlay; this narrow
+   * visibility test restores only the real wall occlusion.
+   */
+  isTunnelVehicleOccluded(relativeZ, sx, bodyMidY) {
+    const drawn = this._drawn;
+    if (!drawn?.length) return false;
+
+    const pointInQuad = (quad) => {
+      let inside = false;
+      for (let i = 0, j = quad.length - 1; i < quad.length; j = i++) {
+        const a = quad[i];
+        const b = quad[j];
+        const crosses = ((a.y > bodyMidY) !== (b.y > bodyMidY))
+          && (sx < (b.x - a.x) * (bodyMidY - a.y) / ((b.y - a.y) || 1) + a.x);
+        if (crosses) inside = !inside;
+      }
+      return inside;
+    };
+
+    for (let i = 1; i < drawn.length; i++) {
+      const curr = drawn[i];
+      const next = drawn[i - 1];
+      if (!curr?.seg?.tunnel || !next?.seg?.tunnel) continue;
+      // Only tunnel wall sections clearly between the camera and car
+      // can block it; its own segment walls border its visible lane.
+      if (curr.relZ >= relativeZ - SEG_LENGTH * 0.35) continue;
+
+      const w2 = curr.screenW;
+      const w1 = next.screenW;
+      const x2 = curr.screenX;
+      const x1 = next.screenX;
+      const fy = Math.floor(curr.screenY) - 1;
+      const ny = Math.ceil(next.screenY) + 1;
+      const lanes = curr.seg.lanes ?? LANES;
+      const rw1 = rumbleW(w1, lanes);
+      const rw2 = rumbleW(w2, lanes);
+      const shoulder1 = Math.max(rw1 * 1.35, w1 * 0.10);
+      const shoulder2 = Math.max(rw2 * 1.35, w2 * 0.10);
+      const wallW1 = w1 * 0.78;
+      const wallW2 = w2 * 0.78;
+      const inFarL = x2 - w2 - rw2 - shoulder2;
+      const inFarR = x2 + w2 + rw2 + shoulder2;
+      const inNearL = x1 - w1 - rw1 - shoulder1;
+      const inNearR = x1 + w1 + rw1 + shoulder1;
+      const outFarL = inFarL - wallW2;
+      const outFarR = inFarR + wallW2;
+      const outNearL = inNearL - wallW1;
+      const outNearR = inNearR + wallW1;
+      const ceilFar = Math.max(0, fy - curr.scale * 4500 * SCREEN_H / 2);
+      const ceilNear = Math.max(0, ny - next.scale * 4500 * SCREEN_H / 2);
+
+      if (pointInQuad([
+        { x: outFarL, y: ceilFar }, { x: inFarL, y: fy },
+        { x: inNearL, y: ny }, { x: outNearL, y: ceilNear },
+      ]) || pointInQuad([
+        { x: inFarR, y: fy }, { x: outFarR, y: ceilFar },
+        { x: outNearR, y: ceilNear }, { x: inNearR, y: ny },
+      ])) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Two continuous white shoulder ribbons — the LEFT and RIGHT
@@ -1753,26 +1999,42 @@ export class Road {
     // Water sits ABOVE the grass fill but UNDER the road, so the road
     // still paints cleanly on top.  Drawn as horizontal stripes so the
     // segment animates as scrolling waves rather than a flat blue field.
-    // West Seattle Bridge — same water-flanks-road rendering as the
-    // floating bridge but painted DARKER (you're 200 ft up over the
-    // Duwamish, not at lake level), plus tall concrete pylons in the
-    // distance below.  The water field stretches off-screen to the
-    // edges so you don't see ground past the railings.
+    // West Seattle Bridge — most spans cross paved port yards, with two
+    // short tagged Duwamish/slip channels underneath. Cranes belong on
+    // the paved spans; painting water for the entire bridge made them
+    // look as though they had been dropped into the river.
     if (seg.bridge) {
-      const waterCol  = 0x1A3550;   // Duwamish at depth — dark steel blue
-      const waterCol2 = 0x122438;   // shadow band
-      g.fillStyle(waterCol, 1);
-      g.fillRect(-150, fy, Math.max(0, x2 - w2 - rw2 + 150), segH);
-      g.fillRect(x2 + w2 + rw2, fy, Math.max(0, SCREEN_W + 150 - (x2 + w2 + rw2)), segH);
-      // Wave streak every 2 segments (subtler than the floating bridge —
-      // water reads as deep & far away, not lapping at the road).
-      if ((seg.index & 1) === 0) {
-        g.fillStyle(waterCol2, 0.55);
-        g.fillRect(-150, fy + segH * 0.55, Math.max(0, x2 - w2 - rw2 + 150), Math.max(1, segH * 0.08));
-        g.fillRect(x2 + w2 + rw2, fy + segH * 0.55, Math.max(0, SCREEN_W + 150 - (x2 + w2 + rw2)), Math.max(1, segH * 0.08));
+      const leftFlankW  = Math.max(0, x2 - w2 - rw2 + 150);
+      const rightFlankX = x2 + w2 + rw2;
+      const rightFlankW = Math.max(0, SCREEN_W + 150 - rightFlankX);
+      const portLot = (seg.index & 1) === 0 ? 0x4E4B45 : 0x484640;
+      g.fillStyle(portLot, 1);
+      g.fillRect(-150, fy, leftFlankW, segH);
+      g.fillRect(rightFlankX, fy, rightFlankW, segH);
+
+      // Sparse concrete yard seams keep the dry spans readable as port
+      // pavement behind crane feet rather than as a flat terrain patch.
+      if (!seg.bridgeWaterChannel && (seg.index % 8) === 0) {
+        g.fillStyle(0x625E56, 0.75);
+        g.fillRect(-150, fy + segH * 0.62, leftFlankW, Math.max(1, segH * 0.06));
+        g.fillRect(rightFlankX, fy + segH * 0.62, rightFlankW, Math.max(1, segH * 0.06));
       }
-      // Concrete piers every few spans. Taller/tapered so they read as
-      // supports under the bridge deck instead of tiny water-level posts.
+
+      if (seg.bridgeWaterChannel) {
+        const waterCol  = 0x1A3550;   // Duwamish at depth - dark steel blue
+        const waterCol2 = 0x122438;   // shadow band
+        g.fillStyle(waterCol, 1);
+        g.fillRect(-150, fy, leftFlankW, segH);
+        g.fillRect(rightFlankX, fy, rightFlankW, segH);
+        // Wave streak every 2 segments, visible only while crossing water.
+        if ((seg.index & 1) === 0) {
+          g.fillStyle(waterCol2, 0.55);
+          g.fillRect(-150, fy + segH * 0.55, leftFlankW, Math.max(1, segH * 0.08));
+          g.fillRect(rightFlankX, fy + segH * 0.55, rightFlankW, Math.max(1, segH * 0.08));
+        }
+      }
+      // Concrete piers at intervals across the span. On channel segments
+      // the dark foot shadow reads as a reflection in the water.
       if ((seg.index % 10) === 0) {
         const pylonH = Math.max(16, segH * 4.8);
         const pylonW = Math.max(5, w2 * 0.15);
@@ -1793,8 +2055,8 @@ export class Road {
         fillTrap(g, 0x5A554C,
           rightX + pylonW * 0.72, topY, rightX + pylonW, topY,
           rightX + pylonW + flare, botY, rightX + pylonW * 0.72, botY);
-        // Dark reflection directly below each pier.
-        g.fillStyle(0x0A1E30, 0.35);
+        // Dark foot/reflection directly below each pier.
+        g.fillStyle(seg.bridgeWaterChannel ? 0x0A1E30 : 0x383630, 0.35);
         g.fillRect(leftX - flare, botY - Math.max(1, segH * 0.2), pylonW + flare * 2, Math.max(1, segH * 0.35));
         g.fillRect(rightX - flare, botY - Math.max(1, segH * 0.2), pylonW + flare * 2, Math.max(1, segH * 0.35));
       }
@@ -2949,10 +3211,10 @@ export class Road {
       }
     }
     // First-frame fallback (samples not yet populated).
-    const scale = CAM_DEPTH / Math.max(1, relativeZ);
+    const scale = CAM.depth / Math.max(1, relativeZ);
     return {
       sx: SCREEN_W / 2 + scale * laneOffset * ROAD_WIDTH * SCREEN_W / 2,
-      sy: SCREEN_H / 2 + scale * 1000 * SCREEN_H / 2,
+      sy: H() + scale * 1000 * SCREEN_H / 2,
       sw: scale * 825 * SCREEN_W / 2,
       roadHalfW: scale * ROAD_WIDTH * SCREEN_W / 2,
       scale,
@@ -3039,8 +3301,10 @@ export class Road {
 
   /** Absolute screen Y at road surface for a given depth index */
   roadScreenYAtDepth(n) {
-    if (n <= 0) return HALF_H;
-    const scale = CAM_DEPTH / (n * SEG_LENGTH);
-    return toInt(HALF_H - scale * CAM_HEIGHT * HALF_H);
+    if (n <= 0) return H();
+    const scale = CAM.depth / (n * SEG_LENGTH);
+    // First H() is horizon Y; SCREEN_H/2 is the elevation→pixel
+    // scaling factor (NOT horizon — stays fixed at half canvas).
+    return toInt(H() - scale * CAM.height * (SCREEN_H / 2));
   }
 }

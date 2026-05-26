@@ -41,6 +41,7 @@ import {
 import { clamp } from '../utils/Helpers.js';
 import { Difficulty } from './Difficulty.js';
 import { TimeOfDay } from '../world/TimeOfDay.js';
+import { Weather }   from '../world/Weather.js';
 
 // Cop top speed in internal world units.  MAX_SPEED is the player's 120 mph
 // reference, so 145/120 × MAX_SPEED is the cop's 145 mph cap.
@@ -593,9 +594,14 @@ export class CopSystem {
             }
             // Once alongside the player, hold the lateral position so PIT
             // detection in GameScene can fire on side-swipe contact.
+            // Pass-3: cops feel weather grip too — on snow/rain they
+            // close the lateral gap slower (and thus PIT slower), giving
+            // the player a real evasion window in bad weather.
             if (aDist < 800) {
+              const _copMile = (cop.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+              const _copGrip = Weather.gripMul?.(_copMile) ?? 1;
               const dx = playerX - cop.laneOffset;
-              cop.laneOffset += Math.sign(dx) * Math.min(0.6, Math.abs(dx)) * dt;
+              cop.laneOffset += Math.sign(dx) * Math.min(0.6, Math.abs(dx)) * dt * _copGrip;
               // PIT-arming — sustained alongside lock at close range arms
               // the cop so the next side contact registers as a successful
               // PIT (= BUSTED).  Was previously only on pursuit-front; now

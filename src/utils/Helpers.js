@@ -8,15 +8,23 @@ export const toInt  = Math.round;
  *  Returns sub-pixel float coords — segment-edge stair-stepping at the
  *  rumble strip came from rounding x/y/w to ints per segment, which made
  *  each trapezoid offset by an integer pixel from its neighbor.  fillPoints
- *  / Phaser Graphics accept floats and the GPU handles the AA. */
-export function project(worldX, worldY, worldZ, camX, camY, camZ, camDepth, screenW, screenH, roadW) {
+ *  / Phaser Graphics accept floats and the GPU handles the AA.
+ *
+ *  horizonY (optional) — screen-Y of the horizon vanishing point.  The
+ *  scaling factor stays at screenH/2 (focal-length pixel scale, NOT a
+ *  position).  Cockpit mode passes a higher-up horizon so the road's
+ *  vanishing point matches CAM.horizonY; sprites and skyline silhouette
+ *  use the same value so all world layers converge to one Y.  Defaults
+ *  to screenH/2 for back-compat with callers that don't care. */
+export function project(worldX, worldY, worldZ, camX, camY, camZ, camDepth, screenW, screenH, roadW, horizonY) {
   const cz = worldZ - camZ;
   if (cz <= 0) return null;
   const scale = camDepth / cz;
+  const hY = horizonY ?? screenH / 2;
   return {
     scale,
     x: (screenW / 2) + scale * (worldX - camX) * screenW / 2,
-    y: (screenH / 2) - scale * (worldY - camY) * screenH / 2,
+    y: hY - scale * (worldY - camY) * screenH / 2,
     w: scale * roadW * screenW / 2,
   };
 }

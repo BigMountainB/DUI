@@ -1,4 +1,138 @@
-# DUI — Overnight Build Notes
+# DUI — Work History
+
+## Session — 2026-05-15 (West Seattle art / port cranes / revert note)
+
+### What was worked on
+- Reviewed the West Seattle building/crane setup after the port cranes were showing visually through or across the bridge road.
+- Confirmed the crane spawn logic lives in [src/road/RouteData.js](src/road/RouteData.js), not only in the image folder:
+  - Bellevue, Issaquah, Seattle, and West Seattle building image keys are referenced from route/scenery data.
+  - The actual image files live under `public/assets/buildings/codex/` for the newer Codex-generated art.
+- Reviewed West Seattle bridge crane rendering in [src/scenes/GameScene.js](src/scenes/GameScene.js) and bridge/railing drawing in [src/road/Road.js](src/road/Road.js).
+
+### Art/assets created or discussed
+- West Seattle art direction was adjusted toward higher-quality, more realistic scenery to match the Bellevue and Issaquah assets.
+- Port/shipping-container crane direction:
+  - two crane color families requested: orange/rust and white/gray
+  - left/right variants requested so cranes match road perspective
+  - shipping-container stacks requested as one combined PNG-style asset
+- Seattle building order was discussed for a south-to-north pass:
+  - stadium/SODO elements first
+  - downtown south towers next
+  - denser central/waterfront skyline after that
+
+### Code review notes from this session
+- The biggest visible issue is not the crane art itself; it is scenery placement/rendering:
+  - cranes are very wide/tall scenery sprites
+  - they are spawned close enough that their screen footprint can cross the road deck
+  - normal roadside-building rules are not ideal for port cranes
+- Best future fix would be to treat West Seattle cranes as special port-background scenery:
+  - push them farther from the road
+  - reduce clustering/repeat density
+  - cap their rendered size lower than normal skyline objects
+  - cull or shift them if their inner edge overlaps the drivable road
+  - keep road/bridge/railing occlusion consistent
+
+### Change made and reverted
+- I changed the West Seattle crane `renderDepth` in [src/road/RouteData.js](src/road/RouteData.js) from `2.0` to `-0.5` while trying to make the road/bridge draw over crane bases.
+- I also added a related comment in [src/road/Road.js](src/road/Road.js).
+- That was not what was wanted at that point, so it was reverted.
+
+### Current state after revert
+- West Seattle crane `renderDepth` is back to `2.0`.
+- The Road.js comment about cranes rendering below the road was removed.
+- No crane placement, sizing, artwork, or render-loop behavior was changed after the revert.
+
+---
+
+# DUI — Build Notes
+
+## Session — 2026-05-12 (Phone-as-Menu + per-vehicle art + warps)
+
+### Phone-as-menu (HTML overlay)
+- **CSS-driven portrait overlay** ([index.html](index.html)) — `#phone-menu` shows in portrait via media query, hides in landscape. Phaser game pauses underneath.
+- **Tap-to-unpause** after rotating back to landscape — first pointerdown anywhere resumes the run. Skipped when lock-pause is on.
+- **Lock-pause chip** (🔓 / 🔒) — overlaid in the upper-right blank widget tile. Tap toggles `window.__phoneLock` which the orientation watcher checks before auto-resuming.
+- **Trophy chip** (🏆) — upper-left blank widget tile. Click placeholder for future trophy page.
+- **In-world phone clock** — overlaid on the Calendar widget's lower band, formats elapsed party-clock fraction over 2:00 PM → 8:00 PM (6-hour window). Updates every second.
+- **Map modal** ([SVG vertical map of Seattle → Pullman](index.html)) — opens on Maps tap. Pulses red dot at player's live mileage, shows named rest-stop pins.
+- **Garage modal** — opens on Garage tile tap. Lists every owned vehicle with thumbnail (loads from `/assets/cars/*.png`), label, stats line, and accessory badges (🛡 Bumper / ⚡ NOS L1-3 / ❄️ Traction) above the thumbnail. Tap row to switch vehicle (restarts scene).
+- **Music app** — Spotify-style modal. Genre grid → song list. Shuffle All + Shuffle Genre. Tap song to play. AudioSystem got `getStations()`, `setStation()`, `playSpecificTrack()`, `shuffleAllTracks()` to support it.
+- **Checkpoint button** — warps the run to `_lastCheckpoint` (mid-run) or `save.lastRestStop` (between runs); no-op flash if neither exists.
+- **Steering selection stroke** — Tap / Tilt / L/R buttons get a 4-px inset black stroke when matching `steeringMode` registry value. Defensive sweep clears `.selected` from every hit zone before applying.
+
+### Hit-zone auto-positioning (no more % retuning!)
+- Hit zones declare `data-px="x y w h"` in **PNG pixel coordinates**.
+- JS reads `bgImg.naturalWidth/Height`, applies `object-fit:cover` math, positions each zone in viewport-pixel coordinates. Zones auto-track on every device — no per-aspect calibration.
+- **`?debug` URL param** flashes red dashed boxes with labels on every hit zone.
+- **`?calibrate` URL param** — tap any spot, get a chip showing the PNG pixel coord. Walk the icons, send the numbers, paste into `data-px`.
+
+### Per-vehicle art (no more procedural placeholder!)
+- Six vehicle PNG pairs (front + back) wired:
+  - `beater` → white (relabeled **"Used Sedan"**)
+  - `suv4x4` → blue
+  - `usedTruck` → truck blue
+  - `evTruck` → orange
+  - `bestlaRoadster` → green (relabeled **"Electric Roadster"**)
+  - `playdoutS3X` → blue2 (relabeled **"Bestla Play'dOut"**, fuel `gas` → `electric`)
+- Player sprite reads `_veh.spriteBack`. Falls back to procedural `car_player` + tint for vehicles without PNG.
+- Aspect-preserving sizing: width fixed at 90 px, height = `90 * (sourceH / sourceW)` so each car keeps its true proportions.
+
+### Title screen overhaul
+- **Wheel flipped to RIGHT side**, START button on LEFT — then START removed entirely. Tap a difficulty panel = immediate launch.
+- Uniform 2-px white stroke on all wheel panels (yellow active highlight + ▶ marker removed).
+- Tap Custom → drug-slider modal, now also has **gameplay sub-difficulty picker** (Easy/Normal/Hard) — Custom inherits the chosen sub's damage / cops / traffic multipliers while keeping noScore + 40-min clock.
+
+### Warp + gas mechanic
+- **Forward warps drain gas** equal to the trip distance. `init({ warpForward: true })` flag + new logic in the `resumeFromStop` branch deducts `rs.mileage` from the tank. Map-modal Custom warp sets the flag when destination is ahead of current position.
+- **Custom-mode warp** stays free of $ and trophies (sandbox).
+
+### Per-difficulty respawn lane
+- New `_postCrashLaneX()` helper. Picks recovery lane based on difficulty (Custom reads its sub):
+  - Easy → **+0.75** (far-right, safest)
+  - Normal → **+0.25** (your-direction inner)
+  - Hard → **−0.25** (oncoming inner — into traffic)
+- Wired into all four crash-reset paths: scenery, NPC head-on, cop head-on, checkpoint-warp-after-death.
+
+### Damage tuning
+- **Tunnel wall slams = 3 HP** (was 10) — `_triggerSceneryRespawn(proj, damage=10)` now takes a damage param.
+- **Global 10-HP cap removed** — Hard mode scenery is back to 15 HP (10 × 1.5 damageMul).
+- **Floating "-X" damage popup** — red 19-px text next to HP, shows for 1.5 s after each hit. Positions dynamically against the live HP text bounds.
+
+### Camp-repair guard
+- 65% repair item flagged `disabled: true` when current HP ≥ target. Shows **"N/A"** with friendly status message instead of taking $.
+
+### Rest-stop UX
+- BACK button moved to top-left corner so it stops covering SAVE CODE.
+- Mileage rounded in signs — no more "Exit 9.5" / "Mile 9.5", now "EXIT 10" / "MILE 10".
+
+### Sign placement
+- Tunnel guard: signs landing inside tunnels now **walk BACKWARD** until they clear the mouth, so the player sees them on approach.
+- Applied to mileage_signs, grade_signs, and the exit_sign_green findDrySeg helper.
+
+### Party clock fixes
+- **Reset on difficulty change** — tapping E/N/H/Custom re-seeds `_partyClockSec` from the new mode's `Difficulty.partyClockSec()` so the timer always matches the chosen run length.
+- Stored `_partyClockSecMax` alongside `_partyClockSec` for the phone-menu clock UI.
+
+### Rear-view mirror
+- Draw distance extended **9k → 36k units** so cars shrink to the vanishing point before disappearing.
+- Traffic-array despawn extended `-2000 → -35000` so cars don't get culled before the mirror sees them.
+
+### HUD layout
+- **Default handedness flipped to LEFT** — weapons / HP / gas / speed column on the left, drug bars on the right (most players are right-handed; right thumb on the wheel side of the phone).
+- Shift+L toggles. Persisted in `settings.handedness`.
+- HP / Mi text moved inboard to clear the weapon column. Gas icon moved to the CENTER side of the gas text (dynamic positioning per frame).
+- Music genre font 17 → 22 px.
+- Weapon icon cells +15% size, stack pushed down 10 px.
+- Score + party clock follow drug bars in handedness flip (top-right in left-handed mode).
+
+### Map-modal close bug
+- Closing the title-screen map modal (or trophy / garage) was firing the scene-level "any tap" handler and starting a race. Fixed with `_*ModalJustClosed` flags + a 50ms grace window in the cursor-fire handler.
+
+### Vehicle gameplay
+- **Drug bar OD only triggers at > 100%** (strict greater-than, 100% is safe).
+- **Damage event payload** flows through `_applyDamage` with a generous "no-double-pause" gate.
+
+---
 
 ## What's new since you went to bed
 

@@ -17,6 +17,72 @@ export const LANES        = 3;
 export const DRAW_DIST    = 380;   // segments rendered ahead (farther horizon)
 export const CAM_HEIGHT   = 1900;  // higher = more road visible ahead (was 1500)
 export const CAM_DEPTH    = 0.68;  // lower = wider FOV / more visible distance (was 0.74)
+// ── Mutable camera profile (view-mode aware) ─────────────────────────
+//   chase   — third-person rear-view (default).  CAM_HEIGHT / CAM_DEPTH
+//             above are the initial values.
+//   cockpit — first-person driver eye.  Lower height (less elevated
+//             overview, more road rushing toward the windshield) +
+//             tighter FOV (nearby traffic / signs read larger).
+// All projection consumers read from CAM.height / CAM.depth rather
+// than the static constants so setCameraMode() can swap profiles on
+// the fly (e.g., V key in cockpit-capable vehicles).
+export const CAM = {
+  height: CAM_HEIGHT,
+  depth:  CAM_DEPTH,
+  // eyeForwardZ — how far AHEAD of the player's physics position the
+  // rendered camera sits.  Chase: 0 (camera is at playerPos, player
+  // car sprite painted PLAYER_VIRTUAL_Z=3000 ahead).  Cockpit: 3000
+  // (camera moves into the driver seat where the rear-view sprite was;
+  // sprite is hidden in this mode).  Gameplay/collision still keys
+  // off raw player.position — only the visual viewpoint shifts.
+  eyeForwardZ: 0,
+  // horizonY — screen-Y of the horizon line / vanishing point.  Chase
+  // 225 (SCREEN_H/2).  Cockpit 175 — pushes horizon UP the screen so
+  // more windshield area shows road below.  Road.js shifts EVERY
+  // horizon-anchored element (road projection, sky, mountains, water,
+  // haze band, ground decals) using this same value so the scene
+  // stays seamlessly aligned at any horizon setting.
+  horizonY: 225,
+  mode:   'chase',
+};
+export function setCameraMode(mode) {
+  if (mode === 'cockpit') {
+    // Cockpit profile tuned to preserve a useful forward-road window
+    // while still feeling more forward than chase.
+    //   • CAM.height 1200 — driver's eye sits MUCH lower than chase's
+    //     1900.  Chase is a third-person rig that benefits from height
+    //     (looking down on the player car); cockpit IS the driver, who
+    //     in a used sedan sits ~4 ft / ~800 units high.  1200 reads as
+    //     "raised sedan" — over the hood, not perched on a truck cab.
+    //   • CAM.depth 0.92 — tighter FOV than chase 0.68 so nearby traffic
+    //     reads as close.  Pushed past the earlier 0.78 because the
+    //     +3000 forward eye-shift (intentional, for driver-seat POV)
+    //     pushes the visible-player-row of NPCs back to relZ 3000-6000
+    //     from the camera — they were rendering tiny.  Bumping the
+    //     focal length compensates without giving up the driver-seat
+    //     viewpoint.
+    //   • eyeForwardZ 4500 — forward of driver seat, near the front
+    //     bumper of where the chase-mode player car rendered.  3000
+    //     (PLAYER_VIRTUAL_Z) placed the eye at the back bumper —
+    //     nearby cars and roadside trucks rendered tiny because they
+    //     were 3000+ units from the eye even when "right there".
+    //     Pushing to 4500 makes a parked roadside vehicle (~1 car
+    //     length ahead of the front bumper visually) sit at relZ
+    //     ~800-1500 instead of 2500-3000, so it projects at a size
+    //     that reads as "right next to me" relative to the dashboard.
+    CAM.height      = 1200;
+    CAM.depth       = 0.92;
+    CAM.eyeForwardZ = 4500;
+    CAM.horizonY    = 130;        // raised 95 px so the windshield is mostly road (was 175); leaves ~45 px of sky above the horizon between the HUD bar and the road
+    CAM.mode        = 'cockpit';
+  } else {
+    CAM.height      = CAM_HEIGHT;
+    CAM.depth       = CAM_DEPTH;
+    CAM.eyeForwardZ = 0;
+    CAM.horizonY    = 225;        // SCREEN_H/2 — default chase horizon
+    CAM.mode        = 'chase';
+  }
+}
 export const FOG_DENSITY  = 4;
 
 // Player
@@ -32,22 +98,36 @@ export const CENTRIFUGAL  = 0.3;
 // no stars).  PTS_DIST is multiplied by `_scoreMult()` (≥1) and accumulated
 // per-segment.  ROUTE_SEGS / TOTAL_ROUTE_MILES = 1632 segs/mi → 25/1632 ≈ 0.0153.
 export const PTS_DIST     = 0.0153;
+// PTS_CRASH retained for legacy reference; live crash scoring is now
+// `$5 × damage received` (see _onNpcCollision in GameScene.js).
 export const PTS_CRASH    = 500;
-export const PTS_HITCH    = 300;
+// Hitchhiker NICE FOLKS payout.  PARTY FAVOR is half this (per the
+// existing 0.5× multiplier in the hitchhiker handler).
+export const PTS_HITCH    = 500;
 export const DRUG_MULT    = 0.5;
 
 // Per-drug pickup points (doubled when that bar is full)
+// Per-drug pickup payouts: { base } when the bar is below the
+// FULL_BAR_THRESHOLD, { full } when the bar is at/above it.  The
+// full-bar bonus is per-drug (used to be a flat 2× across the board)
+// so risky drugs (fent, heroin) pay disproportionately more for
+// keeping their bar topped off.
 export const DRUG_PTS = {
-  beer:     15,
-  weed:      5,
-  cocaine:  10,
-  shrooms:  25,
-  lsd:      30,
-  heroin:   45,
-  rx:        8,
-  fentanyl: 50,
-  ketamine: 20,
+  beer:     { base:  5, full:  20 },
+  weed:     { base:  5, full:  20 },
+  cocaine:  { base: 40, full: 100 },
+  shrooms:  { base: 15, full:  40 },
+  lsd:      { base: 10, full:  50 },
+  heroin:   { base: 15, full: 100 },
+  rx:       { base: 10, full:  80 },
+  fentanyl: { base: 25, full: 500 },
+  ketamine: { base: 15, full:  90 },
+  meth:     { base: 15, full:  80 },
 };
+// Bar percentage at which a pickup awards the full-bar bonus instead
+// of the base payout.  Lowered from 0.95 → 0.80 so the bonus is more
+// reachable (less precision-driven, more strategic).
+export const FULL_BAR_THRESHOLD = 0.80;
 
 // Drug IDs
 export const DRUGS = {
@@ -152,8 +232,12 @@ export const ROUTE_SEGS   = 470000;
 // Each location has a [start, end] mile range that drives both the HUD
 // bottom-center label and the green exit-sign placements.
 const _CP_RAW = [
-  { name: 'West Seattle',     mileage:   0, end:   5, isStart: true },
-  { name: 'Seattle',           mileage:   5, end:   7 },
+  // "West Seattle" only until you cross the West Seattle Bridge
+  // (bridge stretch ends at mile 1.75); the city east of the bridge
+  // is just "Seattle".  Slight buffer to mile 2 so the label change
+  // lands clearly past the deck instead of mid-span.
+  { name: 'West Seattle',     mileage:   0, end:   2, isStart: true },
+  { name: 'Seattle',           mileage:   2, end:   7 },
   // Mercer Island ends at the East Channel Bridge (mile 9.8-10.2).
   // Past that bridge you're on the Bellevue mainland, so the label
   // and the region (eastside_urban at mile 10.2+) need to agree —
@@ -259,8 +343,15 @@ export const REST_STOPS = _REST_STOP_DEF.map(rs => ({
 //   label        — display name
 //   hp           — durability cap (max HP)
 //   rangeMi      — full-tank/charge range, in miles
-//   topMph       — base top speed at +0 cocaine/meth pickups
-//   boostMph     — additional MPH on the boost button (electric roadster)
+//   topMph       — base CRUISE speed at +0 cocaine/meth pickups
+//   boostMph     — extra MPH added on top of topMph when boosting
+//                  (per-vehicle: sports cars rev harder than trucks)
+//   grip         — tire grip multiplier (1.00 baseline; 1.20+ sports, <1 truck)
+//   turnRate     — steering responsiveness (1.00 baseline; high = sharp, low = lazy)
+//   stability    — resistance to curve push + faster settle (1.00 baseline;
+//                  >1 = planted, <1 = nervous)
+//   offroadGrip  — multiplier on shoulder/grass/dirt grip (1.00 baseline;
+//                  >1 better off-road like SUV/truck, <1 worse like sports)
 //   drive        — '2WD' | '4x4' (gates traction-tire bonus)
 //   fuel         — 'gas' | 'electric' (charging stations only)
 //   heat         — wanted-level visibility multiplier (1 = neutral, >1 attracts cops)
@@ -268,50 +359,58 @@ export const REST_STOPS = _REST_STOP_DEF.map(rs => ({
 //   sprite       — texture key; falls back to 'car_player' if absent
 export const VEHICLES = {
   beater: {
-    id: 'beater', label: 'Used Sedan', hp: 50,  rangeMi: 250, topMph: 110, boostMph: 0,
+    id: 'beater', label: 'Used Sedan', hp: 50,  rangeMi: 250, topMph: 110, boostMph: 20,
+    grip: 1.00, turnRate: 1.00, stability: 1.00, offroadGrip: 1.00,
     drive: '2WD', fuel: 'gas', heat: 0.85, priceUsd: 0,
     sprite: 'car_player', spriteBack: 'codex_beater_back', spriteFront: 'codex_beater_front',
     tint: 0xEEEEEE,    // off-white (swatch only — PNG isn't tinted at render time)
   },
   suv4x4: {
-    id: 'suv4x4', label: 'Used 4x4 SUV', hp: 70, rangeMi: 300, topMph: 115, boostMph: 0,
-    drive: '4x4', fuel: 'gas', heat: 0.95, priceUsd: 4500,
+    id: 'suv4x4', label: 'Used 4x4 SUV', hp: 70, rangeMi: 300, topMph: 115, boostMph: 15,
+    grip: 1.02, turnRate: 0.88, stability: 1.15, offroadGrip: 1.25,
+    drive: '4x4', fuel: 'gas', heat: 0.95, priceUsd: 5000,
     sprite: 'car_player', spriteBack: 'codex_suv4x4_back', spriteFront: 'codex_suv4x4_front',
     tint: 0x3A78D6,    // mid blue (swatch only)
   },
   usedTruck: {
-    id: 'usedTruck', label: 'Used Truck', hp: 90, rangeMi: 350, topMph: 117, boostMph: 0,
-    drive: '4x4', fuel: 'gas', heat: 1.00, priceUsd: 8000,
+    id: 'usedTruck', label: 'Used Truck', hp: 90, rangeMi: 350, topMph: 117, boostMph: 10,
+    grip: 0.96, turnRate: 0.78, stability: 1.18, offroadGrip: 1.18,
+    drive: '4x4', fuel: 'gas', heat: 1.00, priceUsd: 10000,
     sprite: 'car_player', spriteBack: 'codex_used_truck_back', spriteFront: 'codex_used_truck_front',
     tint: 0x224488,    // deeper truck blue (swatch only)
   },
   newTruck: {
-    id: 'newTruck', label: 'New Truck', hp: 100, rangeMi: 400, topMph: 120, boostMph: 0,
-    drive: '4x4', fuel: 'gas', heat: 1.10, priceUsd: 12000,
+    id: 'newTruck', label: 'New Truck', hp: 100, rangeMi: 400, topMph: 120, boostMph: 12,
+    grip: 0.98, turnRate: 0.80, stability: 1.20, offroadGrip: 1.20,
+    drive: '4x4', fuel: 'gas', heat: 1.10, priceUsd: 25000,
     sprite: 'car_player', spriteBack: 'codex_new_truck_back', spriteFront: 'codex_new_truck_front',
     tint: 0x1F1F1F,         // shiny black (swatch only)
   },
   evTruck: {
-    id: 'evTruck', label: 'Electric Truck', hp: 85, rangeMi: 300, topMph: 118, boostMph: 0,
-    drive: '4x4', fuel: 'electric', heat: 1.05, priceUsd: 14000,
+    id: 'evTruck', label: 'Electric Truck', hp: 85, rangeMi: 300, topMph: 118, boostMph: 18,
+    grip: 1.00, turnRate: 0.82, stability: 1.15, offroadGrip: 1.20,
+    drive: '4x4', fuel: 'electric', heat: 1.05, priceUsd: 40000,
     sprite: 'car_player', spriteBack: 'codex_ev_truck_back', spriteFront: 'codex_ev_truck_front',
     tint: 0xEE7733,    // orange (swatch only)
   },
   sportsCar: {
-    id: 'sportsCar', label: 'Sports Car', hp: 75, rangeMi: 500, topMph: 165, boostMph: 0,
-    drive: '2WD', fuel: 'gas', heat: 1.25, priceUsd: 22000,
+    id: 'sportsCar', label: 'Sports Car', hp: 75, rangeMi: 500, topMph: 165, boostMph: 25,
+    grip: 1.18, turnRate: 1.14, stability: 0.92, offroadGrip: 0.65,
+    drive: '2WD', fuel: 'gas', heat: 1.25, priceUsd: 55000,
     sprite: 'car_player', spriteBack: 'codex_sports_car_back', spriteFront: 'codex_sports_car_front',
     tint: 0xFFC107,         // canary yellow (swatch only)
   },
   bestlaRoadster: {
     id: 'bestlaRoadster', label: 'Electric Roadster', hp: 85, rangeMi: 250, topMph: 200, boostMph: 50,
-    drive: '2WD', fuel: 'electric', heat: 1.30, priceUsd: 65000,
+    grip: 1.22, turnRate: 1.17, stability: 0.88, offroadGrip: 0.62,
+    drive: '2WD', fuel: 'electric', heat: 1.30, priceUsd: 75000,
     sprite: 'car_player', spriteBack: 'codex_bestla_roadster_back', spriteFront: 'codex_bestla_roadster_front',
     tint: 0x33AA55,    // emerald green (swatch only)
   },
   playdoutS3X: {
-    id: 'playdoutS3X', label: 'Bestla Play\'dOut S3X', hp: 125, rangeMi: 400, topMph: 190, boostMph: 0,
-    drive: '4x4', fuel: 'electric', heat: 1.40, priceUsd: 90000,
+    id: 'playdoutS3X', label: 'Bestla Play\'dOut S3X', hp: 125, rangeMi: 400, topMph: 190, boostMph: 30,
+    grip: 1.18, turnRate: 1.08, stability: 1.08, offroadGrip: 0.90,
+    drive: '4x4', fuel: 'electric', heat: 1.40, priceUsd: 100000,
     sprite: 'car_player', spriteBack: 'codex_playdout_s3x_back', spriteFront: 'codex_playdout_s3x_front',
     tint: 0x55AAEE,    // lighter sky blue (swatch only)
   },
@@ -319,8 +418,8 @@ export const VEHICLES = {
 
 // Gas pricing — $10 per 30 mi of tank (per spec).  Charging is 35% of
 // that rate but requires watching an ad.  Robbery roll is per-fillup.
-export const GAS_USD_PER_MI         = 10 / 30;     // $0.333 per mile
-export const CHARGE_COST_FACTOR     = 0.35;        // 35% of gas
+export const GAS_USD_PER_MI         = 0.50;        // $0.50/mi (was 0.333)
+export const CHARGE_COST_FACTOR     = 0.66;        // 66% of gas → $0.33/mi (was 35 %)
 export const GAS_LIGHT_AT_MI        = 30;          // warning threshold
 export const GAS_ROBBERY_CHANCE     = 0.20;        // 20% chance per gas fillup
 export const GAS_ROBBERY_FRAC       = 0.20;        // loses 20% of cash if robbed

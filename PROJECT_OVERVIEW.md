@@ -261,6 +261,7 @@ Forward warps **drain gas** equal to trip distance. Hard mode disallows warping 
 - Mission system full build-out
 - Ghost replay (record best run positions, play translucent ghost)
 - Online leaderboard (data shape supports it; ship local first)
+- **Smashable roadside objects** — lightweight collidable cones, cardboard boxes, trash cans, and construction barrels that swap to a broken/knocked-over sprite plus impact sound when struck. Reuse the existing scenery collision and sprite pools rather than adding physics/debris simulation. Consider pedestrians only as a separately designed, non-graphic consequence mechanic if it fits the game's tone.
 
 ### Tier 4 — Out of scope (still)
 Photo mode, in-game settings menu, accessibility toggles.

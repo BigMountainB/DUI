@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@capacitor/core": "^5.0.0",
+    "@capacitor/haptics": "^5.0.8",
+    "esbuild": "^0.21.5",
     "phaser": "^3.60.0"
   },
   "devDependencies": {
