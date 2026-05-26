@@ -5,8 +5,9 @@
   command = "npm run build"
 
 [build.environment]
-  # Node 20 (LTS) — Node 22.22.3 (what Netlify picks for "22") has an
-  # npm optional-deps bug that fails to install @rollup/rollup-linux-
-  # x64-gnu, causing vite build to crash with MODULE_NOT_FOUND.  Node
-  # 20's npm doesn't have this bug.
-  NODE_VERSION = "20"
+  # Node 18 (LTS) — both Node 20 (npm 10) and Node 22 (npm 10) hit the
+  # npm optional-deps bug that fails to install Rollup's native binary
+  # @rollup/rollup-linux-x64-gnu, crashing vite build with
+  # MODULE_NOT_FOUND.  Node 18 ships with npm 9 which doesn't have the
+  # bug.  Vite 5 still supports Node 18.
+  NODE_VERSION = "18"
