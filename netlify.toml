@@ -5,5 +5,8 @@
   command = "npm run build"
 
 [build.environment]
-  # Match local Node version (Vite 5 needs >=18; project is on Node 22)
-  NODE_VERSION = "22"
+  # Node 20 (LTS) — Node 22.22.3 (what Netlify picks for "22") has an
+  # npm optional-deps bug that fails to install @rollup/rollup-linux-
+  # x64-gnu, causing vite build to crash with MODULE_NOT_FOUND.  Node
+  # 20's npm doesn't have this bug.
+  NODE_VERSION = "20"
