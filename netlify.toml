@@ -1,0 +1,9 @@
+[build]
+  # Vite output dir — what Netlify publishes
+  publish = "dist"
+  # Run the same build the local Mac runs
+  command = "npm run build"
+
+[build.environment]
+  # Match local Node version (Vite 5 needs >=18; project is on Node 22)
+  NODE_VERSION = "22"
