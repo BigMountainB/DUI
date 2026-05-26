@@ -831,18 +831,19 @@ export class Road {
     const shroomPhase = effects?.shroomPhase ?? 0;
     const _meltStrengthAt = (depthIdx) => {
       const near = 1 - clamp(depthIdx / DRAW_DIST, 0, 1);
-      return 0.12 + Math.pow(near, 0.72) * 0.88;
+      return 0.24 + Math.pow(near, 0.72) * 0.76;
     };
     const _meltXAt = (depthIdx) => {
       if (shroomMelt <= 0.001) return 0;
-      const phase = shroomPhase * 0.95 + depthIdx * 0.115;
-      return (Math.sin(phase) + Math.sin(phase * 0.43 + 1.8) * 0.42)
-        * 18 * shroomMelt * _meltStrengthAt(depthIdx);
+      const phase = shroomPhase * 1.10 + depthIdx * 0.105;
+      return (Math.sin(phase) + Math.sin(phase * 0.39 + 1.8) * 0.55)
+        * 64 * shroomMelt * _meltStrengthAt(depthIdx);
     };
     const _meltYAt = (depthIdx) => {
       if (shroomMelt <= 0.001) return 0;
-      const phase = shroomPhase * 0.72 + depthIdx * 0.095 + 1.2;
-      return Math.sin(phase) * 4 * shroomMelt * _meltStrengthAt(depthIdx);
+      const phase = shroomPhase * 0.74 + depthIdx * 0.088 + 1.2;
+      return (Math.sin(phase) + Math.sin(phase * 0.51 + 2.4) * 0.45)
+        * 18 * shroomMelt * _meltStrengthAt(depthIdx);
     };
 
     // We store projected data so we can draw far→near
