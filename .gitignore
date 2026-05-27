@@ -15,6 +15,9 @@ Archive/
 # Duplicate package-lock created by some npm runs
 package-lock 2.json
 
-# Local assets sources kept outside the build path
-Music/
+# Local assets sources kept outside the build path.
+# Anchored to root with leading slash so macOS's case-insensitive
+# filesystem doesn't accidentally swallow `public/assets/music/`
+# (the deployed-into-the-game MP3 folder) via case-folded match.
+/Music/
 Images/Codex_Concepts/
