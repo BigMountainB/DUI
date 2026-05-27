@@ -166,6 +166,57 @@ const CODEX_ISSAQUAH_BUILDINGS = [
   'codex_issaquah_highlands',
   'codex_issaquah_cottage',
 ];
+const EASTERN_HERD_TEXTURES = [
+  'east_wa_herd_3_cows',
+  'east_wa_herd_5_cows',
+  'east_wa_herd_6_cows',
+];
+// Small, authored dry-side roadside clusters. They are deliberately short:
+// one local business followed by four to six homes before brush and farms.
+const EASTERN_TOWN_WINDOWS = [
+  { start: 78.0,  end: 80.0,  business: 'codex_cle_elum_general_store',       home: 'codex_east_wa_weathered_house',    homes: 6 },
+  { start: 95.1,  end: 96.4,  business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_weathered_house',    homes: 5 },
+  { start: 105.0, end: 107.2, business: 'codex_ellensburg_main_street_shops', home: 'codex_east_wa_weathered_house',    homes: 6 },
+  { start: 132.1, end: 133.2, business: 'codex_east_wa_two_story_brick_shop', home: 'codex_east_wa_abandoned_bungalow', homes: 4 },
+  { start: 150.0, end: 151.2, business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_abandoned_bungalow', homes: 5 },
+  { start: 180.0, end: 181.2, business: 'codex_east_wa_two_story_brick_shop', home: 'codex_east_wa_abandoned_bungalow', homes: 6 },
+  { start: 225.0, end: 226.0, business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_abandoned_bungalow', homes: 4 },
+  { start: 250.0, end: 251.0, business: 'codex_east_wa_two_story_brick_shop', home: 'codex_east_wa_abandoned_bungalow', homes: 5 },
+  { start: 271.0, end: 272.0, business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_abandoned_bungalow', homes: 4 },
+];
+// After Vantage, short pasture stretches recur every few miles. Cattle occur
+// only on alternating fenced stretches; the other runs stay open/brushy.
+const EASTERN_PASTURE_RUNS = [
+  { start: 136.5, end: 139.3, cows: true  },
+  { start: 142.3, end: 145.0, cows: false },
+  { start: 153.0, end: 155.8, cows: true  },
+  { start: 161.2, end: 164.0, cows: false },
+  { start: 167.0, end: 169.8, cows: true  },
+  { start: 173.0, end: 175.8, cows: false },
+  { start: 186.0, end: 188.8, cows: true  },
+  { start: 192.0, end: 194.7, cows: false },
+  { start: 201.0, end: 203.8, cows: true  },
+  { start: 207.0, end: 209.8, cows: false },
+  { start: 213.0, end: 215.7, cows: true  },
+  { start: 218.5, end: 221.2, cows: false },
+  { start: 236.0, end: 238.8, cows: true  },
+  { start: 241.7, end: 244.5, cows: false },
+  { start: 261.0, end: 263.8, cows: true  },
+  { start: 266.5, end: 269.3, cows: false },
+];
+// Roadside utility lines punctuate small towns and otherwise-open dry-side
+// stretches. A segment cannot carry this and a pasture fence simultaneously.
+const EASTERN_UTILITY_RUNS = [
+  { start: 77.2,  end: 80.6,  side:  1, nearHomes: true }, // Cle Elum frontage
+  { start: 103.8, end: 108.0, side: -1, nearHomes: true }, // Ellensburg frontage
+  { start: 146.0, end: 151.0, side:  1 },
+  { start: 156.3, end: 160.5, side: -1 },
+  { start: 176.2, end: 181.0, side:  1 },
+  { start: 196.0, end: 200.5, side: -1 },
+  { start: 222.5, end: 225.5, side:  1 },
+  { start: 246.0, end: 249.5, side: -1 },
+  { start: 272.5, end: 277.0, side:  1 },
+];
 
 // ─────────────────────────────────────────────────────────────────────
 //  Regional tree / shrub pools (photo PNGs registered in AssetManifest).
@@ -355,6 +406,14 @@ const FOG_PROFILE_MULTS = {
   codex_issaquah_front_supply:        4.80 * (1533 / 926),
   codex_issaquah_highlands:           4.80 * (1514 / 894),
   codex_issaquah_cottage:             4.40 * (1524 / 928),
+  // Compact dry-side businesses / houses / barns (runtime WebP dimensions).
+  codex_cle_elum_general_store:       3.45 * (640 / 399),
+  codex_ellensburg_main_street_shops: 3.75 * (640 / 406),
+  codex_east_wa_weathered_house:      3.00 * (512 / 314),
+  codex_east_wa_barn:                 2.70 * (512 / 336),
+  codex_east_wa_abandoned_bungalow:   2.80 * (512 / 329),
+  codex_east_wa_two_story_brick_shop: 4.00 * (512 / 443),
+  codex_east_wa_block_repair_shop:    2.35 * (576 / 270),
 };
 // Default for unknown textures + procedural houses/towers (sp.type
 // 'house' or 'building' with no profile lookup).  Matches sizeMult
@@ -484,7 +543,17 @@ export function buildRoute(count = ROUTE_SEGS) {
   const MURROW_BRIDGE_RANGE       = [5.7, 7.2];   // Lacey V. Murrow floating bridge
   const MERCER_LID_TUNNEL_RANGE   = [7.4, 7.9];   // covered lid across Mercer Island
   const EAST_CHANNEL_BRIDGE_RANGE = [9.8, 10.2];  // Mercer → Bellevue
-  const BRIDGE_RANGES = [WEST_SEATTLE_BRIDGE_RANGE, MURROW_BRIDGE_RANGE, EAST_CHANNEL_BRIDGE_RANGE];
+  // Suspension bridge across the Columbia just past Vantage.  Real
+  // life has a steel girder span here, but we want a proper
+  // suspension-bridge silhouette (towers + main cables + hangers).
+  const VANTAGE_SUSPENSION_RANGE  = [134.55, 135.05]; // 0.5 mi span
+  // Wildlife crossing on Snoqualmie Pass (real ones exist around
+  // mile 64-66 westbound).  Short overpass with vegetation on top.
+  const WILDLIFE_OVERPASS_RANGE   = [65.00, 65.03];   // ~150 ft span
+  // I-405 freeway overpass crossing I-90 in Bellevue, just before
+  // the downtown skyline starts at mile ~10.2.
+  const I405_OVERPASS_RANGE       = [11.45, 11.47];   // ~100 ft span
+  const BRIDGE_RANGES = [WEST_SEATTLE_BRIDGE_RANGE, MURROW_BRIDGE_RANGE, EAST_CHANNEL_BRIDGE_RANGE, VANTAGE_SUSPENSION_RANGE];
   // Flatten the procedural curve noise across every bridge segment —
   // bridges on this route are straight in real life and the player
   // wreck-clamps badly if a curve drags them into the rail.
@@ -639,6 +708,28 @@ export function buildRoute(count = ROUTE_SEGS) {
   // the wave pattern.  Macro features (Snoqualmie 50+ mi, Vantage 10 mi)
   // are far wider than the smoothing window so they survive intact.
   const hills = boxBlurCentered(rawHills, 400, 3);
+
+  // ── Rolling hills overlay (Vantage area, mile 128-145) ────────────
+  // Layer a low-frequency sin/cos on top of the macro elevation so the
+  // Columbia gorge has visible rolling bumps instead of a flat ramp.
+  // Amplitude ≈ 80 world units (gentler than the natural Ryegrass
+  // descent) with two overlapping wavelengths for variety.
+  {
+    const segsPerMile = count / TOTAL_ROUTE_MILES;
+    const rollStart = Math.floor(128 * segsPerMile);
+    const rollEnd   = Math.floor(145 * segsPerMile);
+    const W1 = segsPerMile * 1.2;   // ~1.2 mi primary wavelength
+    const W2 = segsPerMile * 0.45;  // ~0.45 mi secondary wavelength
+    for (let i = rollStart; i < rollEnd && i < count; i++) {
+      // Fade-in/out envelope so the rolling overlay blends with the
+      // existing macro grade instead of cutting in at hard edges.
+      const t = (i - rollStart) / (rollEnd - rollStart);
+      const env = Math.sin(t * Math.PI);     // 0 → 1 → 0
+      const bumpA = Math.sin((i - rollStart) * (Math.PI * 2) / W1);
+      const bumpB = Math.cos((i - rollStart) * (Math.PI * 2) / W2);
+      hills[i] += env * (bumpA * 80 + bumpB * 35);
+    }
+  }
 
   // ── Road scale (gradual region-to-region width transition) ───────────
   const rawScales  = new Array(count).fill(1).map((_, i) => getTraitsAt(i / count).roadScale);
@@ -871,8 +962,14 @@ export function buildRoute(count = ROUTE_SEGS) {
     const mileNow = t * TOTAL_ROUTE_MILES;
     let densityScale = 1.0;
     if (mileNow > 14 && mileNow <= 17) {
-      // Linear taper 1.0 → 0.15 over miles 14-17.
-      densityScale = 1.0 - 0.85 * ((mileNow - 14) / 3);
+      // Bellevue tail — taper Bellevue downtown density to 0 before the
+      // sparse-store corridor takes over at mile 14.
+      densityScale = 1.0 - 0.70 * ((mileNow - 14) / 3);
+    } else if (mileNow >= 14 && mileNow <= 25) {
+      // Sparse-store corridor (Bellevue suburbs → Issaquah).  Use the
+      // sparse-spawn branch below; densityScale here is just for the
+      // legacy non-cycle paths.
+      densityScale = 0.07;
     }
     // ── West Seattle approach (mile 0-1) ────────────────────────────
     // Water on the LEFT (rendered in Road.js via seg.waterLeft).
@@ -889,10 +986,21 @@ export function buildRoute(count = ROUTE_SEGS) {
         // 15% skip for "natural gaps" but the gaps left visible holes
         // in the home row as the player drove past, and the user wants
         // an unbroken West Seattle frontage from start to bridge.)
-        // Pseudo-random texture pick — a hash of slot index gives a
-        // non-repeating but deterministic walk through the home pool.
-        const hash    = (slotNow * 7919 + 13) % 997;
-        const texKey  = WEST_SEATTLE_HOMES[hash % WEST_SEATTLE_HOMES.length];
+        // Pseudo-random texture pick — strong 32-bit mix so the sequence
+        // looks random rather than cycling A→B→C→D→E→F.  Anti-repeat
+        // step prevents the same home appearing in two adjacent slots.
+        const hashSlot = (s) => {
+          let v = (s | 0) ^ 0x9E3779B9;
+          v = Math.imul(v, 0x85ebca6b) | 0;
+          v = ((v >>> 13) ^ v) | 0;
+          v = Math.imul(v, 0xc2b2ae35) | 0;
+          return ((v >>> 16) ^ v) >>> 0;
+        };
+        const wsLen = WEST_SEATTLE_HOMES.length;
+        let wsIdx     = hashSlot(slotNow)     % wsLen;
+        const prevIdx = hashSlot(slotNow - 1) % wsLen;
+        if (wsIdx === prevIdx) wsIdx = (wsIdx + 1) % wsLen;
+        const texKey  = WEST_SEATTLE_HOMES[wsIdx];
         // Right side only — water field on left, no spawns there.
         // Positive offset = RIGHT in this engine's coords.
         // Choose the permanent center offset from a one-and-a-quarter car
@@ -935,8 +1043,14 @@ export function buildRoute(count = ROUTE_SEGS) {
       const segsPerCraneSlot  = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / craneSlotsPerMile;
       const craneSlot      = Math.floor(i / segsPerCraneSlot);
       const craneSlotPrev  = i > 0 ? Math.floor((i - 1) / segsPerCraneSlot) : -1;
+      // Tiny buffer (0.01 mi) so a crane isn't placed on the exact
+      // segment of a channel transition.  Larger buffers ate ~80% of
+      // the bridge.
+      const CRANE_CHANNEL_BUFFER = 0.01;
       const onPortWaterChannel = WEST_SEATTLE_WATER_CHANNEL_RANGES.some(
-        ([start, end]) => mileNow >= start && mileNow < end
+        ([start, end]) =>
+          mileNow >= start - CRANE_CHANNEL_BUFFER &&
+          mileNow <  end   + CRANE_CHANNEL_BUFFER
       );
       if (!onPortWaterChannel && craneSlot > craneSlotPrev) {
         const craneKeyL = CRANE_LEFT_POOL[ craneSlot       % CRANE_LEFT_POOL.length ];
@@ -964,7 +1078,8 @@ export function buildRoute(count = ROUTE_SEGS) {
     }
     // Eastside continues with sparse suburban / freeway-edge structures
     // after Bellevue instead of turning into a blank green field.
-    else if (traits.buildings && buildingPool && mileNow <= 17) {
+    else if (traits.buildings && buildingPool && mileNow <= 25
+             && !(_regionKeyForPool === 'eastside_urban' && mileNow > 13)) {
       const style = traits.buildingStyle || 'midrise';
 
       // ── Per-region full pool — each city cycles through its whole
@@ -1025,24 +1140,47 @@ export function buildRoute(count = ROUTE_SEGS) {
       // forward, easily reaching the bridge on-ramp slot — a left-side
       // home spawned there reads as floating in the bay.
       const inWestSeattleApproach = (mileNow >= 0 && mileNow < 1.05);
-      const isMercerForestOnly = _regionKeyForPool === 'mercer_island';
+      // Mercer Island re-enabled — it's a forested suburb but it does
+      // have residential frontage between the trees.  The dense forest
+      // pass still fills the deeper rows, so the visual mix is
+      // "homes near road, trees behind."
+      const isMercerForestOnly = false;
+      // Issaquah corridor (mile 17-25): sparse stores only, ~1 every
+      // 0.75 mi.  The densityScale > 0.2 guard would otherwise gate
+      // the whole block off.
+      const isSparseStoresCorridor = mileNow >= 14 && mileNow <= 25;
       if (!inWestSeattleApproach && !isMercerForestOnly
-          && cyclePool && cyclePool.left.length > 0 && densityScale > 0.2) {
+          && cyclePool && cyclePool.left.length > 0
+          && (isSparseStoresCorridor || densityScale > 0.2)) {
         // Mercer intentionally bypasses this block: its roadside lots are
         // filled with reusable tree sprites below instead of houses.
-        const slotsPerMile  = poolIsHomes ? 80 : 20;
+        const slotsPerMile  = isSparseStoresCorridor
+          ? 1.4                              // ~1 store every 0.75 mi
+          : (poolIsHomes ? 80 : 20);
         const segsPerSlot   = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / slotsPerMile;
         const slotNow  = Math.floor(i / segsPerSlot);
         const slotPrev = i > 0 ? Math.floor((i - 1) / segsPerSlot) : -1;
         if (slotNow > slotPrev) {
           // Vacant lots, parks, and side streets keep dense frontage from
           // feeling like a checkerboard wall of buildings.
-          const skipSlot = rng.bool(0.20);
+          const skipSlot = isSparseStoresCorridor ? false : rng.bool(0.20);
           if (!skipSlot) {
             // Each side cycles its own pool independently so directional
-            // variants line up with the side they're spawned on.
-            const leftKey  = cyclePool.left[slotNow % cyclePool.left.length];
-            const rightKey = cyclePool.right[(slotNow + 3) % cyclePool.right.length];
+            // variants line up with the side they're spawned on.  Right
+            // pool walks at a half-pool offset so left vs right diverge;
+            // if the pools still pick the same texture (small pool, even
+            // length, or the two pools share entries), shift right by +1
+            // so we never get the SAME store mirrored across the road.
+            const lLen = cyclePool.left.length;
+            const rLen = cyclePool.right.length;
+            const rOffset = Math.max(1, Math.floor(rLen / 2));
+            const leftKey   = cyclePool.left[slotNow % lLen];
+            let   rightIdx  = (slotNow + rOffset) % rLen;
+            let   rightKey  = cyclePool.right[rightIdx];
+            if (rightKey === leftKey && rLen > 1) {
+              rightIdx = (rightIdx + 1) % rLen;
+              rightKey = cyclePool.right[rightIdx];
+            }
             // Per-region "car-widths past the fog line" gaps — see
             // fogLineOffset() block comment near the top of this file.
             //
@@ -1129,8 +1267,17 @@ export function buildRoute(count = ROUTE_SEGS) {
             // rampClearance push).  Previously these were swapped,
             // which placed *_left directional facades on the right
             // side of the road for Bellevue.
-            makeOne(-1, leftKey,  false);
-            makeOne( 1, rightKey, onRamp);
+            if (isSparseStoresCorridor) {
+              // Issaquah: only ONE store per slot, alternating sides so
+              // the player doesn't see the same shop mirrored across the
+              // road.  Home clusters + tree spawn block below fill the
+              // rest of the shoulder.
+              if (slotNow % 2 === 0) makeOne(-1, leftKey,  false);
+              else                   makeOne( 1, rightKey, onRamp);
+            } else {
+              makeOne(-1, leftKey,  false);
+              makeOne( 1, rightKey, onRamp);
+            }
           }
         }
       }
@@ -1208,6 +1355,141 @@ export function buildRoute(count = ROUTE_SEGS) {
         }
       }
     }
+
+    // ── Eastern Washington town frontage ─────────────────────────────
+    // Each small-town window is a readable, finite sequence: one business
+    // followed by four to six houses, then nothing but rural scenery.
+    const easternTown = EASTERN_TOWN_WINDOWS.find(
+      town => mileNow >= town.start && mileNow < town.end,
+    );
+    if (easternTown) {
+      const previousMile = ((i - 1) / ROUTE_SEGS) * TOTAL_ROUTE_MILES;
+      const totalStructures = easternTown.homes + 1;
+      const duration = easternTown.end - easternTown.start;
+      const along = (mileNow - easternTown.start) / duration;
+      const placeIndex = Math.floor(along * totalStructures);
+      const previousIndex = previousMile < easternTown.start
+        ? -1
+        : Math.floor(((previousMile - easternTown.start) / duration) * totalStructures);
+      if (placeIndex > previousIndex && placeIndex < totalStructures) {
+        const isBusiness = placeIndex === 0;
+        const texKey = isBusiness ? easternTown.business : easternTown.home;
+        const sign = (placeIndex % 2 === 0) ? -1 : 1;
+        const gapCars = isBusiness ? 1.18 : 1.62 + ((placeIndex % 3) * 0.18);
+        sprites.push({
+          type: 'building',
+          texKey,
+          offset: fogLineOffset(texKey, sign, gapCars),
+          roadEdgeGapCars: gapCars,
+          baseW: 1800,
+          baseH: 1500,
+          collected: false,
+          collidable: true,
+        });
+      }
+    }
+
+    // ── Fenced dry-side pasture and farm accents ──────────────────────
+    // Barns and herd images are sparse; the continuous fence itself is
+    // rendered from a segment flag in GameScene with no repeating bitmap.
+    const _easternPasture = EASTERN_PASTURE_RUNS.find(
+      run => mileNow >= run.start && mileNow < run.end,
+    );
+    const _inEasternPasture = !!_easternPasture;
+    const _nearRuralRamp = REST_STOPS.some(rs => Math.abs(mileNow - rs.mileage) < 1.15);
+    const _easternUtility = EASTERN_UTILITY_RUNS.find(
+      run => mileNow >= run.start && mileNow < run.end,
+    );
+    const _utilityLineSide = _easternUtility && !_inEasternPasture && !_nearRuralRamp
+      ? _easternUtility.side
+      : 0;
+    const _utilityNearHomes = !!(_utilityLineSide && _easternUtility?.nearHomes);
+    if (_inEasternPasture && !_nearRuralRamp) {
+      const herdSlotsPerMile = 1.20;
+      const herdStep = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / herdSlotsPerMile;
+      const herdSlot = Math.floor(i / herdStep);
+      const herdSlotPrev = i > 0 ? Math.floor((i - 1) / herdStep) : -1;
+      if (_easternPasture.cows && herdSlot > herdSlotPrev && rng.bool(0.72)) {
+        const side = rng.bool(0.5) ? -1 : 1;
+        const texKey = EASTERN_HERD_TEXTURES[herdSlot % EASTERN_HERD_TEXTURES.length];
+        sprites.push({
+          type: 'livestock',
+          texKey,
+          offset: side * (3.70 + rng.next() * 2.40),
+          baseW: 600,
+          baseH: 280,
+          collected: false,
+          flipX: rng.bool(0.5),
+        });
+      }
+      const barnSlotsPerMile = 0.18;
+      const barnStep = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / barnSlotsPerMile;
+      const barnSlot = Math.floor(i / barnStep);
+      const barnSlotPrev = i > 0 ? Math.floor((i - 1) / barnStep) : -1;
+      if (barnSlot > barnSlotPrev && rng.bool(0.70)) {
+        const side = rng.bool(0.5) ? -1 : 1;
+        sprites.push({
+          type: 'building',
+          texKey: 'codex_east_wa_barn',
+          offset: fogLineOffset('codex_east_wa_barn', side, 5.5),
+          roadEdgeGapCars: 5.5,
+          baseW: 1500,
+          baseH: 1300,
+          collected: false,
+        });
+      }
+    }
+
+    // ── Suburban-Bellevue / Issaquah home clusters ──────────────────
+    // Past mile 13.25 we shift into suburban residential frontage.
+    // The dense window (13.25-14.5) spawns clusters every 0.4 mi for
+    // a continuous "homes-one-side, trees-other-side" rhythm.  Past
+    // mile 14.5 the cadence relaxes to one cluster every 0.5 mi.
+    // Cluster side alternates each window so the pattern reads as
+    // 3-4 homes left, trees right → 3-5 homes right, trees left → …
+    let _homeClusterSign = 0;   // -1 = left, +1 = right, 0 = none here
+    {
+      const inSuburbanHomeCorridor = mileNow >= 13.25 && mileNow <= 25;
+      if (inSuburbanHomeCorridor) {
+        // Tighter cadence in the dense suburban window.
+        const cadence    = (mileNow >= 13.25 && mileNow <= 14.5) ? 0.40 : 0.50;
+        const winLenMi   = (mileNow >= 13.25 && mileNow <= 14.5) ? 0.15 : 0.10;
+        const bucket     = Math.floor(mileNow / cadence);
+        const intoBucket = (mileNow - bucket * cadence) / cadence;   // 0..1
+        const inClusterWindow = intoBucket < (winLenMi / cadence);
+        if (inClusterWindow) {
+          const homeSlotsPerMile = 40;
+          const homeSegPer = (ROUTE_SEGS / TOTAL_ROUTE_MILES) / homeSlotsPerMile;
+          const homeSlot = Math.floor(i / homeSegPer);
+          const homePrev = i > 0 ? Math.floor((i - 1) / homeSegPer) : -1;
+          // Alternate sides per cluster bucket.
+          const sign = (bucket % 2 === 0) ? -1 : 1;
+          _homeClusterSign = sign;
+          if (homeSlot > homePrev) {
+            const hashHome = (s) => {
+              let v = (s | 0) ^ 0x9E3779B9;
+              v = Math.imul(v, 0x85ebca6b) | 0;
+              v = ((v >>> 13) ^ v) | 0;
+              v = Math.imul(v, 0xc2b2ae35) | 0;
+              return ((v >>> 16) ^ v) >>> 0;
+            };
+            const texKey = WEST_SEATTLE_HOMES[hashHome(homeSlot) % WEST_SEATTLE_HOMES.length];
+            const offset = fogLineOffset(texKey, sign, RESIDENTIAL_FRONTAGE_GAP_CARS);
+            sprites.push({
+              type:      'building',
+              texKey,
+              offset,
+              baseW:     5400 + Math.floor(rng.next() * 2400),
+              baseH:     4200 + Math.floor(rng.next() * 1400),
+              roadEdgeGapCars: RESIDENTIAL_FRONTAGE_GAP_CARS,
+              collected: false,
+              collidable: true,
+            });
+          }
+        }
+      }
+    }
+
     // ── Regional trees & shrubs ───────────────────────────────────────
     // Slot-based spawn (deterministic, mirrors the building cycle):
     // each side independently picks a tree from the region pool every
@@ -1275,8 +1557,17 @@ export function buildRoute(count = ROUTE_SEGS) {
       case 'eastside':
         // Bellevue tail → Issaquah → North Bend — dense roadside
         // conifers, the iconic I-90 wooded eastside stretch.
+        // Issaquah window (17-25) bumps to a wall-of-trees density per
+        // user spec so the sparse stores (1 per ~0.75 mi) have a real
+        // forested backdrop.
         _treePool = WESTERN_WA_CONIFERS;
-        _treeSlotsPerMile = 22;
+        _treeSlotsPerMile = (mileNow >= 14 && mileNow <= 25) ? 120 : 22;
+        if (mileNow >= 14 && mileNow <= 25) {
+          _denseStreetTrees    = true;
+          _treeBigBoostChance  = 0.20;
+          _treeBigBoostMin     = 1.6;
+          _treeBigBoostMax     = 2.4;
+        }
         break;
       case 'cascades':
         // Snoqualmie Pass + Cle Elum — heaviest forest on the route.
@@ -1286,18 +1577,43 @@ export function buildRoute(count = ROUTE_SEGS) {
       case 'east_cascades':
         // Cle Elum → Ellensburg → Vantage — sparser, drier; pines
         // start replacing the wet-side conifers.
+        // Vantage window (mile 128-145) gets 3× vegetation so the
+        // bluffs above the Columbia read as a sage-and-pine canyon
+        // instead of bare grass.
         _treePool = EAST_CASCADES_PINES;
-        _treeSlotsPerMile = 12;
+        _shrubPool = COLUMBIA_BASIN_SHRUBS;
+        if (mileNow >= 128 && mileNow <= 145) {
+          _treeSlotsPerMile  = 96;     // 32 × 3
+          _shrubSlotsPerMile = 120;    // 40 × 3
+        } else {
+          _treeSlotsPerMile  = 32;
+          _shrubSlotsPerMile = 40;
+        }
         break;
       case 'columbia_basin':
-        // High desert — sage steppe, sparse ponderosa.
+        // High desert farm country: brush noticeably outweighs sparse pines.
+        // Vantage tail (138-145) keeps the 3× density that started in
+        // east_cascades so the canyon doesn't suddenly thin out at the
+        // region boundary.
         _treePool = COLUMBIA_BASIN_SPARSE_PINES;
-        _treeSlotsPerMile = 3;
         _shrubPool = COLUMBIA_BASIN_SHRUBS;
-        _shrubSlotsPerMile = 18;
+        if (mileNow >= 138 && mileNow <= 145) {
+          _treeSlotsPerMile  = 24;
+          _shrubSlotsPerMile = 210;   // 70 × 3
+        } else {
+          _treeSlotsPerMile  = 8;
+          _shrubSlotsPerMile = 70;
+        }
         break;
-      // palouse: wheat country — no roadside trees, occasional
-      // farmstead shelterbelt only.  Skip the spawn entirely.
+      case 'palouse':
+        // Open grain country still has scrub shoulders and rare shelter pines.
+        // Pines 1 → 4 and shrubs 14 → 50 so the Palouse hills carry a
+        // visible shoulder of brush instead of empty grass.
+        _treePool = COLUMBIA_BASIN_SPARSE_PINES;
+        _treeSlotsPerMile = 4;
+        _shrubPool = COLUMBIA_BASIN_SHRUBS;
+        _shrubSlotsPerMile = 50;
+        break;
     }
     if (_treePool || _shrubPool) {
       // Suppress spawning inside the urban West Seattle approach (the
@@ -1326,8 +1642,22 @@ export function buildRoute(count = ROUTE_SEGS) {
           const baseMax = kind === 'shrub' ? 2.20 : 2.60;
           const leftKey  = pool[ slotNow       % pool.length];
           const rightKey = pool[(slotNow + 1)  % pool.length];
+          // Ramp guard — exit ramps open on the RIGHT for ~1 mi before
+          // each rest stop.  Trees inside that window with offsets 1.0
+          // to 4.9 would be culled by the post-pass clearance.  Push
+          // right-side spawns past the ramp's outer edge (~5.0) so
+          // they land on green grass beyond the ramp instead of being
+          // wiped out entirely.
+          const _onRampWindow = REST_STOPS.some(rs =>
+            mileNow >= rs.mileage - 1.0 && mileNow <= rs.mileage + 0.3
+          );
           const pushOne = (sign, texKey) => {
-            const off = sign * (baseMin + rng.next() * (baseMax - baseMin));
+            let off = sign * (baseMin + rng.next() * (baseMax - baseMin));
+            if (_onRampWindow && sign > 0) {
+              // Right side during a ramp window: shift outward past the
+              // ramp's outer edge so the tree lands on green, not paint.
+              off = 5.0 + rng.next() * 1.5;     // offset 5.0–6.5
+            }
             // Per-spawn height boost.  Three layers:
             //   1. Regional base boost (_treeHeightBoost, e.g. 1.5 in
             //      downtown Seattle for mature street trees)
@@ -1350,17 +1680,23 @@ export function buildRoute(count = ROUTE_SEGS) {
               collected: false,
               // Trees are solid obstacles but light damage — much less
               // punishing than buildings/scenery (10 HP) so the wooded
-              // eastside isn't a meat grinder.  GameScene reads `damage`
-              // off the sprite in _triggerSceneryRespawn.
-              damage:    5,
+              // eastside isn't a meat grinder.  Shrubs are even lighter
+              // (0.5 – 1.0 HP) per "should barely sting" feedback.
+              damage:    kind === 'shrub' ? (0.5 + rng.next() * 0.5) : 5,
               heightBoost: (kind === 'tree' && boost !== 1) ? boost : undefined,
             });
           };
           // Wild forest rows keep some asymmetry. Bellevue is deliberately
           // planted on both curbs so buildings read as tree-lined blocks.
+          // EXCEPT when a suburban home cluster is sitting on one side —
+          // then trees go on the OPPOSITE side only so the cluster reads
+          // as "homes here, forest across the road."
           const bothSides = isDenseStreetRow || rng.bool(0.75);
-          pushOne( 1, leftKey);
-          if (bothSides) pushOne(-1, rightKey);
+          const homeSide  = _homeClusterSign;   // -1 left, +1 right, 0 none
+          // pushOne sign convention: sign=+1 → RIGHT, sign=-1 → LEFT
+          // (off = sign * baseMin, positive offset is screen-right).
+          if (homeSide !== 1)  pushOne( 1, leftKey);     // skip RIGHT trees if homes are on RIGHT
+          if (bothSides && homeSide !== -1) pushOne(-1, rightKey);  // skip LEFT trees if homes are on LEFT
         };
         SPAWN_TREE(_treePool,  _treeSlotsPerMile,  'tree');
         SPAWN_TREE(_shrubPool, _shrubSlotsPerMile, 'shrub');
@@ -1410,7 +1746,6 @@ export function buildRoute(count = ROUTE_SEGS) {
               baseW:       1500,
               baseH:       2400,
               collected:   false,
-              collidable:  false,
               flipX:       rng.bool(0.45),
               heightBoost: boost,
             });
@@ -1488,9 +1823,6 @@ export function buildRoute(count = ROUTE_SEGS) {
               flipX:       flip,
               sizeMult,
               damage:      5,
-              // Far rows are pure visual filler — non-collidable so
-              // the player isn't pinged when drifting 4+ units sideways.
-              collidable:  Math.abs(off) < 3.0 ? undefined : false,
             });
           }
         }
@@ -1570,6 +1902,9 @@ export function buildRoute(count = ROUTE_SEGS) {
       // the road is pure forest highway — sidewalks don't belong.
       urban:     (!!traits.buildings) && (mileNow < 38),
       water:     !!traits.water,        // drives bridge guardrails + water tile
+      ruralFence: _inEasternPasture && !_nearRuralRamp,
+      utilityLineSide: _utilityLineSide,
+      utilityNearHomes: _utilityNearHomes,
       sprites,
       cars: [],
     });
@@ -1730,6 +2065,82 @@ export function buildRoute(count = ROUTE_SEGS) {
       if (seg.sprites?.length) {
         seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
       }
+    }
+  }
+
+  // ── Vantage Suspension Bridge (mile 134.55–135.05) ──────────────────
+  // 0.5 mi span across the Columbia.  Marked with `seg.suspension` so
+  // Road.js paints the tower + cable structure on top of the normal
+  // water-bridge geometry.  Sub-flags `bridgeTowerStart` /
+  // `bridgeTowerEnd` mark the two tower segments so the renderer
+  // knows where to drop pylons; cable arcs are drawn across every
+  // suspension segment based on the segment's `t` (0..1 along span).
+  {
+    const segsPerMileSusp = SEGS_PER_MILE_FOR_TUNNEL(count);
+    const ts = Math.floor(VANTAGE_SUSPENSION_RANGE[0] * segsPerMileSusp) % count;
+    const te = Math.floor(VANTAGE_SUSPENSION_RANGE[1] * segsPerMileSusp) % count;
+    const len = ((te - ts) + count) % count;
+    let k = 0;
+    for (let i = ts; i !== te; i = (i + 1) % count, k++) {
+      const seg = segments[i];
+      if (!seg) continue;
+      seg.bridge     = true;
+      seg.suspension = true;
+      seg.suspT      = len > 0 ? k / len : 0;   // 0..1 across span
+      // Water is only painted under the middle 50% of the span; the
+      // first/last quarters are over LAND (canyon walls drop to the
+      // river in the middle).  Without this, the whole bridge reads
+      // as suspended over open water — wrong for a Columbia gorge
+      // crossing where the bridge anchors on cliffs.
+      if (seg.suspT >= 0.25 && seg.suspT <= 0.75) {
+        seg.water = true;
+      }
+      // Tower segments — the entrance + exit pylons sit at very start
+      // and very end of the span.  k===0 = start tower; k===len-1 = end.
+      if (k === 0)         seg.bridgeTowerStart = true;
+      if (k === len - 1)   seg.bridgeTowerEnd   = true;
+      if (seg.sprites?.length) {
+        seg.sprites = seg.sprites.filter(sp => sp.isCollectible);
+      }
+    }
+  }
+
+  // ── Overpasses (wildlife crossing + I-405 freeway) ──────────────────
+  // Mark a short run of segments as overpass.  Road.js paints an
+  // overhead beam structure for these in `_drawOverpasses`.  No
+  // tunnel walls, no rail clamp — the player just briefly drives
+  // under something visible above the road.
+  {
+    const segsPerMileOv = SEGS_PER_MILE_FOR_TUNNEL(count);
+    const markOverpass = (range, kind) => {
+      const ts = Math.floor(range[0] * segsPerMileOv) % count;
+      const te = Math.floor(range[1] * segsPerMileOv) % count;
+      const len = ((te - ts) + count) % count;
+      let k = 0;
+      for (let i = ts; i !== te; i = (i + 1) % count, k++) {
+        const seg = segments[i];
+        if (!seg) continue;
+        seg.overpass     = true;
+        seg.overpassKind = kind;            // 'wildlife' | 'freeway'
+        seg.overpassT    = len > 0 ? k / len : 0;
+      }
+    };
+    // I-405 freeway overpass at mile ~11 — held for redesign.
+    // markOverpass(I405_OVERPASS_RANGE, 'freeway');
+  }
+
+  // ── Wildlife crossing at Snoqualmie Pass (mile 65.00–65.03) ─────────
+  // Short tunnel with an arched facade.  Walls are 1/6 of a normal
+  // tunnel's so the structure sits compactly next to the road.
+  {
+    const segsPerMileWild = SEGS_PER_MILE_FOR_TUNNEL(count);
+    const ts = Math.floor(WILDLIFE_OVERPASS_RANGE[0] * segsPerMileWild) % count;
+    const te = Math.floor(WILDLIFE_OVERPASS_RANGE[1] * segsPerMileWild) % count;
+    for (let i = ts; i !== te; i = (i + 1) % count) {
+      const seg = segments[i];
+      if (!seg) continue;
+      seg.tunnel   = true;
+      seg.wildlife = true;     // Road.js paints narrower walls + greenery
     }
   }
 

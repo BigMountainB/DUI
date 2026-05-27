@@ -1009,20 +1009,21 @@ export class EffectsSystem {
     const weedSpeedPenalty = weedAlone ? weed * 0.22 : 0;
     const weedTimePenalty  = weedAlone ? weed * 0.18 : 0;
 
-    // Fentanyl: while it's in your system the car drives at 30% — hard
-    // cap, not a scaling penalty (per spec).  Below the active threshold
-    // the normal physics formula applies.
+    // Fentanyl: -10 mph per 10 % of bar (per spec).  Top speed reads
+    // 120 mph at multiplier 1.0, so each 10 % fent should drop the
+    // multiplier by ~0.083 (10/120).  Applied as a smooth proportional
+    // subtraction — no hard cap.
     const baseSpeedMult = clamp(
       1 + coke * 0.55
         + meth * 0.45                   // meth: speed boost (jittery wired)
         - hero * 0.5
-        - fent * 0.75
+        - fent * (10 / 12)              // -10 mph per 10 % fent (from 120 mph cap)
         - weedSpeedPenalty
         - ket  * 0.35
         - rx   * 0.15,
       0.1, 1.8
     );
-    let _speedMult = fent > 0.05 ? 0.30 : baseSpeedMult;
+    let _speedMult = baseSpeedMult;
     // Tranq combo (hero + ket): final speed × 0.85.
     if (this._comboTranq) _speedMult *= 0.85;
     // Speedball combo (coke + hero): cocaine pulse fights heroin nod —

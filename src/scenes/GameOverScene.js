@@ -83,6 +83,7 @@ export class GameOverScene extends Phaser.Scene {
 
     // Dark scrim over the lower portion so text reads cleanly.
     this.add.rectangle(0, SCREEN_H * 0.52, SCREEN_W, SCREEN_H * 0.48, 0x000000, 0.78).setOrigin(0);
+    if (this.cause === 'crash') this._drawWreckedGlass();
 
     // ── Headline ───────────────────────────────────────────────────────
     this.add.text(CX, 28, meta.headline, {
@@ -156,6 +157,44 @@ export class GameOverScene extends Phaser.Scene {
     });
     this.input.keyboard?.once('keydown-ENTER', () => this._startOver());
     this.input.keyboard?.on('keydown-L', () => this._openDrugLog());
+  }
+
+  /** Fully broken windshield laid above the wreck artwork, below the UI text. */
+  _drawWreckedGlass() {
+    // Created after the artwork/scrim and before labels/buttons, so default
+    // display order gives glass-over-scene without cracking the UI itself.
+    const g = this.add.graphics();
+    const hubs = [
+      [638, 104, 94, 7], [172, 162, 112, 8],
+      [534, 282, 126, 8], [286, 76, 104, 7],
+    ];
+    for (const [cx, cy, radius, arms] of hubs) {
+      g.lineStyle(3, 0x111820, 0.42);
+      for (let pass = 0; pass < 2; pass++) {
+        g.lineStyle(pass === 0 ? 3 : 2, pass === 0 ? 0x111820 : 0xEAF6FF, pass === 0 ? 0.42 : 0.92);
+        for (let i = 0; i < arms; i++) {
+          const ang = i * (Math.PI * 2 / arms) + cx * 0.002;
+          const bend = Math.sin(i * 7.3 + cy) * 0.24;
+          const mx = cx + Math.cos(ang) * radius * 0.54;
+          const my = cy + Math.sin(ang) * radius * 0.54;
+          const ex = cx + Math.cos(ang + bend) * radius;
+          const ey = cy + Math.sin(ang + bend) * radius;
+          g.beginPath();
+          g.moveTo(cx, cy);
+          g.lineTo(mx, my);
+          g.lineTo(ex, ey);
+          g.strokePath();
+          if ((i % 2) === 0) {
+            g.beginPath();
+            g.moveTo(mx, my);
+            g.lineTo(mx + Math.cos(ang + 1.05) * radius * 0.28, my + Math.sin(ang + 1.05) * radius * 0.28);
+            g.strokePath();
+          }
+        }
+      }
+      g.fillStyle(0xF2FAFF, 0.90);
+      g.fillCircle(cx, cy, 3);
+    }
   }
 
   /** Pop a modal overlay listing every drug's run status + unlock hints. */

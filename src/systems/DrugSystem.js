@@ -327,15 +327,18 @@ export class DrugSystem {
     this.levels[id] = newLevel;
 
     // ── Cross-drug pickup effects ─────────────────────────────────────
-    // Beer burns shrooms / LSD by 15 pp each.  Cocaine burns 7 pp off
-    // alcohol.  Rx multiplies every OTHER drug bar by 0.9 (10% off the
-    // current amount, per user spec).
+    // Beer lowers each OTHER drug by 5 percentage points only while that
+    // bar is above 45%, so it can curb dangerous highs without wiping
+    // early-stage effects. Cocaine burns 7 points off alcohol. Rx
+    // multiplies every OTHER drug bar by 0.9 (10% off its current amount).
     const dropBy = (other, delta) => {
       this.levels[other] = Math.max(0, (this.levels[other] ?? 0) - delta);
     };
     if (id === DRUGS.ALCOHOL) {
-      dropBy(DRUGS.SHROOMS, 0.15);
-      dropBy(DRUGS.LSD,     0.15);
+      for (const otherId of Object.values(DRUGS)) {
+        if (otherId === DRUGS.ALCOHOL) continue;
+        if ((this.levels[otherId] ?? 0) > 0.45) dropBy(otherId, 0.05);
+      }
     }
     if (id === DRUGS.COCAINE) {
       dropBy(DRUGS.ALCOHOL, 0.07);

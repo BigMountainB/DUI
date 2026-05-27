@@ -248,9 +248,14 @@ Forward warps **drain gas** equal to trip distance. Hard mode disallows warping 
 - **DELETE THE DEV WARP** — digit-keys 1-9 mile-warp cheat in [src/scenes/GameScene.js](src/scenes/GameScene.js), bracketed by `// ── DEV WARP — REMOVE BEFORE RELEASE ──`. **Must be deleted before shipping.**
 
 ### Tier 1 — Active features the user has flagged
-- **Sex Worker** mechanic — currently a 1-in-10 "dirt on a politician" buff. Wants more outcomes, recurring NPCs, quest hooks.
-- **Hitchhiker** mechanic — basic random good/bad outcome works (70/30 split, drug-bar-to-90% added). Wants more variety, story hooks.
-- **Police 2.0** — smarter cop behavior beyond rear/oncoming/barricade. Possible: coordinated tactics, helicopter spotlight at night, line-of-sight star decay, escalating chase music.
+- **Title-screen stoplight redesign (SPECCED, NOT BUILT)** — replace Easy/Normal/Hard buttons with 3 stacked stoplight buttons (same size as current difficulty buttons):
+  - **Red — Thumbs: 2/1/0** (cycles, wraps). Subtitles: "Left and Right Thumb, basic" / "Just one thumb, like Flippy Burd" / "Look, Ma! No thumbs! (Tilt steering)". Maps to existing steering modes (classic L/R, flappy-tap, tilt).
+  - **Yellow — Difficulty: Easy/Normal/Hard/Custom** (cycles, wraps). Reuse existing short-sentence blurbs inline.
+  - **Green — Start.** Custom + Start opens existing custom-slider modal. FF button on title should also start the game.
+  - Persist selections between sessions via registry.
+- **Sex Worker / prostitute interaction expansion** — currently a 1-in-10 "dirt on a politician" buff. Add more outcomes, recurring NPCs, and quest hooks; investigate spawning visible sidewalk NPCs near towns/rest stops so the mechanic exists in the driving world rather than only in menus.
+- **Hitchhiker expansion** — basic random good/bad outcome works (70/30 split, drug-bar-to-90% added). Add more variety and story hooks; investigate roadside/sidewalk hitchhiker sprites the player can see and choose to approach or pick up.
+- **Police 2.0 / five-star behavior correction** — police that pass the player should actively turn into pursuit/ram behavior instead of simply continuing away. Current code also allows wanted stars to decay over time and town crossings to reduce `5★ -> 0`, which does not match desired behavior. At five stars, heat should remain until an explicit escape action such as a disguise, special sex-worker outcome, or paint job removes it. Consider coordinated rams, roadblocks, helicopter spotlight at night, and escalating chase music after the core behavior is fixed.
 
 ### Tier 2 — Plan phases not yet done
 - **Phase 2 — Mission system** (Job Done achievement is wired but waiting on missions).
@@ -269,6 +274,161 @@ Photo mode, in-game settings menu, accessibility toggles.
 ---
 
 ## 8. Major build-history (newest first)
+
+### 2026-05-27 — Title polish, new infrastructure, route content, physics tweaks
+A long mixed session — major buckets:
+
+**Title screen overhaul** ([GameScene.js](src/scenes/GameScene.js), [AssetManifest.js](src/systems/AssetManifest.js))
+- `_setHudVisible` now also hides HP / gas / accel bar / gas icon / HP damage popup / party clock / drug-bar labels / F12 weapon icons. `_drawDrugBars` and `_drawF12Inventory` early-return when `_awaitingStart`.
+- Replaced the title-over-live-road presentation with the authored neon rainy Seattle artwork from `Images/DUI Title Screen.png`; the runtime game loads a compact `800x450` WebP version at `public/assets/ui/title_screen.webp` (about `91 KB`).
+- Interactive hit regions align with the artwork's bottom cards: `START`, live `DIFFICULTY`, live `DRIVING TYPE`, and `LOAD SAVE`. Difficulty and driving type repaint only their interior value area so selections can change without disturbing the composed scene.
+- Title defaults: Thumbs `2` (classic) and Difficulty `Normal` on first-ever load. Subsequent runs restore the player's last picks from a dedicated `titleThumbsPick` / `titleDiffPick` registry slot — survives even when the underlying steering subsystem falls back (e.g., tilt unsupported).
+- Difficulty + steering only commit on the green Start tap so the iOS tilt permission prompt fires from a fresh user gesture. DOM-level `touchend`/`click` fallback armed if the initial `requestPermission()` doesn't surface the prompt (Chrome iOS / WKWebView gesture loss).
+
+**Tilt steering**
+- Proportional analog steering for tilt mode: lower threshold (10° → 3°), `_tiltSteerAmt` value in `[-1, 1]` (full lock at ±20°), used directly as `steerIn` in tilt mode. Lets the player feather the lane line.
+- Tilt mode now ignores `_touchLeft / _touchRight` so a player on tilt isn't accidentally also tap-steering.
+
+**Difficulty / speed**
+- Fentanyl no longer hard-caps speed to 30%. Proportional `-10 mph per 10% bar` via `baseSpeedMult -= fent * (10/12)` — at 100% fent the top speed lands around 20 mph (from 120).
+
+**Vehicle/water physics — guardrails, dunk, sink animation**
+- Guardrail clamp (`0.95`, 3 HP/sec scrape) now fires on every water-adjacent segment: `seg.bridge`, `seg.water` (bridge aprons), `seg.waterLeft` (left-only rail), `seg.waterRight` (right-only rail).
+- Water dunk threshold raised `1.05 → 1.5`. Sinking only triggers when a violent impulse (head-on, glitched i-frame) punches the car past the rail. Normal drift just scrapes.
+- Multi-stage sink animation: tire shadow disappears first, then progressive sprite crop (tires → lower body → roof) with sprite Y shifted down so the visible bottom stays at the water line. After 1.5 s: -10 HP + warp to road center + 1.5 s cooldown.
+
+**Hot keys**
+- `B` warps player position back `0.25 mi` (companion to existing `1-9` mile warps).
+- `N` warps forward `0.25 mi` (clamped at final mile).
+- All three blocks marked `// REMOVE BEFORE RELEASE` and search-able by `DEV WARP` / `BACK-WARP HOTKEY` / `FORWARD-WARP HOTKEY`.
+
+**Tunnels & overpasses**
+- **Wildlife crossing at mile 65.00–65.03** (Snoqualmie Pass). Implemented as a `seg.tunnel = true` + `seg.wildlife = true` short tunnel. Walls are 1/6 of Mercer Island's (`wallW = w × 0.13`). Facade flank polygon is TWO sine-curve mounds (one each side of the arch, peak at mid-flank height = `dropY`) with a semicircular arch + concrete arch ring between them. Dirt + grass band + tree silhouettes paint ON TOP of the ceiling. `H_HILL = 20000`, `W_FLANK = 40000` for wildlife (vs `25000` / `337500` for normal highway tunnels). Normal tunnels (Mt Baker, Mercer Island) keep the original single-peak mountain + rectangular lintel mouth — guarded by `isWildlifeFacade` branches.
+- **I-405 freeway overpass at mile 11.45–11.47** marking exists in [RouteData.js](src/road/RouteData.js) but is commented out — held for redesign. The `_drawOverpasses` renderer remains in [Road.js](src/road/Road.js) ready for a future flat-deck implementation.
+
+**Vantage suspension bridge** ([RouteData.js](src/road/RouteData.js), [Road.js](src/road/Road.js))
+- New 0.5-mi suspension bridge at mile 134.55–135.05. Middle 50% of segments (`suspT 0.25–0.75`) get `seg.water = true` so the canyon abutments stay on land. `seg.suspension = true` + `bridgeTowerStart` / `bridgeTowerEnd` on the two endpoints + `suspT` (0..1 along span) per segment.
+- `_drawSuspensionBridge` in Road.js paints two pylons (with crossbeam + finial dot) at the tower segments, then a catenary cable polyline on each side of the road (sag formula `1 − 4t(1−t)`) connecting tower tops, plus vertical hangers every 4 segments.
+
+**Route content / scenery**
+- Sparse-store corridor mile 14–25 — `1.4 buildings/mi`, alternating sides (`makeOne(slot % 2 === 0 ? -1 : +1, ...)`).
+- Suburban Bellevue / Issaquah home clusters past mile 13.25 — sine-cadence: clusters every 0.4 mi in the 13.25–14.5 dense window, 0.5 mi past that. 4 homes per cluster at 40 slots/mi packed close. Cluster side alternates per bucket. `_homeClusterSign` tracked into `SPAWN_TREE` so the OPPOSITE side gets trees, never both sides at the same segment.
+- Tree density mile 14–25 bumped 22 → 120 slots/mi (was 80) with 20% giant-boost in the eastern stretch.
+- Vantage area (mile 128–145) gets 3× vegetation: east_cascades trees 32 → 96/mi, shrubs 40 → 120/mi. Columbia Basin tail (138–145) keeps tripled shrub density (210/mi).
+- Rolling-hills overlay (mile 128–145): sinusoidal `hills[]` modulation with two wavelengths (1.2 mi + 0.45 mi) under a sine envelope. Macro grade unaffected.
+- Lake Sammamish — painted as a horizontal water band on the LEFT horizon during mile 14.9–16.2 (fades in/out), with a thin dark shoreline silhouette and white glint stripe.
+- Milky Way gating — sky band only fades in from mile 200 → 210 (was 110–120). Matches real astronomical darkness; field stars + moon still ramp during dusk.
+- Bellevue downtown skyscrapers end firmly at mile 13 (`eastside_urban` excluded from cycle-pool spawn past mile 13).
+- Mercer Island homes restored — `isMercerForestOnly = false`. Cycle-pool spawn now drops West Seattle home photos along mile 7.2–9.8 (residential rate of 80 slots/mi). Dense forest behind still fills via the regional tree pass.
+- Right-side tree ramp guard — within 1 mi of any rest stop, right-side trees shift to offset 5.0–6.5 (past the ramp's outer edge) so the post-pass ramp clearance doesn't strip them.
+- West Seattle home pool walk uses an xorshift mix + anti-repeat step (no more strict A→B→C→D→E→F cycle).
+- Cycle-pool same-texture-both-sides bug fixed — right-pool walk offset is `floor(len/2)` with an explicit `if (leftKey === rightKey) rightIdx++`, eliminating mirrored stores across the road in any city.
+
+**Cockpit elevation**
+- `ELEV_MULT = CAM.mode === 'cockpit' ? 0.5 : 1.0`. Applied to `seg.y` at `project()` call sites in [Road.js](src/road/Road.js) AND to the segY portion of `cameraY`. Chase mode unaffected. Vantage's steep descent reads much flatter through the windshield.
+
+**Powerlines** ([GameScene.js](src/scenes/GameScene.js))
+- Wire extrapolated past the closest visible pole using `previous − secondPrev` X delta (Y locked to `previous.wireA/B`). Wire continues OFF-screen horizontally instead of stopping mid-air when the camera passes a pole.
+- Wire sag removed — `connectWire` is now a straight `moveTo / lineTo`. The mid-span sag made the wire appear to dip into the road as a pole approached.
+
+**Shrubs vs other scenery**
+- Trees, buildings, cows, landmarks → `_triggerSceneryRespawn` (full crash → recover-lane warp). Cows added to `SCENERY_TYPES` (collidable per spec).
+- Shrubs → new `_sceneryGlance(proj, damage)` with light damage (0.5–1 HP per `RouteData.js` spawn), strong lateral push (`xImpulse = pushDir × 0.18`), zeroed inbound steerVelocity, 200 ms i-frame. NO speed cut, NO warp, NO "CRASH" popup. The bush gives way.
+
+**Other gameplay fixes**
+- Trees made collidable everywhere: regional Mercer trees, dense-forest far rows, the East WA barn, livestock — all had `collidable: false` that's been removed.
+- Double-vision green-ground bug fixed: ghost-road pass (`_drawSegment(ghostG, ..., isGhost=true)`) skips full-width grass / water / bridge / tunnel-wall fills so the offset ghost doesn't overlay green grass on top of the player's road.
+- Ghost lateral offset scaled by perspective (`proj.sw / 200`) — far ghosts no longer fling halfway across the screen.
+- Tire-shadow suppression when sink animation is active (shadow vanishes before tires submerge).
+
+### 2026-05-27 — Wiper controls/animation and eastern WA utility lines
+**Windshield wipers** ([GameScene.js](src/scenes/GameScene.js), [AssetManifest.js](src/systems/AssetManifest.js))
+- Replaced the ambiguous wiper-button glyph with a conventional windshield/single-blade icon and moved the button directly beside `BRAKE`; it mirrors with the pedal column when handedness changes.
+- Cockpit view now reuses two copies of `beater_wiper_arm.png`: a left-mounted blade and a center-mounted blade, both parked pointing right and sweeping together through `0° -> 100°`.
+- Corrected stretched/thin blade rendering by preserving the source aspect ratio, then lengthened/spread the pair so the high sweep approaches the rear-view mirror.
+- Third-person view now uses the same paired image-based blade effect instead of thin procedural lines.
+- Fixed the weather-exit state bug: when the rain/snow wiper button disappears, active wipers immediately shut off and park so the player cannot be stuck with no OFF control.
+
+**Eastern Washington utility lines** ([RouteData.js](src/road/RouteData.js), [GameScene.js](src/scenes/GameScene.js), [AssetManifest.js](src/systems/AssetManifest.js))
+- Added two compact transparent utility-pole runtime assets: `east_wa_utility_pole_plain.webp` and `east_wa_utility_pole_transformer.webp` (`256x512`, roughly `38 KB` combined). Full generated PNG sources remain archived under `Archive/generated-source/eastern-scenery/`.
+- Added a memory-conscious projected utility-line renderer: a small reusable pole sprite pool plus procedural sagging wires, rather than dense route sprites or long strip images.
+- Utility lines currently appear around Cle Elum and Ellensburg, plus selected farther-east open stretches; fenced pasture runs, bridges/tunnels/water, and rest-stop ramp corridors suppress pole placement.
+- Pole spacing is calibrated to approximately `200.7 ft`. Plain poles are the default; transformer poles occur more often near Cle Elum/Ellensburg home frontage and every fifth pole in open-country runs.
+
+**Verification**
+- `npm run build` passes. Vite's existing large Phaser-chunk warning remains informational.
+
+### 2026-05-26 (late) — Cockpit POV pass, Netlify deploy, trophy threshold
+**Cockpit POV overhaul** ([GameScene.js](src/scenes/GameScene.js), [src/constants.js](src/constants.js), [src/utils/Helpers.js](src/utils/Helpers.js))
+- Default view is now **3rd-person chase**; V toggles into cockpit. `_buildCockpit()` is followed by `_leaveCockpitView()` at scene start.
+- Mutable `CAM = { height, depth, eyeForwardZ, horizonY, mode }` profile. Cockpit values: `horizonY: 130`, `depth: 0.92`, `eyeForwardZ: 4500`, `height: 1200`.
+- Shared horizon: `project()` now takes optional `horizonY` so road polygons AND sprite/NPC samples converge to the same vanishing Y.
+- NPCs use `_renderCamPos` so cockpit and chase share one camera basis — fixed "tiny cars next to me" by aligning sprite scale to the unified projection.
+- Near-cull is view-aware: relZ < 100 in cockpit, < 1950 in chase, so cars exit screen sides instead of disappearing under the dashboard.
+- HUD popup Y depends on `_cockpitActive` — popups land on the dashboard (not below the rear-view mirror) in cockpit.
+- Pedal handedness: `_applyPedalHandedness()` mirrors ACCEL/BRAKE to the opposite side from weapons; both buttons moved fully to the screen edge.
+
+**Bridge & tunnel visuals** ([src/road/Road.js](src/road/Road.js))
+- West Seattle Bridge: water charcoal `0x0E1014` (was blue), foam/glints suppressed on bridge segments. Distant treeline silhouette painted on water/floating-bridge segments to break the "cranes in water" read. `bridgeFrontGfx` occluder at depth 4 re-paints WSB guardrails above cranes (`renderDepth: 2`) — **don't merge back into roadGfx**.
+- Mercer Island tunnel facade: board-form lines on lintel, pour seam, mouth-shadow border, hillside weathering streaks.
+
+**Tree density** ([src/road/RouteData.js](src/road/RouteData.js))
+- Downtown Seattle: 120 → 600 slots/mi, `_treeHeightBoost: 1.5`. Added `SEATTLE_STREET_TREES` (deciduous-weighted).
+- Mercer Island: 60 → 400 slots/mi with `_denseStreetTrees`, `_treeBigBoostChance: 0.35`, big-boost 2.0–3.0×. Forest-lot rows 72 → 130 with outer rows scaled 2.1× and 20-30% giants.
+- `SPAWN_TREE.pushOne` now accepts a regional `heightBoost` (or random big-boost roll).
+- Mercer Island house setback pushed 1.25 → 2.75 car-widths past fog.
+- Removed "west" tag after the first bridge.
+
+**iPhone-menu chip recalibration** ([index.html](index.html)) — trophy `108 505 120 120`, lock `275 505 120 120`, hand `108 680 120 120`.
+
+**Trophy threshold: 100% → 99%** for maxed-drug achievements ([GameScene.js](src/scenes/GameScene.js) ~5216, [AchievementSystem.js](src/systems/AchievementSystem.js) 117-122). 100% sits at the OD edge ("dead"); 99% reads as "maxed out" without forcing the player to a one-pickup-from-death brink. All 6 descriptions updated ("Hit 99% …").
+
+**Web shipping path** ([netlify.toml](netlify.toml), [package.json](package.json))
+- Pivoted from TestFlight to **Netlify web distribution** (no Apple Developer enrollment).
+- GitHub repo set up; Netlify auto-deploys on push to main.
+- Resolved repeated Netlify build failures:
+  - **Rollup native binary missing** on Linux: pinned `@rollup/rollup-linux-x64-gnu` (plus darwin-arm64/x64) in `optionalDependencies`. Also held `NODE_VERSION = "18"` so npm 9 ships (avoids npm 10's optional-deps bug).
+  - **"Unrecognized Git contributor"** on Netlify private-repo gate: user set `brendanbaughn@gmail.com` as primary on GitHub, switched git author email, pushed empty commit to re-trigger.
+- iOS tilt-steer + accelerometer permission flow works against the live Netlify HTTPS URL.
+
+### 2026-05-26 — Mercer/tunnel fixes, eastern WA rural scenery, OD/damage polish
+**Damage and endings**
+- Critical HP now adds progressive procedural windshield cracks in all view modes, starting at roughly 10 HP and worsening toward `WRECKED`.
+- Low-HP smoke is visible in cockpit view as well as chase view.
+- `WRECKED` has a shattered-windshield overlay; overdose now freezes the final road frame, fades to black, then presents the `OVERDOSED` ending.
+- Fixed a restart freeze after overdose: `_odEnding` survived Phaser scene reuse and kept a Vantage/checkpoint restart permanently frozen. `GameScene.init()` now clears it on every new run.
+
+**Drug rule update**
+- Beer now removes `5` percentage points from every other drug bar only when that bar is above `45%`.
+- Example: heroin `60% -> 55%`, while heroin `45%` remains `45%`.
+- Updated the beer description in `AchievementSystem.js` to match the implemented rule.
+
+**Mercer Island and tunnels**
+- Mercer Island roadside housing was replaced with forest-only lots using reused tree assets for a lower-memory wooded look.
+- Tunnel rendering was iterated to prevent cars, blue sky gaps, and portal/background scenery from showing through tunnel walls or curved sightlines.
+- Tunnel mouth/facade masking and wall occlusion behavior now live in `Road.js`; visually drive-check Mercer entrance, interior curve, traffic occlusion, and exit angles before considering this fully closed.
+
+**Eastern Washington scenery after Vantage**
+- Added compact transparent WebP runtime assets for dry-side buildings:
+  - `cle_elum_general_store.webp`, `ellensburg_main_street_shops.webp`
+  - `east_wa_weathered_house.webp`, `east_wa_abandoned_bungalow.webp`, `east_wa_barn.webp`
+  - `east_wa_two_story_brick_shop.webp` and `east_wa_block_repair_shop.webp`
+- The original raised-sign dilapidated market repeated the same general-store silhouette too closely; it is no longer actively loaded and is retained at `Archive/retired-runtime/eastern-scenery/east_wa_faded_market.webp`.
+- Source originals remain under `Archive/generated-source/eastern-scenery/`; runtime uses cropped/compressed WebPs.
+- Eastern town windows now place one business plus only `4-6` homes, then transition into farm/brush country. Post-Vantage businesses alternate flat-roof silhouettes instead of repeating the same store.
+- Columbia Basin/Palouse dressing was shifted toward shrubs with sparse pines, so brush outweighs trees.
+
+**Fences and cattle**
+- Added one reusable fence-post WebP (`east_wa_fence_post.webp`, under `1 KB`) with procedural rail lines and pooled post rendering.
+- Fence posts are route-anchored and move toward/past the player while driving rather than being camera-fixed.
+- Short fenced pasture runs recur every few miles after Vantage; only alternating fenced runs contain cattle.
+- Added three reusable, horizontally flippable cow-group assets (`east_wa_herd_3_cows.webp`, `east_wa_herd_5_cows.webp`, `east_wa_herd_6_cows.webp`). Final artwork is cows-only with spacing/perspective variety and no steer imagery.
+
+**Other**
+- ACCEL/BRAKE controls were moved to the side opposite weapon controls.
+- Added a TODO for lightweight smashable roadside objects: cones, boxes, barrels, and trash cans; pedestrians remain a separate design choice.
+- Mushroom “melt” projection was introduced for high shrooms and reduced from its stronger experimental amplitude to the current moderated maximum.
+- `npm run build` passes. Vite's existing large Phaser-chunk warning remains informational and unrelated to the added image assets.
 
 ### 2026-05-25 — Mercer Island ramp polish + 21-bug audit sweep
 **Ramp clearance for Mercer Island homes:** Right-side WEST_SEATTLE_HOMES near rest stops were sitting in the off-ramp gore wedge. Added a `rampClearance` flag on right-side cycle-spawned buildings within `(rs.mileage − 1.0, rs.mileage + 0.3)` (only the right side — there is no left-side off-ramp). Renderer + collision pass both:
@@ -447,6 +607,6 @@ Phone-menu PNG is 1408×2641 (aspect 0.533). `object-fit: cover` scales to fill,
 3. Read this file
 4. Skim [GameScene.js](src/scenes/GameScene.js) (the monolith) — it's where 80% of edits land
 5. Test the route by playing through OR using the DEV WARP digit keys (just remember to delete it before ship)
-6. Latest session work is at the top of [OVERNIGHT_NOTES.md](OVERNIGHT_NOTES.md)
+6. Latest session work is at the top of this file's **Major build-history** section.
 
 **If something blew up:** check Vite cache first. Then re-read this file for traps. Then dig in.

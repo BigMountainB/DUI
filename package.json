@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:http": "DUI_HTTP=1 vite --port 3001",
     "build": "vite build",
     "preview": "vite preview",
     "build:signs": "node scripts/buildShoppingSigns.js",

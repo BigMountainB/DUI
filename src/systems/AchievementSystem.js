@@ -28,7 +28,7 @@ const DRUG_INFO = {
     label: 'LIQUID COURAGE',
     icon:  '🍺',
     unlockHint: 'Available from the start — pick a beer up off the road.',
-    desc:  '7% per beer. Builds double vision & swerves. Burns shrooms + LSD by 15% each pickup. At 100%, sideswipes/corner clips sometimes don\'t damage you.',
+    desc:  '7% per beer. Builds double vision & swerves. Lowers each other drug bar above 45% by 5% per pickup. At 100%, sideswipes/corner clips sometimes don\'t damage you.',
   },
   [DRUGS.WEED]: {
     id:    'lifted',
@@ -114,12 +114,12 @@ const RUN_DEFS = {
   // Maxed-out family — one per OD-capable drug.  Fires when the bar
   // reaches exactly 100% without the player triggering an overdose
   // (which now only happens on overflow past 100%).
-  maxed_cocaine:     { label: 'MAXED COKE',        icon: '❄️', desc: 'Hit 100% cocaine without overdosing.' },
-  maxed_heroin:      { label: 'MAXED HEROIN',      icon: '💉', desc: 'Hit 100% heroin without overdosing.' },
-  maxed_rx:          { label: 'MAXED RX',          icon: '💊', desc: 'Hit 100% Rx without overdosing.' },
-  maxed_fentanyl:    { label: 'MAXED FENT',        icon: '☠️', desc: 'Hit 100% fentanyl without overdosing.' },
-  maxed_ketamine:    { label: 'MAXED K',           icon: '🐴', desc: 'Hit 100% ketamine without overdosing.' },
-  maxed_meth:        { label: 'MAXED METH',        icon: '⚡', desc: 'Hit 100% meth without overdosing.' },
+  maxed_cocaine:     { label: 'MAXED COKE',        icon: '❄️', desc: 'Hit 99% cocaine without overdosing.' },
+  maxed_heroin:      { label: 'MAXED HEROIN',      icon: '💉', desc: 'Hit 99% heroin without overdosing.' },
+  maxed_rx:          { label: 'MAXED RX',          icon: '💊', desc: 'Hit 99% Rx without overdosing.' },
+  maxed_fentanyl:    { label: 'MAXED FENT',        icon: '☠️', desc: 'Hit 99% fentanyl without overdosing.' },
+  maxed_ketamine:    { label: 'MAXED K',           icon: '🐴', desc: 'Hit 99% ketamine without overdosing.' },
+  maxed_meth:        { label: 'MAXED METH',        icon: '⚡', desc: 'Hit 99% meth without overdosing.' },
 };
 
 // Tier ordering — higher index = better.  Difficulty mode → tier id.

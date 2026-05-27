@@ -141,6 +141,15 @@ export const ASSET_MANIFEST = {
     { key: 'codex_issaquah_highlands',      path: 'assets/buildings/codex/issaquah_highlands_market.png' },
     { key: 'codex_issaquah_cottage',        path: 'assets/buildings/codex/issaquah_craftsman_cottage.png' },
     { key: 'codex_issaquah_roadside_strip_perspective', path: 'assets/buildings/codex/issaquah_roadside_strip_perspective.png' },
+    // Compact dry-side town/farm cutouts. Runtime copies are cropped WebP
+    // assets; the full generated originals live under Archive/.
+    { key: 'codex_cle_elum_general_store',      path: 'assets/buildings/codex/cle_elum_general_store.webp' },
+    { key: 'codex_ellensburg_main_street_shops', path: 'assets/buildings/codex/ellensburg_main_street_shops.webp' },
+    { key: 'codex_east_wa_weathered_house',     path: 'assets/buildings/codex/east_wa_weathered_house.webp' },
+    { key: 'codex_east_wa_barn',                path: 'assets/buildings/codex/east_wa_barn.webp' },
+    { key: 'codex_east_wa_abandoned_bungalow',  path: 'assets/buildings/codex/east_wa_abandoned_bungalow.webp' },
+    { key: 'codex_east_wa_two_story_brick_shop', path: 'assets/buildings/codex/east_wa_two_story_brick_shop.webp' },
+    { key: 'codex_east_wa_block_repair_shop',   path: 'assets/buildings/codex/east_wa_block_repair_shop.webp' },
     { key: 'codex_west_seattle_horizon_left',       path: 'assets/buildings/codex/west_seattle_horizon_left.png' },
     { key: 'codex_west_seattle_horizon_right',      path: 'assets/buildings/codex/west_seattle_horizon_right.png' },
     { key: 'codex_west_seattle_lowrise_apartments', path: 'assets/buildings/codex/west_seattle_lowrise_apartments.png' },
@@ -163,6 +172,16 @@ export const ASSET_MANIFEST = {
     { key: 'west_seattle_4', path: 'assets/buildings/codex/west_seattle_4.png' },
     { key: 'west_seattle_5', path: 'assets/buildings/codex/west_seattle_5.png' },
     { key: 'west_seattle_6', path: 'assets/buildings/codex/west_seattle_6.png' },
+  ],
+  rural: [
+    // One texture instance represents several distant pasture cows. These
+    // can be mirrored and staggered in the route for herd variety.
+    { key: 'east_wa_herd_3_cows', path: 'assets/rural/eastern_washington/east_wa_herd_3_cows.webp' },
+    { key: 'east_wa_herd_5_cows', path: 'assets/rural/eastern_washington/east_wa_herd_5_cows.webp' },
+    { key: 'east_wa_herd_6_cows', path: 'assets/rural/eastern_washington/east_wa_herd_6_cows.webp' },
+    { key: 'east_wa_fence_post',   path: 'assets/rural/eastern_washington/east_wa_fence_post.webp' },
+    { key: 'east_wa_utility_pole_plain', path: 'assets/rural/eastern_washington/east_wa_utility_pole_plain.webp' },
+    { key: 'east_wa_utility_pole_transformer', path: 'assets/rural/eastern_washington/east_wa_utility_pole_transformer.webp' },
   ],
   businesses: [
     // Brand-logo placards used by the rest-stop services-sign UI.
@@ -268,6 +287,9 @@ export const ASSET_MANIFEST = {
     // portrait (or pressing M on desktop) launches PhoneMenuScene with
     // this PNG as the full-screen letterboxed background.
     { key: 'ui_phone_menu_bg',   path: 'assets/ui/iphone_menu_bg.png' },
+    // Full-frame neon/rain title treatment. Runtime copy is sized to the
+    // 800x450 game viewport; the authored full-size PNG stays in Images/.
+    { key: 'ui_title_screen',     path: 'assets/ui/title_screen.webp' },
     // Title-screen letters — animated independently for a drunk/woozy
     // sway+fade effect on the intro overlay.  See GameScene._buildHUD.
     { key: 'ui_title_d',         path: 'assets/ui/title_d.png' },
