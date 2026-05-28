@@ -2868,8 +2868,12 @@ export class GameScene extends Phaser.Scene {
     const mphToUnits = (mph) => MAX_SPEED * (mph / 120);
 
     let targetSpeed;
-    if (this._isBoost())      targetSpeed = mphToUnits(boostMph);
-    else if (this._isBrake()) targetSpeed = mphToUnits(slowMph);
+    // Brake wins over accel when both are held — the safer behavior
+    // when the player is panic-mashing.  (Touch pedals are mutually
+    // exclusive at the toggle layer, so this priority only matters for
+    // keyboard up+down held together.)
+    if (this._isBrake())      targetSpeed = mphToUnits(slowMph);
+    else if (this._isBoost()) targetSpeed = mphToUnits(boostMph);
     else                       targetSpeed = mphToUnits(cruiseMph);
 
     targetSpeed *= phys.speedMult;
@@ -3550,6 +3554,53 @@ export class GameScene extends Phaser.Scene {
       }
       t.position += effSpeed * dt;
     }
+
+    // HARD-only: NPC lane changes.  Each car independently decides on
+    // its own scheduled clock so the fleet doesn't slide as a block
+    // (no "hive").  Per-car cooldown floor is 30 s; the schedule
+    // re-rolls 30-60 s on every successful or blocked change.
+    if (Difficulty.mode?.() === 'hard' && this.traffic?.length) {
+      const nowMs = this.time?.now ?? 0;
+      for (const t of this.traffic) {
+        if (!t.alive || t.crashed) continue;
+        if (t.nextLaneChange == null || nowMs < t.nextLaneChange) continue;
+
+        // Pick the OTHER lane on the same side of the road.  Same-side
+        // mapping keeps oncoming cars in the oncoming pair and
+        // same-direction cars in the same-direction pair — no one
+        // crosses the centerline.
+        let targetLane = null;
+        if      (t.laneOffset ===  0.25) targetLane =  0.75;
+        else if (t.laneOffset ===  0.75) targetLane =  0.25;
+        else if (t.laneOffset === -0.25) targetLane = -0.75;
+        else if (t.laneOffset === -0.75) targetLane = -0.25;
+        if (targetLane == null) {
+          // Off-grid lane (e.g., custom mode oddities) — skip, retry later.
+          t.nextLaneChange = nowMs + 30000 + Math.random() * 30000;
+          continue;
+        }
+
+        // Refuse if another car is occupying that target lane within
+        // ~5 car-lengths of us — prevents merging into a neighbor.
+        const SAFE_GAP = 5000;   // ~5 car lengths in world units
+        const blocked = this.traffic.some(o =>
+          o !== t && o.alive && !o.crashed
+          && Math.abs(o.laneOffset - targetLane) < 0.05
+          && Math.abs(o.position - t.position) < SAFE_GAP);
+        if (blocked) {
+          // Try again in a short window — don't burn the full 30 s
+          // cooldown on a thwarted attempt, but don't retry every
+          // frame either.  2-5 s feels organic.
+          t.nextLaneChange = nowMs + 2000 + Math.random() * 3000;
+          continue;
+        }
+
+        // Snap to the new lane and re-arm the 30-60 s cooldown.
+        t.laneOffset = targetLane;
+        t.nextLaneChange = nowMs + 30000 + Math.random() * 30000;
+      }
+    }
+
     for (let i = this.traffic.length - 1; i >= 0; i--) {
       const t = this.traffic[i];
       const dist = t.position - this.player.position;
@@ -3649,6 +3700,12 @@ export class GameScene extends Phaser.Scene {
       isCop,
       colorSet,
       alive:      true,
+      // HARD-mode lane-change clock.  Each spawned car gets a random
+      // first-change time in the next 30-60 s so the fleet doesn't all
+      // shift at once (avoids the "hive" look).  Subsequent changes
+      // re-roll the same 30-60 s window on success, so the per-car
+      // floor is always >= 30 s.
+      nextLaneChange: (this.time?.now ?? 0) + 30000 + Math.random() * 30000,
     });
   }
 
@@ -4957,7 +5014,19 @@ export class GameScene extends Phaser.Scene {
   _buildGarageModal() {
     if (this._garageModalOpen) return;
     this._garageModalOpen = true;
-    const owned = this.registry.get('ownedVehicles') ?? ['beater'];
+    // Freeze gameplay while the modal is up — same pause pattern as
+    // the ad-screen flow.  Remember the prior state so closing the
+    // modal restores it (don't auto-unpause if the player had paused
+    // before opening the garage).
+    this._garagePrevPaused = !!this._paused;
+    this._paused = true;
+    this.audio?.setPaused?.(true);
+    // Custom mode treats the garage as a sandbox — every vehicle is
+    // selectable regardless of what the persistent save lists as
+    // owned.  Other modes still respect ownership.
+    const owned = (Difficulty.mode?.() === 'custom')
+      ? Object.keys(VEHICLES)
+      : (this.registry.get('ownedVehicles') ?? ['beater']);
     const currentId = this.registry.get('vehicleId') ?? this.player?.vehicleId ?? 'beater';
     const D = 240;
     const objs = [];
@@ -4971,75 +5040,113 @@ export class GameScene extends Phaser.Scene {
     const panelH = SCREEN_H - 100;
     const panelX = 40;
     const panelY = 50;
-    const panel = this.add.rectangle(panelX, panelY, panelW, panelH, 0x122039, 0.96)
-      .setOrigin(0).setDepth(D + 1).setStrokeStyle(3, 0x66CCFF);
+    const panel = this.add.graphics().setDepth(D + 1);
+    panel.fillStyle(0x020611, 0.96);
+    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 7);
+    panel.lineStyle(3, 0x39A8FF, 0.96);
+    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 7);
+    panel.lineStyle(1, 0xFF39AF, 0.78);
+    panel.strokeRoundedRect(panelX + 7, panelY + 7, panelW - 14, panelH - 14, 5);
+    panel.lineStyle(1, 0xF4F7FF, 0.24);
+    panel.strokeRoundedRect(panelX + 13, panelY + 13, panelW - 26, panelH - 26, 4);
     objs.push(panel);
 
-    const title = this.add.text(SCREEN_W / 2, panelY + 18, '🚗  GARAGE', {
-      fontSize: '22px', fontFamily: IMPACT,
-      color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
+    const title = this.add.text(SCREEN_W / 2, panelY + 18, 'GARAGE', {
+      fontSize: '26px', fontFamily: IMPACT,
+      color: '#F4F7FF', stroke: '#39A8FF', strokeThickness: 3,
+      letterSpacing: 1,
     }).setOrigin(0.5, 0).setDepth(D + 2);
     objs.push(title);
 
     const sub = this.add.text(SCREEN_W / 2, panelY + 48,
       `${owned.length} car${owned.length === 1 ? '' : 's'} owned · tap to drive`, {
-      fontSize: '12px', fontFamily: 'Arial', color: '#AAD0FF',
+      fontSize: '14px', fontFamily: 'Arial', color: '#A9DFFF',
     }).setOrigin(0.5, 0).setDepth(D + 2);
     objs.push(sub);
 
-    // Vehicle list — one row per owned car, current marked.
-    const rowH = 68, rowGap = 8;
+    // Vehicle list — 2-column grid so all eight vehicles fit inside
+    // the modal without scrolling (Custom mode unlocks the full set).
+    // Compact rows: 50 px tall × 4 rows = 216 px, fitting between the
+    // list start (y=128) and the close-button area (top ~y=347).
+    // Stats consolidated into the label row; accessory glyphs trail it.
+    const rowH = 50, rowGap = 4, colGap = 8;
     const listX = panelX + 16;
     const listY = panelY + 78;
     const listW = panelW - 32;
+    const colW  = (listW - colGap) / 2;
     owned.forEach((vid, i) => {
       const v = VEHICLES[vid];
       if (!v) return;
-      const ry = listY + i * (rowH + rowGap);
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const rx = listX + col * (colW + colGap);
+      const ry = listY + row * (rowH + rowGap);
       const isCurrent = vid === currentId;
-      const bg = this.add.rectangle(listX, ry, listW, rowH,
-        isCurrent ? 0x1E5BB8 : 0x0E1A2E, 1)
-        .setOrigin(0).setDepth(D + 2)
-        .setStrokeStyle(2, isCurrent ? 0xFFFFFF : 0x4A6E8C)
-        .setInteractive({ useHandCursor: true });
+      const bg = this.add.graphics().setDepth(D + 2);
+      const drawRow = (hover = false) => {
+        bg.clear();
+        bg.fillStyle(isCurrent ? 0x071A30 : 0x050812, hover ? 1 : 0.92);
+        bg.fillRoundedRect(rx, ry, colW, rowH, 5);
+        bg.lineStyle(isCurrent || hover ? 3 : 2, isCurrent ? 0x39A8FF : (hover ? 0xFF39AF : 0x39A8FF), isCurrent ? 1 : 0.82);
+        bg.strokeRoundedRect(rx, ry, colW, rowH, 5);
+        bg.lineStyle(1, 0xF4F7FF, isCurrent ? 0.38 : 0.18);
+        bg.strokeRoundedRect(rx + 5, ry + 5, colW - 10, rowH - 10, 4);
+      };
+      drawRow(false);
+      bg.setInteractive(
+        new Phaser.Geom.Rectangle(rx, ry, colW, rowH),
+        Phaser.Geom.Rectangle.Contains,
+      );
+      bg.input.cursor = 'pointer';
       // Color swatch — uses the vehicle's tint as a paint-chip square.
-      const swatch = this.add.rectangle(listX + 28, ry + rowH / 2, 36, 36, v.tint ?? 0xCCCCCC, 1)
-        .setOrigin(0.5).setDepth(D + 3).setStrokeStyle(2, 0xFFFFFF);
-      const lbl = this.add.text(listX + 60, ry + 8, v.label, {
-        fontSize: '16px', fontFamily: IMPACT,
-        color: isCurrent ? '#FFFFFF' : '#DDEEFF',
-        stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0, 0).setDepth(D + 3);
-      const stats = this.add.text(listX + 60, ry + 30,
-        `${v.hp} HP · ${v.rangeMi} mi · ${v.topMph} mph · ${v.drive} · ${v.fuel}`, {
-        fontSize: '11px', fontFamily: 'Arial', color: '#AAD0FF',
-      }).setOrigin(0, 0).setDepth(D + 3);
-      // Accessory row — installed bumper / NOS tier / traction tires
-      // for this specific vehicle.  Pulled from the per-mode save
-      // profile (accessories[vid]).  Hidden if none are installed.
+      const swatch = this.add.rectangle(rx + 20, ry + rowH / 2, 26, 26, v.tint ?? 0xCCCCCC, 1)
+        .setOrigin(0.5).setDepth(D + 3).setStrokeStyle(2, isCurrent ? 0xF4F7FF : 0x39A8FF);
+      // Accessory glyphs trail the label.  Custom mode treats every
+      // vehicle as fully decked out (bumper + traction + max NOS) for
+      // sandbox play — visual matches the override applied at swap
+      // time so the player can see what they'll be driving with.
+      const isCustomMode = Difficulty.mode?.() === 'custom';
       const save = this.registry?.get?.('save');
       const accAll = save?.get?.('accessories') ?? {};
-      const vAcc   = accAll[vid] ?? {};
-      const tags   = [];
-      if (vAcc.bumper)            tags.push('🛡 Bumper');
-      if (vAcc.nos > 0)           tags.push(`⚡ NOS L${vAcc.nos}`);
-      if (vAcc.traction)          tags.push('❄️ Traction');
-      const accLine = tags.length ? tags.join('  ·  ') : '— no accessories —';
-      const accTxt = this.add.text(listX + 60, ry + 46, accLine, {
-        fontSize: '10px', fontFamily: 'Arial',
-        color: tags.length ? '#FFEEAA' : '#667788',
+      const vAcc   = isCustomMode
+        ? { bumper: true, traction: true, nos: 3 }
+        : (accAll[vid] ?? {});
+      const accGlyphs = [];
+      if (vAcc.bumper)   accGlyphs.push('🛡');
+      if (vAcc.nos > 0)  accGlyphs.push(`⚡${vAcc.nos}`);
+      if (vAcc.traction) accGlyphs.push('❄️');
+      const labelTxt = accGlyphs.length
+        ? `${v.label}  ${accGlyphs.join(' ')}`
+        : v.label;
+      const lbl = this.add.text(rx + 40, ry + 5, labelTxt, {
+        fontSize: '15px', fontFamily: IMPACT,
+        color: '#F4F7FF',
+        stroke: isCurrent ? '#39A8FF' : '#071224', strokeThickness: isCurrent ? 2 : 3,
       }).setOrigin(0, 0).setDepth(D + 3);
-      const tag = this.add.text(listX + listW - 10, ry + rowH / 2,
+      const stats = this.add.text(rx + 40, ry + 24,
+        `${v.hp} HP · ${v.rangeMi} mi · ${v.topMph} mph`, {
+        fontSize: '12px', fontFamily: 'Arial', color: '#A9DFFF',
+      }).setOrigin(0, 0).setDepth(D + 3);
+      const tag = this.add.text(rx + colW - 6, ry + rowH - 5,
         isCurrent ? '✓ DRIVING' : 'TAP TO DRIVE', {
         fontSize: '11px', fontFamily: IMPACT,
-        color: isCurrent ? '#88FF88' : '#FFCC44',
-      }).setOrigin(1, 0.5).setDepth(D + 3);
+        color: isCurrent ? '#FFCC44' : '#FF39AF',
+        stroke: '#071224', strokeThickness: 2,
+      }).setOrigin(1, 1).setDepth(D + 3);
 
-      bg.on('pointerover', () => { if (!isCurrent) bg.setFillStyle(0x1B3050); });
-      bg.on('pointerout',  () => { if (!isCurrent) bg.setFillStyle(0x0E1A2E); });
+      bg.on('pointerover', () => { if (!isCurrent) drawRow(true); });
+      bg.on('pointerout',  () => { if (!isCurrent) drawRow(false); });
       bg.on('pointerdown', (ptr) => {
         ptr.event?.stopPropagation?.();
         if (isCurrent) return;
+        // Custom mode: every garage swap re-applies the "fully loaded"
+        // accessory override (bumper + traction + max NOS).  The
+        // _vehicleAccessories() reader prefers this override over the
+        // persisted save, so the override lasts for the rest of the
+        // Custom run without touching the save profile.
+        if (isCustomMode) {
+          this._customStartAccessories = { bumper: true, traction: true, nos: 3 };
+        }
         // Persist + apply: set registry + swap player + sprite + reset
         // tank to full of the new vehicle's range.
         this.registry.set('vehicleId', vid);
@@ -5066,18 +5173,31 @@ export class GameScene extends Phaser.Scene {
         this._closeGarageModal(objs);
         this._buildGarageModal();
       });
-      objs.push(bg, swatch, lbl, stats, accTxt, tag);
+      objs.push(bg, swatch, lbl, stats, tag);
     });
 
     // Close button.
     const closeY = panelY + panelH - 38;
-    const closeBg = this.add.rectangle(SCREEN_W / 2, closeY, 160, 30, 0x66CCFF, 1)
-      .setOrigin(0.5).setDepth(D + 2)
-      .setStrokeStyle(2, 0xFFFFFF).setInteractive({ useHandCursor: true });
+    const closeBg = this.add.graphics().setDepth(D + 2);
+    const drawClose = (hover = false) => {
+      closeBg.clear();
+      closeBg.fillStyle(0x050812, hover ? 1 : 0.92);
+      closeBg.fillRoundedRect(SCREEN_W / 2 - 80, closeY - 15, 160, 30, 5);
+      closeBg.lineStyle(hover ? 3 : 2, 0x39A8FF, 1);
+      closeBg.strokeRoundedRect(SCREEN_W / 2 - 80, closeY - 15, 160, 30, 5);
+    };
+    drawClose(false);
+    closeBg.setInteractive(
+      new Phaser.Geom.Rectangle(SCREEN_W / 2 - 80, closeY - 15, 160, 30),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    closeBg.input.cursor = 'pointer';
     const closeLbl = this.add.text(SCREEN_W / 2, closeY, 'CLOSE', {
-      fontSize: '14px', fontFamily: IMPACT,
-      color: '#000', stroke: '#FFF', strokeThickness: 2,
+      fontSize: '16px', fontFamily: IMPACT,
+      color: '#F4F7FF', stroke: '#39A8FF', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(D + 3);
+    closeBg.on('pointerover', () => drawClose(true));
+    closeBg.on('pointerout',  () => drawClose(false));
     closeBg.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this._closeGarageModal(objs);
@@ -5094,6 +5214,13 @@ export class GameScene extends Phaser.Scene {
     for (const o of list) o.destroy?.();
     this._garageModalObjs = null;
     this._garageModalOpen = false;
+    // Restore the pre-modal pause state.  If the player had already
+    // hit pause before opening the garage, stay paused on close.
+    if (this._garagePrevPaused === false) {
+      this._paused = false;
+      this.audio?.setPaused?.(false);
+    }
+    this._garagePrevPaused = null;
     // Mirror of the map-modal fix: the title's scene-level pointerdown
     // handler runs AFTER this close destroys the close button, so it
     // sees "no UI hit" and would otherwise fire the cursor.  Flag the
@@ -6510,6 +6637,12 @@ export class GameScene extends Phaser.Scene {
   _buildMapModal() {
     if (this._mapModalOpen) return;
     this._mapModalOpen = true;
+    // Freeze gameplay while the map is up — same pattern as the
+    // garage modal.  Remember the prior pause state so closing the
+    // map restores it.
+    this._mapPrevPaused = !!this._paused;
+    this._paused = true;
+    this.audio?.setPaused?.(true);
     const D = 260;                 // higher than the garage modal (240)
     const objs = [];
 
@@ -6522,13 +6655,21 @@ export class GameScene extends Phaser.Scene {
     const panelH = SCREEN_H - 60;
     const panelX = 20;
     const panelY = 30;
-    const panel = this.add.rectangle(panelX, panelY, panelW, panelH, 0x07111F, 0.96)
-      .setOrigin(0).setDepth(D + 1).setStrokeStyle(3, 0x66CCFF);
+    const panel = this.add.graphics().setDepth(D + 1);
+    panel.fillStyle(0x020611, 0.96);
+    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 7);
+    panel.lineStyle(3, 0x39A8FF, 0.96);
+    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 7);
+    panel.lineStyle(1, 0xFF39AF, 0.78);
+    panel.strokeRoundedRect(panelX + 7, panelY + 7, panelW - 14, panelH - 14, 5);
+    panel.lineStyle(1, 0xF4F7FF, 0.24);
+    panel.strokeRoundedRect(panelX + 13, panelY + 13, panelW - 26, panelH - 26, 4);
     objs.push(panel);
 
-    const title = this.add.text(SCREEN_W / 2, panelY + 14, '🗺  ROUTE MAP', {
-      fontSize: '20px', fontFamily: IMPACT,
-      color: '#FFFFFF', stroke: '#000', strokeThickness: 4,
+    const title = this.add.text(SCREEN_W / 2, panelY + 14, 'ROUTE MAP', {
+      fontSize: '22px', fontFamily: IMPACT,
+      color: '#F4F7FF', stroke: '#39A8FF', strokeThickness: 3,
+      letterSpacing: 1,
     }).setOrigin(0.5, 0).setDepth(D + 2);
     objs.push(title);
 
@@ -6609,8 +6750,27 @@ export class GameScene extends Phaser.Scene {
     const oy = plotY + plotH / 2;
     const project = (px, py) => [ox + (px - cxData) * s, oy + (py - cyData) * s];
 
-    // Draw the road as a thick blue polyline with a yellow dashed centerline.
-    g.lineStyle(7, 0x1E5BB8, 1);
+    // Plot frame + subdued scan grid, matching the neon glass modals.
+    g.fillStyle(0x030812, 0.62);
+    g.fillRoundedRect(plotX, plotY, plotW, plotH, 5);
+    g.lineStyle(1, 0x39A8FF, 0.30);
+    g.strokeRoundedRect(plotX, plotY, plotW, plotH, 5);
+    g.lineStyle(1, 0x39A8FF, 0.10);
+    for (let gx = plotX + 24; gx < plotX + plotW; gx += 24) {
+      g.beginPath();
+      g.moveTo(gx, plotY + 4);
+      g.lineTo(gx, plotY + plotH - 4);
+      g.strokePath();
+    }
+    for (let gy = plotY + 24; gy < plotY + plotH; gy += 24) {
+      g.beginPath();
+      g.moveTo(plotX + 4, gy);
+      g.lineTo(plotX + plotW - 4, gy);
+      g.strokePath();
+    }
+
+    // Draw the road as a cyan neon polyline with a magenta inner trace.
+    g.lineStyle(9, 0x39A8FF, 0.25);
     g.beginPath();
     {
       const [sx, sy] = project(pathPts[0][0], pathPts[0][1]);
@@ -6621,8 +6781,19 @@ export class GameScene extends Phaser.Scene {
       }
     }
     g.strokePath();
-    // Yellow centerline — every 3rd sample so it dashes naturally.
-    g.lineStyle(1.5, 0xFFEE00, 0.7);
+    g.lineStyle(5, 0x39A8FF, 0.95);
+    g.beginPath();
+    {
+      const [sx, sy] = project(pathPts[0][0], pathPts[0][1]);
+      g.moveTo(sx, sy);
+      for (let i = 1; i < pathPts.length; i++) {
+        const [nx, ny] = project(pathPts[i][0], pathPts[i][1]);
+        g.lineTo(nx, ny);
+      }
+    }
+    g.strokePath();
+    // Magenta center pulse — every 3rd sample so it dashes naturally.
+    g.lineStyle(1.5, 0xFF39AF, 0.82);
     for (let i = 1; i < pathPts.length; i += 3) {
       const [ax, ay] = project(pathPts[i - 1][0], pathPts[i - 1][1]);
       const [bx, by] = project(pathPts[i    ][0], pathPts[i    ][1]);
@@ -6664,14 +6835,14 @@ export class GameScene extends Phaser.Scene {
     const LANE_OFFSETS = [-32, -16, 16, 32];   // px, +y is downward
     REST_STOPS.forEach((rs, i) => {
       const [px, py] = ptAtMile(rs.mileage);
-      g.fillStyle(0xFFFFFF, 1);
+      g.fillStyle(0xF4F7FF, 1);
       g.fillCircle(px, py, 3);
-      g.lineStyle(1, 0x000000, 1);
+      g.lineStyle(1, 0x39A8FF, 0.95);
       g.strokeCircle(px, py, 3);
       const dy = LANE_OFFSETS[i % LANE_OFFSETS.length];
       const ly = py + dy;
       // Leader line from dot to label.
-      g.lineStyle(1, 0x88AACC, 0.7);
+      g.lineStyle(1, 0x39A8FF, 0.48);
       g.beginPath();
       g.moveTo(px, py);
       g.lineTo(px, ly);
@@ -6680,12 +6851,12 @@ export class GameScene extends Phaser.Scene {
       const snapHere  = savesByStop[rs.id];
       const tappable  = !!snapHere || inCustom;
       const labelCol  = inCustom
-        ? '#88FFCC'
-        : (TIER_HEX[tier] ?? (tappable ? '#DDEEFF' : '#778899'));
+        ? '#FFCC44'
+        : (TIER_HEX[tier] ?? (tappable ? '#F4F7FF' : '#7894A8'));
       const lbl = this.add.text(px, ly,
         rs.name.split(',')[0], {
         fontSize: '14px', fontFamily: IMPACT,
-        color: labelCol, stroke: '#000', strokeThickness: 3,
+        color: labelCol, stroke: tappable ? '#39A8FF' : '#071224', strokeThickness: tappable ? 2 : 3,
       }).setOrigin(0.5, dy < 0 ? 1 : 0).setDepth(D + 3);
       if (tappable) {
         lbl.setInteractive({ useHandCursor: true });
@@ -6716,26 +6887,39 @@ export class GameScene extends Phaser.Scene {
     // Player dot — pulsing red at current mile.
     const pMile = (this.player?.position ?? 0) / (ROUTE_SEGS * SEG_LENGTH) * TOTAL_ROUTE_MILES;
     const [pX, pY] = ptAtMile(pMile);
-    g.fillStyle(0xFF2244, 1);
+    g.fillStyle(0xFF39AF, 1);
     g.fillCircle(pX, pY, 6);
-    g.lineStyle(2, 0xFFFFFF, 1);
+    g.lineStyle(2, 0xF4F7FF, 1);
     g.strokeCircle(pX, pY, 6);
     const youLbl = this.add.text(pX, pY - 12, `YOU · MILE ${Math.round(pMile)}`, {
       fontSize: '11px', fontFamily: IMPACT,
-      color: '#FF4444', stroke: '#000', strokeThickness: 2,
+      color: '#FF39AF', stroke: '#071224', strokeThickness: 2,
     }).setOrigin(0.5, 1).setDepth(D + 4);
     this.cameras.main?.ignore?.(youLbl);
     objs.push(youLbl);
 
     // Close button.
     const closeY = panelY + panelH - 28;
-    const closeBg = this.add.rectangle(SCREEN_W / 2, closeY, 160, 30, 0x66CCFF, 1)
-      .setOrigin(0.5).setDepth(D + 2)
-      .setStrokeStyle(2, 0xFFFFFF).setInteractive({ useHandCursor: true });
+    const closeBg = this.add.graphics().setDepth(D + 2);
+    const drawClose = (hover = false) => {
+      closeBg.clear();
+      closeBg.fillStyle(0x050812, hover ? 1 : 0.92);
+      closeBg.fillRoundedRect(SCREEN_W / 2 - 80, closeY - 15, 160, 30, 5);
+      closeBg.lineStyle(hover ? 3 : 2, 0x39A8FF, 1);
+      closeBg.strokeRoundedRect(SCREEN_W / 2 - 80, closeY - 15, 160, 30, 5);
+    };
+    drawClose(false);
+    closeBg.setInteractive(
+      new Phaser.Geom.Rectangle(SCREEN_W / 2 - 80, closeY - 15, 160, 30),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    closeBg.input.cursor = 'pointer';
     const closeLbl = this.add.text(SCREEN_W / 2, closeY, 'CLOSE', {
       fontSize: '14px', fontFamily: IMPACT,
-      color: '#000', stroke: '#FFF', strokeThickness: 2,
+      color: '#F4F7FF', stroke: '#39A8FF', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(D + 3);
+    closeBg.on('pointerover', () => drawClose(true));
+    closeBg.on('pointerout',  () => drawClose(false));
     closeBg.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this._closeMapModal();
@@ -6751,6 +6935,13 @@ export class GameScene extends Phaser.Scene {
     for (const o of list) o?.destroy?.();
     this._mapModalObjs = null;
     this._mapModalOpen = false;
+    // Restore the pre-modal pause state.  If the player had already
+    // paused before opening the map, stay paused on close.
+    if (this._mapPrevPaused === false) {
+      this._paused = false;
+      this.audio?.setPaused?.(false);
+    }
+    this._mapPrevPaused = null;
     this._mapModalJustClosed = true;
     this.time?.delayedCall?.(50, () => { this._mapModalJustClosed = false; });
   }
@@ -9705,7 +9896,11 @@ export class GameScene extends Phaser.Scene {
     gasBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this._touchBoost = !this._touchBoost;
-      if (this._touchBoost) this._touchBrake = false;
+      // Asymmetric mutual-exclusion: accel does NOT cancel brake.
+      // Brake has priority in the speed update, so tapping accel
+      // while braking lights up the accel pedal but has no effect on
+      // motion until the brake is released.  Tapping brake (below)
+      // still cancels accel immediately.
       this._refreshPedals();
     });
 
@@ -9889,14 +10084,14 @@ export class GameScene extends Phaser.Scene {
     };
 
     const THUMBS_OPTIONS = [
-      { id: 'classic', label: 'THUMBS', blurb: 'Left/right thumbs' },
-      { id: 'flappy',  label: 'TAP',    blurb: 'Flappy Bird style' },
-      { id: 'tilt',    label: 'TILT',   blurb: 'Phone tilt' },
+      { id: 'classic', label: 'THUMBS', blurb: 'Left & Right Thumbs' },
+      { id: 'flappy',  label: 'TAP',    blurb: 'Remember Flappy Bird?' },
+      { id: 'tilt',    label: 'TILT',   blurb: 'Accelerometer!' },
     ];
     const DIFF_OPTIONS = [
-      { id: 'easy',   label: 'EASY',   blurb: 'Fewer cops and cars.' },
-      { id: 'normal', label: 'NORMAL', blurb: 'Cops, traffic, and pickups.' },
-      { id: 'hard',   label: 'HARD',   blurb: 'More cops and damage.' },
+      { id: 'easy',   label: 'EASY',   blurb: 'Less Cars, No Weather' },
+      { id: 'normal', label: 'NORMAL', blurb: 'Standard Ass Gameplay' },
+      { id: 'hard',   label: 'HARD',   blurb: 'Max NPC, Cops, Damage' },
       { id: 'custom', label: 'CUSTOM', blurb: 'Set your own trip.' },
     ];
 
@@ -11538,53 +11733,103 @@ export class GameScene extends Phaser.Scene {
     scrim.on('pointerdown', (p) => { p.event?.stopPropagation?.(); });
     objs.push(scrim);
 
-    const cardW = 500, cardH = 300;
-    const card = this.add.rectangle(cx, cy, cardW, cardH, 0x1A1A1A, 1)
-      .setStrokeStyle(2, 0xFFFFFF).setDepth(D + 1);
+    const cardW = 540, cardH = 330;
+    const cardX = cx - cardW / 2;
+    const cardY = cy - cardH / 2;
+    const card = this.add.graphics().setDepth(D + 1);
+    card.fillStyle(0x020611, 0.96);
+    card.fillRoundedRect(cardX, cardY, cardW, cardH, 7);
+    card.lineStyle(3, 0x39A8FF, 0.96);
+    card.strokeRoundedRect(cardX, cardY, cardW, cardH, 7);
+    card.lineStyle(1, 0xFF39AF, 0.78);
+    card.strokeRoundedRect(cardX + 7, cardY + 7, cardW - 14, cardH - 14, 5);
+    card.lineStyle(1, 0xF4F7FF, 0.28);
+    card.strokeRoundedRect(cardX + 13, cardY + 13, cardW - 26, cardH - 26, 4);
     objs.push(card);
 
-    const title = this.add.text(cx, cy - cardH/2 + 20, 'ENTER 5-CHAR SAVE CODE', {
-      fontSize: '15px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
+    const title = this.add.text(cx, cy - cardH/2 + 26, 'ENTER 5-CHAR SAVE CODE', {
+      fontSize: '20px',
+      fontFamily: 'Impact, "Arial Black", sans-serif',
+      color: '#F4F7FF',
+      stroke: '#39A8FF',
+      strokeThickness: 3,
+      letterSpacing: 1,
     }).setOrigin(0.5).setDepth(D + 2);
     objs.push(title);
 
-    const slotsY = cy - cardH/2 + 56;
-    const slotW = 36, slotGap = 8;
+    const slotsY = cy - cardH/2 + 78;
+    const slotW = 38, slotGap = 10;
     const slotsTotalW = CODE_LEN * slotW + (CODE_LEN - 1) * slotGap;
     const slotsX = cx - slotsTotalW / 2 + slotW / 2;
     const slotTexts = [];
+    const slotBgs = [];
     for (let i = 0; i < CODE_LEN; i++) {
       const x = slotsX + i * (slotW + slotGap);
-      const sBg = this.add.rectangle(x, slotsY, slotW, 42, 0x000000, 1)
-        .setStrokeStyle(1, 0x888888).setDepth(D + 2);
+      const sBg = this.add.graphics().setDepth(D + 2);
+      const drawSlot = (active = false) => {
+        sBg.clear();
+        sBg.fillStyle(0x00030A, 0.95);
+        sBg.fillRoundedRect(x - slotW / 2, slotsY - 22, slotW, 44, 4);
+        sBg.lineStyle(active ? 3 : 2, active ? 0xFF39AF : 0x39A8FF, active ? 1 : 0.82);
+        sBg.strokeRoundedRect(x - slotW / 2, slotsY - 22, slotW, 44, 4);
+        sBg.lineStyle(1, 0xF4F7FF, active ? 0.55 : 0.22);
+        sBg.strokeRoundedRect(x - slotW / 2 + 4, slotsY - 18, slotW - 8, 36, 3);
+      };
+      drawSlot(false);
       const sTx = this.add.text(x, slotsY, '', {
-        fontSize: '22px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
+        fontSize: '24px',
+        fontFamily: 'Impact, "Arial Black", sans-serif',
+        color: '#F4F7FF',
+        stroke: '#FF39AF',
+        strokeThickness: 2,
       }).setOrigin(0.5).setDepth(D + 3);
       objs.push(sBg, sTx);
+      slotBgs.push(drawSlot);
       slotTexts.push(sTx);
     }
     const refresh = () => {
-      for (let i = 0; i < CODE_LEN; i++) slotTexts[i].setText(code[i] ?? '');
+      for (let i = 0; i < CODE_LEN; i++) {
+        slotTexts[i].setText(code[i] ?? '');
+        slotBgs[i](i === code.length && code.length < CODE_LEN);
+      }
     };
     refresh();
 
     const KEYS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const cols = 9;
-    const keyW = 38, keyH = 24;
-    const padTotalW = cols * keyW + (cols - 1) * 4;
+    const keyW = 42, keyH = 26;
+    const keyGap = 6;
+    const padTotalW = cols * keyW + (cols - 1) * keyGap;
     const padX = cx - padTotalW / 2 + keyW / 2;
-    const padY = cy - 6;
+    const padY = cy - 8;
     for (let i = 0; i < KEYS.length; i++) {
       const r = Math.floor(i / cols), c = i % cols;
-      const x = padX + c * (keyW + 4);
-      const y = padY + r * (keyH + 4);
+      const x = padX + c * (keyW + keyGap);
+      const y = padY + r * (keyH + keyGap);
       const ch = KEYS[i];
-      const kBg = this.add.rectangle(x, y, keyW, keyH, 0x333333, 1)
-        .setStrokeStyle(1, 0x555555).setDepth(D + 2)
-        .setInteractive({ useHandCursor: true });
+      const kBg = this.add.graphics().setDepth(D + 2);
+      const drawKey = (hover = false) => {
+        kBg.clear();
+        kBg.fillStyle(0x050812, hover ? 1 : 0.90);
+        kBg.fillRoundedRect(x - keyW / 2, y - keyH / 2, keyW, keyH, 4);
+        kBg.lineStyle(hover ? 2 : 1, hover ? 0xFF39AF : 0x2E8DD8, hover ? 0.96 : 0.70);
+        kBg.strokeRoundedRect(x - keyW / 2, y - keyH / 2, keyW, keyH, 4);
+      };
+      drawKey(false);
+      kBg.setInteractive(
+        new Phaser.Geom.Rectangle(x - keyW / 2, y - keyH / 2, keyW, keyH),
+        Phaser.Geom.Rectangle.Contains,
+      );
+      kBg.input.cursor = 'pointer';
       const kTx = this.add.text(x, y, ch, {
-        fontSize: '13px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
+        fontSize: '15px',
+        fontFamily: 'Impact, "Arial Black", sans-serif',
+        color: '#F4F7FF',
+        stroke: '#071224',
+        strokeThickness: 2,
       }).setOrigin(0.5).setDepth(D + 3);
+      kBg.on('pointerover', () => drawKey(true));
+      kBg.on('pointerout',  () => drawKey(false));
       kBg.on('pointerdown', (p) => {
         p.event?.stopPropagation?.();
         if (code.length < CODE_LEN) { code += ch; refresh(); }
@@ -11592,38 +11837,56 @@ export class GameScene extends Phaser.Scene {
       objs.push(kBg, kTx);
     }
 
-    const btnY = cy + cardH/2 - 24;
+    const btnY = cy + cardH/2 - 30;
     const close = () => {
       this._modalOpen = false;
       objs.forEach(o => o?.destroy?.());
     };
 
-    const cancelBg = this.add.rectangle(cx - 140, btnY, 110, 32, 0x444444, 1)
-      .setStrokeStyle(1, 0xFFFFFF).setDepth(D + 2)
-      .setInteractive({ useHandCursor: true });
-    const cancelTxt = this.add.text(cx - 140, btnY, 'CANCEL', {
-      fontSize: '14px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
-    }).setOrigin(0.5).setDepth(D + 3);
-    cancelBg.on('pointerdown', (p) => { p.event?.stopPropagation?.(); close(); onCancel?.(); });
-    objs.push(cancelBg, cancelTxt);
+    const makeActionBtn = (x, w, label, neonColor, handler) => {
+      const bg = this.add.graphics().setDepth(D + 2);
+      const draw = (hover = false) => {
+        bg.clear();
+        bg.fillStyle(0x050812, hover ? 1 : 0.92);
+        bg.fillRoundedRect(x - w / 2, btnY - 18, w, 36, 5);
+        bg.lineStyle(hover ? 3 : 2, neonColor, 1);
+        bg.strokeRoundedRect(x - w / 2, btnY - 18, w, 36, 5);
+      };
+      draw(false);
+      bg.setInteractive(
+        new Phaser.Geom.Rectangle(x - w / 2, btnY - 18, w, 36),
+        Phaser.Geom.Rectangle.Contains,
+      );
+      bg.input.cursor = 'pointer';
+      const css = `#${neonColor.toString(16).padStart(6, '0')}`;
+      const txt = this.add.text(x, btnY, label, {
+        fontSize: '17px',
+        fontFamily: 'Impact, "Arial Black", sans-serif',
+        color: '#F4F7FF',
+        stroke: css,
+        strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(D + 3);
+      bg.on('pointerover', () => draw(true));
+      bg.on('pointerout',  () => draw(false));
+      bg.on('pointerdown', handler);
+      objs.push(bg, txt);
+    };
 
-    const delBg = this.add.rectangle(cx, btnY, 90, 32, 0x553322, 1)
-      .setStrokeStyle(1, 0xFFFFFF).setDepth(D + 2)
-      .setInteractive({ useHandCursor: true });
-    const delTxt = this.add.text(cx, btnY, 'DEL', {
-      fontSize: '14px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
-    }).setOrigin(0.5).setDepth(D + 3);
-    delBg.on('pointerdown', (p) => { p.event?.stopPropagation?.(); code = code.slice(0, -1); refresh(); });
-    objs.push(delBg, delTxt);
-
-    const okBg = this.add.rectangle(cx + 140, btnY, 110, 32, 0x44AA66, 1)
-      .setStrokeStyle(1, 0xFFFFFF).setDepth(D + 2)
-      .setInteractive({ useHandCursor: true });
-    const okTxt = this.add.text(cx + 140, btnY, 'OK', {
-      fontSize: '15px', fontFamily: '"Arial Black", sans-serif', color: '#000000',
-    }).setOrigin(0.5).setDepth(D + 3);
-    okBg.on('pointerdown', (p) => { p.event?.stopPropagation?.(); close(); onAccept?.(code); });
-    objs.push(okBg, okTxt);
+    makeActionBtn(cx - 150, 124, 'CANCEL', 0x39A8FF, (p) => {
+      p.event?.stopPropagation?.();
+      close();
+      onCancel?.();
+    });
+    makeActionBtn(cx, 94, 'DEL', 0xFF39AF, (p) => {
+      p.event?.stopPropagation?.();
+      code = code.slice(0, -1);
+      refresh();
+    });
+    makeActionBtn(cx + 150, 124, 'OK', 0x39A8FF, (p) => {
+      p.event?.stopPropagation?.();
+      close();
+      onAccept?.(code);
+    });
 
     this._addHudObjs(...objs);
   }
@@ -11670,6 +11933,13 @@ export class GameScene extends Phaser.Scene {
       this.cops.stars     = this._customStartStars;
       this.cops.starTimer = 4;            // matches addStar's reset
       this._customStartStars = null;
+    }
+    // Custom mode — seed the wallet with $100,000 so the sandbox run
+    // starts with money to spend on gas / weapons / pickups instead of
+    // a $0 wallet.  Custom runs don't score, so this isn't "earned" —
+    // it's just spending money for sandbox testing.
+    if (Difficulty.mode?.() === 'custom') {
+      this.score = 100000;
     }
     // Initialize/play radio on first user interaction (browser audio
     // gate).  ARCADE (index 0) is the chiptune instrumental station —
