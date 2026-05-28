@@ -210,6 +210,18 @@ export class GameScene extends Phaser.Scene {
     this._drugLabels   = null;
     this._signTextPool  = null;      // sign-label overlay pool (same scene-restart issue)
     this._signDecalPool = null;      // hwy-shield + sign-face image pool
+    // Pause-button refs from the previous scene's _buildHUD point at
+    // destroyed GameObjects after scene.start.  If _togglePause or the
+    // mute-sync renderer fires before _buildHUD reassigns these, the
+    // stale Image.setTexture call throws inside Phaser's TextureManager
+    // ("Cannot read properties of undefined (reading 'sys')").  Drop
+    // the refs here so the guarded `if (this._pauseLblRef)` checks
+    // short-circuit cleanly until _buildHUD reattaches.
+    this._pauseBtnRef     = null;
+    this._pauseLblRef     = null;
+    this._redrawPauseBtn  = null;
+    this.hudMuteLbl       = null;
+    this.hudSkipLbl       = null;
     // Also reset stateful flags that survive across `scene.start('Game')`.
     // _takingExit was the culprit behind the Issaquah pull-over not firing
     // — it stayed `true` from the prior Bellevue exit, blocking subsequent
@@ -6296,8 +6308,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   _setTopRowButtonTexture(img, type, lit = false, size = 56) {
-    img?.setTexture?.(this._topRowButtonTexture(type, lit));
-    img?.setDisplaySize?.(size, size);
+    // Guard against destroyed GameObjects (scene-restart leaves dead
+    // refs on `this` until _buildHUD reassigns).  Phaser nulls
+    // `gameObject.scene` on destroy, so checking it is the cheapest
+    // way to skip a stale call without exploding inside setTexture.
+    if (!img || !img.scene) return;
+    img.setTexture(this._topRowButtonTexture(type, lit));
+    img.setDisplaySize(size, size);
   }
 
   /** Small, code-drawn neon symbols stay crisp in the 56 px toolbar cells. */
@@ -9736,10 +9753,6 @@ export class GameScene extends Phaser.Scene {
       pauseBtn.clear();
       this._setTopRowButtonTexture(this._pauseLblRef, 'pause', lit, pauseSize);
     };
-    // Draw at full opacity; hover toggles bg.alpha so the redraw
-    // position captured in drawPause's closure doesn't override the
-    // handedness-swapped location.
-    drawPause(1, false);
     pauseBtn.setInteractive(new Phaser.Geom.Rectangle(pauseLeft, pauseTop, pauseSize, pauseSize), Phaser.Geom.Rectangle.Contains);
     pauseBtn.input.cursor = 'pointer';
     const pauseLbl = this.add.image(pauseLeft + pauseSize / 2, pauseTop + pauseSize / 2, this._topRowButtonTexture('pause'))
@@ -9752,9 +9765,19 @@ export class GameScene extends Phaser.Scene {
       this._togglePause();
     });
     // Store on `this` so _togglePause can light it up when paused.
+    // ORDER MATTERS: assign `_pauseLblRef` BEFORE first drawPause call
+    // so the closure dereferences the fresh GameObject, not a stale
+    // ref from a previous scene instance (Phaser reuses the scene on
+    // scene.start, but the previous create()'s display objects were
+    // destroyed — calling setTexture on them throws "Cannot read
+    // properties of undefined (reading 'sys')").
     this._pauseBtnRef     = pauseBtn;
     this._pauseLblRef     = pauseLbl;
     this._redrawPauseBtn  = drawPause;
+    // Now safe to invoke the initial redraw — pauseLbl already had the
+    // 'pause' texture set at construction; drawPause re-applies size
+    // and tracks the lit flag.
+    drawPause(1, false);
     this._hudObjects?.push(pauseBtn, pauseLbl);
     registerTopBtn({ id: 'pause', bg: pauseBtn, lbl: pauseLbl, artType: 'pause', baseLeft: pauseLeft, size: pauseSize });
 
