@@ -171,18 +171,32 @@ const EASTERN_HERD_TEXTURES = [
   'east_wa_herd_5_cows',
   'east_wa_herd_6_cows',
 ];
+const EASTERN_HOME_TEXTURES = [
+  'codex_east_wa_weathered_house',
+  'codex_east_wa_abandoned_bungalow',
+  // (doublewide_tan / doublewide_white removed — source PNGs no longer ship.)
+];
+const EASTERN_BUSINESS_TEXTURES = [
+  'codex_cle_elum_general_store',
+  'codex_ellensburg_main_street_shops',
+  'codex_east_wa_main_street_storefront',
+  'codex_east_wa_cafe_storefront',
+  'codex_east_wa_auto_parts_store',
+  'codex_east_wa_market_storefront',
+  'codex_east_wa_block_repair_shop',
+];
 // Small, authored dry-side roadside clusters. They are deliberately short:
 // one local business followed by four to six homes before brush and farms.
 const EASTERN_TOWN_WINDOWS = [
-  { start: 78.0,  end: 80.0,  business: 'codex_cle_elum_general_store',       home: 'codex_east_wa_weathered_house',    homes: 6 },
-  { start: 95.1,  end: 96.4,  business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_weathered_house',    homes: 5 },
-  { start: 105.0, end: 107.2, business: 'codex_ellensburg_main_street_shops', home: 'codex_east_wa_weathered_house',    homes: 6 },
-  { start: 132.1, end: 133.2, business: 'codex_east_wa_two_story_brick_shop', home: 'codex_east_wa_abandoned_bungalow', homes: 4 },
-  { start: 150.0, end: 151.2, business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_abandoned_bungalow', homes: 5 },
-  { start: 180.0, end: 181.2, business: 'codex_east_wa_two_story_brick_shop', home: 'codex_east_wa_abandoned_bungalow', homes: 6 },
-  { start: 225.0, end: 226.0, business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_abandoned_bungalow', homes: 4 },
-  { start: 250.0, end: 251.0, business: 'codex_east_wa_two_story_brick_shop', home: 'codex_east_wa_abandoned_bungalow', homes: 5 },
-  { start: 271.0, end: 272.0, business: 'codex_east_wa_block_repair_shop',    home: 'codex_east_wa_abandoned_bungalow', homes: 4 },
+  { start: 78.0,  end: 80.0,  homes: 6 },
+  { start: 95.1,  end: 96.4,  homes: 5 },
+  { start: 105.0, end: 107.2, homes: 6 },
+  { start: 132.1, end: 133.2, homes: 4, landmark: 'codex_east_wa_ritzville_diner_motel' },
+  { start: 150.0, end: 151.2, homes: 5 },
+  { start: 180.0, end: 181.2, homes: 6 },
+  { start: 225.0, end: 226.0, homes: 4, landmark: 'codex_east_wa_palouse_farm_store' },
+  { start: 250.0, end: 251.0, homes: 5 },
+  { start: 271.0, end: 272.0, homes: 4, landmark: 'codex_east_wa_pullman_party_house' },
 ];
 // After Vantage, short pasture stretches recur every few miles. Cattle occur
 // only on alternating fenced stretches; the other runs stay open/brushy.
@@ -321,6 +335,7 @@ const CODEX_SKYLINE_BACKDROPS = new Set([
 const CITY_BUILDING_SETBACK = 5.35;
 const CITY_BUILDING_BACKROW = 6.8;
 const RESIDENTIAL_FRONTAGE_GAP_CARS = 1.25;
+const WEST_SEATTLE_FRONTAGE_GAP_CARS = 2.35;
 
 // ─────────────────────────────────────────────────────────────────────
 //  Fog-line setback model
@@ -1003,16 +1018,16 @@ export function buildRoute(count = ROUTE_SEGS) {
         const texKey  = WEST_SEATTLE_HOMES[wsIdx];
         // Right side only — water field on left, no spawns there.
         // Positive offset = RIGHT in this engine's coords.
-        // Choose the permanent center offset from a one-and-a-quarter car
-        // width street-facing setback. GameScene renders this fixed position.
-        const offset  = fogLineOffset(texKey, +1, RESIDENTIAL_FRONTAGE_GAP_CARS);
+        // Choose the permanent center offset from a modest street-facing
+        // setback. GameScene renders this fixed position.
+        const offset  = fogLineOffset(texKey, +1, WEST_SEATTLE_FRONTAGE_GAP_CARS);
         sprites.push({
           type:      'building',
           texKey,
           offset:    offset,
           baseW:     5400 + Math.floor(rng.next() * 2400),
           baseH:     4200 + Math.floor(rng.next() * 1400),
-          roadEdgeGapCars: RESIDENTIAL_FRONTAGE_GAP_CARS,
+          roadEdgeGapCars: WEST_SEATTLE_FRONTAGE_GAP_CARS,
           collected: false,
         });
       }
@@ -1184,7 +1199,8 @@ export function buildRoute(count = ROUTE_SEGS) {
             // Per-region "car-widths past the fog line" gaps — see
             // fogLineOffset() block comment near the top of this file.
             //
-            //   • West Seattle homes: 1.25 — tight residential frontage,
+            //   • West Seattle homes: 2.35 — tight residential frontage,
+            //     but far enough off the curb for the wide cutout bases.
             //     RIGHT SIDE ONLY (water on left), so the row only
             //     hems in one peripheral.
             //   • Issaquah homes: 1.25 — single-sided frontage like
@@ -1198,7 +1214,7 @@ export function buildRoute(count = ROUTE_SEGS) {
             // fixed so a row of homes stays parallel to the fog line.
             const carWidthsPastFog = (() => {
               switch (_regionKeyForPool) {
-                case 'seattle_urban':    return RESIDENTIAL_FRONTAGE_GAP_CARS;
+                case 'seattle_urban':    return WEST_SEATTLE_FRONTAGE_GAP_CARS;
                 case 'downtown_seattle': return 4.00;   // skyline, unchanged
                 case 'eastside_urban':   return 4.00;   // skyline, unchanged
                 case 'eastside':         return RESIDENTIAL_FRONTAGE_GAP_CARS;
@@ -1373,7 +1389,10 @@ export function buildRoute(count = ROUTE_SEGS) {
         : Math.floor(((previousMile - easternTown.start) / duration) * totalStructures);
       if (placeIndex > previousIndex && placeIndex < totalStructures) {
         const isBusiness = placeIndex === 0;
-        const texKey = isBusiness ? easternTown.business : easternTown.home;
+        const texKey = isBusiness
+          ? (easternTown.landmark
+              ?? EASTERN_BUSINESS_TEXTURES[Math.floor(easternTown.start * 10) % EASTERN_BUSINESS_TEXTURES.length])
+          : EASTERN_HOME_TEXTURES[(placeIndex + Math.floor(easternTown.start * 10)) % EASTERN_HOME_TEXTURES.length];
         const sign = (placeIndex % 2 === 0) ? -1 : 1;
         const gapCars = isBusiness ? 1.18 : 1.62 + ((placeIndex % 3) * 0.18);
         sprites.push({

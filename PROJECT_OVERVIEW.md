@@ -275,6 +275,153 @@ Photo mode, in-game settings menu, accessibility toggles.
 
 ## 8. Major build-history (newest first)
 
+### 2026-05-27 (latest) — HUD restructure, crash-recovery rolling start, iOS tilt permission fix, asset cleanup, building auto-flip
+
+**HUD layout overhaul** ([GameScene.js](src/scenes/GameScene.js))
+- Restructured the top-of-screen readouts into two mirror-adjacent clusters instead of edge-anchored singletons:
+  - **Left cluster** (right-of-mirror in default LH mode): Time + Multiplier (top row, multiplier sits to the right of the clock), Cash, HP.
+  - **Right cluster** (left-of-mirror in default LH mode): Speed, MPH, Gas-miles.
+- Top-row buttons (Pause / FF / Genre / Mute / Map / Garage) pushed outward by `READOUT_W=95` so the new clusters fit beside the mirror.
+- Per-frame handedness mirror handler at `_doCreate()` rebuilt to mirror the *new* cluster layout (previously snapped HP / Gas back to the old weapon-column position on scene start — the cause of repeated "HP/Gas not below Cash/MPH" reports).
+- HP color now always pink `#FF39AF` (the "-X" damage popup still does the took-damage feedback).
+- Gas color: blue `#39A8FF` (full) → amber → red blink (nearly empty). Dropped the orange-on-near-exit strobe that was reading as flicker.
+- Cash color: neon green `#39FF8A` (was yellow).
+- Multiplier moved next to the timer, font 11→16 px (~45% bigger).
+- Speed + MPH + the title-screen "DIFFICULTY" label now share a per-difficulty palette: **Easy pink / Normal blue / Hard red / Custom purple** (matches the title-screen "DRIVE" + "IMPROVISE" chrome).
+- Gas pump PNG (24×24, swaps `ui_gas_full` ↔ `ui_gas_empty` below 30 mi) repositioned to sit OUTWARD of the Speed number (away from the mirror), vertically centered on Speed.
+- ACCEL pedal recolored neon blue (`0x39A8FF` stroke / `0x0F2A4A` active fill); label flipped to `▲\nACCEL` so the arrow sits above the word and mirrors BRAKE's `BRAKE\n▼`. Both pedal labels bumped to 16 / 17 px.
+- Accel charge bar's "full" color flipped from green → neon blue to match the pedal.
+- FPS / SPR diagnostic readout removed.
+- FF button no longer starts the run when tapped on the title (was the secondary unintended launch path).
+
+**Crash recovery — "rolling start" auto-pilot** ([GameScene.js](src/scenes/GameScene.js))
+- Added `_crashRecoveryUntil` field separate from `_invincibleUntil`. Set by NPC head-on / cop head-on / scenery-crash recoveries (not the 200 ms bush nudge).
+- Each major crash now resets the player to `MAX_SPEED * 0.18` (≈22 mph) at the difficulty's recovery lane.
+- During the i-frame blink, the speed update forces `targetSpeed = 60 mph` regardless of input. The existing ACCEL ramp brings the car up to 60 over ~0.7 s and holds, so the blink ends with a controlled rolling re-entry instead of a near-stop.
+
+**Drug HUD bars — drag UX** ([GameScene.js](src/scenes/GameScene.js))
+- The cell fills vertically (bottom = empty, top = full); drag was previously reading horizontal pointer X. Swapped to VERTICAL drag with `frac = 1 - (py - hit.y) / hit.h`.
+- Added 12 px touch padding around each cell so an off-by-a-bit tap still grabs it. Once grabbed, the finger can leave the cell and the level still tracks (clamped 0..1).
+
+**Custom mode modal — vehicle + accessories + spacing** ([GameScene.js](src/scenes/GameScene.js))
+- Added a VEHICLE picker (single wide button cycling all 8 entries in `VEHICLES`) and an ACCESSORIES row with Bumper / Traction / NOS (0–3) toggles. Custom is treated as a sandbox — every vehicle and every accessory is selectable regardless of ownership / install state.
+- New `_applyVehicleSwap(vid)` helper mirrors the Garage modal's live-swap pattern. Accessory choice rides on `this._customStartAccessories`; `_vehicleAccessories()` returns the override when present so persisted save state is untouched.
+- Layout: Vehicle row y=222 (gap 11 px below Drive Type), Accessories row y=262 (gap 12 px below Vehicle), location bar lowered to mapY=357, "CUSTOM RUNS DO NOT SCORE" font 16→14 px so it clears the lowered map.
+
+**Game Over → RETRY = same-settings skip-title** ([GameOverScene.js](src/scenes/GameOverScene.js), [GameScene.js](src/scenes/GameScene.js))
+- New `_retrySameSettings()` method calls `scene.start('Game', { skipTitle: true })`.
+- `GameScene.init()` accepts `data.skipTitle`; `_awaitingStart` short-circuits to false when set. Persisted difficulty / steering / drug unlocks carry through; only START OVER wipes them.
+- Wired into the baked Crashed/Busted plate button, the standalone RETRY button, and the SPACE keyboard shortcut.
+
+**iOS tilt permission — first-tap acceptance** ([GameScene.js](src/scenes/GameScene.js))
+- Root cause: Phaser's queued pointer dispatch was dropping the iOS user-gesture context before `DeviceOrientationEvent.requestPermission()` ran, so the request rejected and the old fallback popup ("TAP ANYWHERE TO ENABLE TILT") forced a second tap.
+- Fix: new `_armTiltPrefetch()` installs a `capture: true` native DOM listener (`touchstart` / `mousedown`) on the canvas that calls `requestPermission()` synchronously inside the gesture frame. Self-cleans once permission is granted. No-op on Android / desktop where `requestPermission` doesn't exist.
+- `_enableTiltSteer()` rewritten to queue the caller's callback for the prefetch to flush instead of trying to call `requestPermission` itself.
+- Title-screen carousel and custom-modal Drive Type buttons now persist `titleThumbsPick` to the registry **immediately on tap** so the prefetch listener on the next tap (e.g. START) sees the chosen mode.
+
+**Asset cleanup pass** ([AssetManifest.js](src/systems/AssetManifest.js), `public/assets/`, `Images/`)
+- Audited `public/assets/` against `AssetManifest.js` — 0 broken refs, ~35 orphan files.
+- Moved orphans to `Images/` (flat) and `Images/_badge_source_originals/` (drug pre-zoom source PNGs, collision-avoidance):
+  - 9 from `buildings/codex/` (old crane variants, PSD source files, files with literal spaces in name)
+  - 7 from `buildings/` (duplicate space_needle.png + west_seattle_1.png–6.png — the codex/ versions are the live ones)
+  - 10 drug source originals
+  - 2 hookers/ sprites (HookerSystem was already deleted)
+  - 3 props/ (hitchhiker PNGs + overhead_powerlines_long.png, all unloaded)
+  - 7 ui/ SVG button sources
+  - The runtime copies of `ui/crash_collision.png` + `ui/crash_overdose.png` (user had already moved them to Images/)
+- Removed two dead manifest entries (`ui_crash_collision`, `ui_crash_overdose`).
+- Deleted 27 empty folders — `public/assets/cars/codex/cockpit/source` plus the macOS Finder dup folders (`cops 2`, `props 3`, `ui 3`, `buildings 2`, `music 2`, `assets 2`, etc.) in `dist/` and `ios/App/App/public/`. Intentionally left the three Xcode-managed empty folders alone (`Pods/Headers`, two `xcshareddata/swiftpm/configuration`).
+- Memory note saved at `project_dui_asset_workflow.md` documenting source-of-truth (`public/assets/`), derived folders, the music-loaded-dynamically exception, and the sanity-check `comm -23` / `comm -13` commands.
+
+**Building auto-flip rule** ([GameScene.js](src/scenes/GameScene.js))
+- Convention: every building/house PNG in `public/assets/buildings/codex/` (and the top-level `buildings/`) is authored as **right-side-of-road** appearance.
+- Both render passes (forward scene sprites + rear-view mirror building pool) compute `autoFlipLeft = (sp.type === 'building' || sp.type === 'house') && sp.offset < 0 && !/_left|_right/.test(useTexKey)` and pass it through `setFlipX(!!sp.flipX || autoFlipLeft)`.
+- Texture names ending in `_left` / `_right` (PSE office pair, ws crane pairs, west_seattle_horizon pair) are skipped — the spawn code already picks the directional variant per side and a second flip would double-mirror them.
+- Result: a single right-side authored PNG covers both shoulders; if a building looks mirrored on the right, the source PNG itself is authored wrong (NOT a code bug) — fix the file.
+
+---
+
+### 2026-05-27 (earlier) — Neon UI art pass, Custom menu overhaul, eastern WA business scenery
+
+**Main menu / loading / Custom menu theme pass** ([GameScene.js](src/scenes/GameScene.js), [BootScene.js](src/scenes/BootScene.js), [AssetManifest.js](src/systems/AssetManifest.js))
+- Start-screen button hover/tap highlights were reworked to follow the slanted/parallelogram button shapes instead of rectangular outlines. `LOAD SAVE` was brought closer to Start-button height and its small subtext was removed per art direction.
+- Boot/loading screen now uses the neon rainy DUI theme (`ui_loading_screen`) with a gradient-style progress bar.
+- Custom mode screen was rebuilt around the neon loading-screen background, a semi-transparent options panel, larger fonts, city-selection emphasis, and button-style toggles instead of checkboxes.
+- Custom menu behavior now includes: city start selection, Drive Type selection, Police on/off, Damage on/off, star-outline selector, and a clearer warning that Custom runs do not score.
+- Custom start-city selection is applied when gameplay starts; custom no-damage now covers player damage generally, not just NPC damage.
+
+**Top-row HUD button art** ([GameScene.js](src/scenes/GameScene.js), [AssetManifest.js](src/systems/AssetManifest.js), `public/assets/ui/`)
+- Replaced generated/vector approximations with the user's actual button PNGs from `Images/`:
+  - `button - genre.png`
+  - `button - Vol Mute.png`
+  - `button - Vol UnMute.png`
+  - `button - Map.png`
+  - `button - Garage.png`
+  - `button - FF.png`
+  - `button - FFtap.png`
+  - `button - Unpause.png`
+  - `button - Pause.png`
+- Runtime copies live under `public/assets/ui/top_btn_*.png` and are loaded via `AssetManifest`.
+- FF is momentary: outline image normally, solid/tapped image while pressed, resets on `pointerup`, `pointerupoutside`, or `pointerout`.
+- Pause is latched: normal/unpaused image until paused, then solid Pause image until unpaused.
+- Mute swaps between the user's mute/unmute images based on `audio.muted`; handedness redraw preserves the correct mute state.
+- Important gotcha from this pass: Phaser `load.image` showed SVG button attempts as black/blank textures in-game, so these HUD buttons should stay as PNG runtime assets unless the loader path is changed deliberately.
+- Genre source art is `150×130`; the runtime copy was padded to `150×150` with transparent space so `setDisplaySize(56, 56)` does not stretch it vertically.
+
+**Eastern Washington scenery expansion** ([RouteData.js](src/road/RouteData.js), [GameScene.js](src/scenes/GameScene.js), [AssetManifest.js](src/systems/AssetManifest.js))
+- Added repeatable Cle Elum / Ellensburg style business fronts generated as real raster assets, not temporary vector placeholders:
+  - `east_wa_main_street_storefront.webp` — hardware/feed style storefront
+  - `east_wa_cafe_storefront.webp` — cafe/diner storefront
+  - `east_wa_auto_parts_store.webp` — auto parts/repair storefront
+  - `east_wa_market_storefront.webp` — market/general store
+- Source sheet archived at `Images/Codex_Concepts/Eastern_WA_Businesses_v1/east_wa_business_sheet.png`.
+- Added two simple double-wide/mobile-home style assets:
+  - `east_wa_doublewide_tan.webp`
+  - `east_wa_doublewide_white.webp`
+- Added limited-use landmark / accent assets from existing concepts:
+  - `east_wa_vantage_truck_stop.webp`
+  - `east_wa_ritzville_diner_motel.webp`
+  - `east_wa_palouse_farm_store.webp`
+  - `east_wa_pullman_party_house.webp`
+- Route logic now separates repeatable business fronts from landmark-style buildings:
+  - `EASTERN_BUSINESS_TEXTURES` contains plainer storefronts appropriate for repeated Cle Elum/Ellensburg frontage.
+  - Ritzville / Palouse / Pullman showpiece assets are explicit landmark entries in later route windows so they do not repeat as generic filler.
+  - `EASTERN_HOME_TEXTURES` rotates weathered houses, abandoned bungalows, and double-wides for dry-side town homes.
+
+**Verification**
+- `npm run build` passed after the UI asset wiring and after the eastern WA scenery additions. Vite still reports the existing large-chunk warning.
+
+### 2026-05-27 (late) — Drug HUD grid, pedal repositioning, macOS audio gitignore fix
+
+**Drug HUD — weapon-style icon stack with progress fill** ([GameScene.js](src/scenes/GameScene.js))
+- Replaced the legacy text-labeled drug bars with a weapon-style icon stack on the side opposite the weapons (mirrors with handedness). Each cell renders the drug pickup sprite scaled into a `46×42` rectangle with a colored bottom-up fill rising as the bar fills, `alpha = bar level`, and no text label.
+- After the first 5-stack overflowed the screen, the layout was promoted to a **2-column grid** so all 10 drugs fit: `5 rows × 2 cols`, outer column populated first (`slotIdx % 2 === 0`), inner column second. Cells are `46×42` with `colGap = 4`, `rowGap = 4`, anchored at `yTop = 65`. Total stack height ≈ 230 px.
+- Fill order: `(outer, row 0), (inner, row 0), (outer, row 1), (inner, row 1) …`. Order in `Object.values(DRUGS)` controls which drug lands where.
+- Fixed `Phaser.Rectangle.setSize` NPE at `_drawDrugIcons` ~10017 by removing a redundant per-frame `setSize` call (Phaser version edge-case).
+
+**Pedals & wiper repositioned to off-weapon edge** ([GameScene.js](src/scenes/GameScene.js))
+- `_applyPedalHandedness()` (~5686): `PEDAL_X = leftHanded ? (SCREEN_W - PEDAL_W/2 - 4) : (PEDAL_W/2 + 4)` — ACCEL / BRAKE now share the off-weapons screen edge with the drug column so the drug grid has the entire weapons-side strip free.
+- Wiper button (~8728) mirrored to the same side as the pedals so the entire control column reads as a single unit.
+
+**Title-screen polish — gesture safety, persistence, 18+ disclaimer** ([GameScene.js](src/scenes/GameScene.js))
+- Removed tap-anywhere-to-start. Only the green Start button launches the run; other taps on the title surface change the live difficulty / thumbs widgets without consuming the gesture.
+- "You should probably be 18+" disclaimer placed next to the Start button.
+- Title blurb fade-out scheduled at `3.5 s` via Phaser Tweens (post-load fluff doesn't linger over the artwork).
+- Title selections (`titleThumbsPick`, `titleDiffPick`) persist across sessions via the save registry — survives tilt-unsupported fallbacks.
+- Tilt iOS permission flow hardened: `requestPermission()` fires from a fresh Start-button gesture, with a DOM-level `touchend` / `click` fallback armed if the initial prompt doesn't surface (Chrome iOS / WKWebView gesture loss). Permission denial preserves `titleThumbsPick` so the player isn't dumped back to "0 thumbs" silently.
+
+**Audio fix — macOS case-folded gitignore** ([.gitignore](.gitignore))
+- The 63 MP3s in `public/assets/music/` were being silently skipped by git because `.gitignore` matched `Music/` against `music/` on the case-insensitive macOS filesystem, so Netlify only had the procedural / fallback tracks.
+- Fixed by anchoring the pattern to the repo root: `Music/` → `/Music/`. The actual scratch `/Music/` folder at the project root is still excluded; the deployed `public/assets/music/` is now tracked. All MP3s committed in the same change.
+
+**Shrub damage + hot keys** ([GameScene.js](src/scenes/GameScene.js))
+- Confirmed shrub glancing-sideswipe cost is `0.5 – 1.0 HP` (per `RouteData.js` spawn metadata) with lateral push only — no warp-to-center.
+- `B` warps player position back `0.25 mi`, `N` warps forward `0.25 mi` (clamped at final mile). Companions to existing 1-9 mile warps. All three blocks marked `// REMOVE BEFORE RELEASE`.
+
+**Other small fixes**
+- `ghostOffset is not defined` (double-vision pass at [GameScene.js:6985](src/scenes/GameScene.js#L6985)) — variable was renamed to `ghostOffsetBase`; a tire-shadow ref still pointed at the old name. Re-derived `ghostOffset` inline at the call site.
+- Powerline wire that abruptly stopped when the closest pole passed the camera now extrapolates horizontally past the closest visible pole using `previous − secondPrev`. Mid-span sag removed entirely (straight 2-point line) per user feedback.
+
 ### 2026-05-27 — Title polish, new infrastructure, route content, physics tweaks
 A long mixed session — major buckets:
 
@@ -284,6 +431,14 @@ A long mixed session — major buckets:
 - Interactive hit regions align with the artwork's bottom cards: `START`, live `DIFFICULTY`, live `DRIVING TYPE`, and `LOAD SAVE`. Difficulty and driving type repaint only their interior value area so selections can change without disturbing the composed scene.
 - Title defaults: Thumbs `2` (classic) and Difficulty `Normal` on first-ever load. Subsequent runs restore the player's last picks from a dedicated `titleThumbsPick` / `titleDiffPick` registry slot — survives even when the underlying steering subsystem falls back (e.g., tilt unsupported).
 - Difficulty + steering only commit on the green Start tap so the iOS tilt permission prompt fires from a fresh user gesture. DOM-level `touchend`/`click` fallback armed if the initial `requestPermission()` doesn't surface the prompt (Chrome iOS / WKWebView gesture loss).
+
+**Neon ending screens** ([GameOverScene.js](src/scenes/GameOverScene.js), [GameScene.js](src/scenes/GameScene.js), [AssetManifest.js](src/systems/AssetManifest.js))
+- `OVERDOSED` uses a compact `800x450` rainy-Seattle neon background plate (`end_overdose_neon.webp`, about `60 KB`); the full generated PNG source is archived under `Archive/generated-source/ui/`.
+- `BUSTED` now uses the authored `Images/DUI Busted Screen.png` artwork through a compact runtime copy (`end_busted_screen.webp`, about `61 KB`). Its baked parallelogram buttons remain visually untouched; transparent shaped hit zones add hover outlines and map `RETRY` to start over, `LOAD SAVE` to the current checkpoint, and `MAIN MENU` to the title screen. A small neon readout above the buttons displays the last saved checkpoint code. The superseded generated Busted runtime plate was moved out of `public/` into `Archive/generated-source/ui/`.
+- `CRASHED` now uses the authored `Images/DUI Crashed Screen.png` artwork through a compact runtime copy (`end_crashed_neon.webp`, about `60 KB`). Its baked parallelogram buttons remain visually untouched; transparent shaped hit zones add hover outlines and map `RETRY` to start over, `LOAD SAVE` to the current checkpoint, and `MAIN MENU` to the title screen. It shares the checkpoint-code readout.
+- `OVERDOSED` uses an 80s chrome/neon live UI layer with run-report fields for cause, distance/time, losses, and checkpoint code, plus crisis/treatment support lines.
+- Ordinary police arrest thresholds now enter the `BUSTED` ending instead of silently resetting into gameplay. Bail loss is assessed once before the ending report; retrying from the checkpoint preserves the post-bail balance rather than applying an additional crash penalty.
+- The top-row HUD controls (pause, skip, station, mute, map, and garage) now draw as angled dark-glass neon cells so gameplay and ending screens share the same UI style.
 
 **Tilt steering**
 - Proportional analog steering for tilt mode: lower threshold (10° → 3°), `_tiltSteerAmt` value in `[-1, 1]` (full lock at ±20°), used directly as `steerIn` in tilt mode. Lets the player feather the lane line.

@@ -11,27 +11,46 @@ export class BootScene extends Phaser.Scene {
   preload() {
     console.log('[BootScene] preload start');
     const manifest = flattenManifest();
-    this._missingKeys = new Set(manifest.map(m => m.key));
+    // _failedKeys tracks ONLY keys that genuinely errored (404, decode
+    // failure).  Previously we used _missingKeys = everything-not-yet-
+    // -completed, which the safety timer could trip on while real loads
+    // were still in flight — triggering placeholder generation that
+    // then collided with the late-arriving real texture ("Texture key
+    // already in use" spam in console).  loaderror is the authoritative
+    // signal; only those keys deserve placeholders.
+    this._failedKeys = new Set();
 
     this._buildProgressBar();
 
     this.load.on('progress', v => this._setProgress(v));
-    this.load.on('filecomplete', key => this._missingKeys.delete(key));
-    this.load.on('loaderror', () => {});
+    this.load.on('filecomplete', key => {
+      if (key === 'ui_loading_screen') this._mountLoadingBackdrop();
+    });
+    this.load.on('loaderror', (file) => {
+      if (file?.key) this._failedKeys.add(file.key);
+    });
 
+    // Queue the splash first so it appears while heavier gameplay art
+    // continues loading behind the progress bar.
+    const loadingSplash = manifest.find(asset => asset.key === 'ui_loading_screen');
+    if (loadingSplash) this.load.image(loadingSplash.key, loadingSplash.path);
     for (const { key, path } of manifest) {
+      if (key === loadingSplash?.key) continue;
       this.load.image(key, path);
     }
 
     // Safety net: if the loader stalls (browser quirks with all-404 batches),
-    // force the boot to complete after 5s so the user never sees a permanent
-    // loading screen.
+    // force the boot to complete after 20s so the user never sees a permanent
+    // loading screen.  Bumped from 5s to 20s because a normal cold load over
+    // the dev-server LAN can take 10+ s with 200+ assets — at 5s the timer
+    // tripped during normal flow and created placeholders for keys whose
+    // real load was still in flight.
     this._safetyTimer = setTimeout(() => {
       if (!this._createDone) {
         this._setProgress(1);
         try { this.create(); } catch (e) { console.error('[Boot safety]', e); }
       }
-    }, 5000);
+    }, 20000);
   }
 
   create() {
@@ -99,21 +118,35 @@ export class BootScene extends Phaser.Scene {
   }
 
   _buildProgressBar() {
-    const w = 360, h = 14;
-    const x = (SCREEN_W - w) / 2;
-    const y = SCREEN_H / 2 + 40;
+    this.cameras.main.setBackgroundColor('#03050D');
+    this.add.rectangle(SCREEN_W / 2, SCREEN_H / 2, SCREEN_W, SCREEN_H, 0x03050D)
+      .setDepth(-2);
 
-    this.add.text(SCREEN_W / 2, y - 30, 'LOADING', {
-      fontFamily: 'Arial Black, sans-serif',
-      fontSize: '20px',
-      color: '#FF4400',
-    }).setOrigin(0.5);
+    const w = 390, h = 10;
+    const x = (SCREEN_W - w) / 2;
+    const y = SCREEN_H - 32;
+
+    this._loadingText = this.add.text(SCREEN_W / 2, y - 29, 'LOADING', {
+      fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
+      fontSize: '22px',
+      letterSpacing: 5,
+      color: '#F4F7FF',
+      stroke: '#FF39AF',
+      strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(3)
+      .setShadow(0, 0, '#FF39AF', 10, true, true);
 
     this._barBg = this.add.graphics();
-    this._barBg.lineStyle(2, 0xFF4400, 1);
-    this._barBg.strokeRect(x - 1, y - 1, w + 2, h + 2);
+    this._barBg.setDepth(3);
+    this._barBg.fillStyle(0x040916, 0.90);
+    this._barBg.fillRoundedRect(x - 7, y - 7, w + 14, h + 14, 10);
+    this._barBg.lineStyle(4, 0x152E51, 0.55);
+    this._barBg.strokeRoundedRect(x - 6, y - 6, w + 12, h + 12, 9);
+    this._barBg.lineStyle(2, 0x39A8FF, 1);
+    this._barBg.strokeRoundedRect(x - 4, y - 4, w + 8, h + 8, 7);
 
-    this._barFill = this.add.graphics();
+    this._barGlow = this.add.graphics().setDepth(3);
+    this._barFill = this.add.graphics().setDepth(4);
     this._barX = x;
     this._barY = y;
     this._barW = w;
@@ -122,13 +155,35 @@ export class BootScene extends Phaser.Scene {
 
   _setProgress(v) {
     if (!this._barFill) return;
+    const fillW = this._barW * Math.max(0, Math.min(1, v));
+    this._barGlow.clear();
     this._barFill.clear();
-    this._barFill.fillStyle(0xFF4400, 1);
-    this._barFill.fillRect(this._barX, this._barY, this._barW * v, this._barH);
+    if (fillW <= 0) return;
+    this._barGlow.fillStyle(0x39A8FF, 0.14);
+    this._barGlow.fillRoundedRect(this._barX - 3, this._barY - 3, fillW + 6, this._barH + 6, 6);
+    this._barFill.fillGradientStyle(0x39D9FF, 0xFF39AF, 0x39D9FF, 0xFF39AF, 1);
+    this._barFill.fillRoundedRect(this._barX, this._barY, fillW, this._barH, 4);
+    this._barFill.fillStyle(0xFFFFFF, 0.45);
+    this._barFill.fillRoundedRect(this._barX + 2, this._barY + 1, Math.max(0, fillW - 4), 2, 1);
+  }
+
+  _mountLoadingBackdrop() {
+    if (this._loadingBackdrop || !this.textures.exists('ui_loading_screen')) return;
+    this._loadingBackdrop = this.add.image(SCREEN_W / 2, SCREEN_H / 2, 'ui_loading_screen')
+      .setDisplaySize(SCREEN_W, SCREEN_H)
+      .setDepth(-1)
+      .setAlpha(0);
+    this.tweens.add({ targets: this._loadingBackdrop, alpha: 1, duration: 180 });
   }
 
   _fillMissingPlaceholders() {
-    for (const key of this._missingKeys) {
+    // Only generate placeholders for keys that explicitly errored
+    // (loaderror).  Falling back on "anything not-yet-loaded" would
+    // race the in-flight network/decode work and clobber real
+    // textures with a placeholder, then Phaser warns about the
+    // duplicate when the real image arrives.
+    const failed = this._failedKeys ?? new Set();
+    for (const key of failed) {
       if (this.textures.exists(key)) continue;
       this._makePlaceholder(key);
     }

@@ -98,6 +98,15 @@ const SCENERY_IMAGE_PROFILES = {
   codex_east_wa_abandoned_bungalow:   { heightMult: 2.80, maxW: 250, maxH: PLAYER_CAR_VISUAL_H * 2.80, minOffset: 1.08, groundDrop: 0.010 },
   codex_east_wa_two_story_brick_shop: { heightMult: 4.00, maxW: 250, maxH: PLAYER_CAR_VISUAL_H * 4.00, minOffset: 1.10, groundDrop: 0.010 },
   codex_east_wa_block_repair_shop:    { heightMult: 2.35, maxW: 300, maxH: PLAYER_CAR_VISUAL_H * 2.35, minOffset: 1.15, groundDrop: 0.010 },
+  codex_east_wa_main_street_storefront:{ widthMult: 2.80, maxW: 330, maxH: PLAYER_CAR_VISUAL_H * 2.35, minOffset: 1.12, groundDrop: 0.010 },
+  codex_east_wa_cafe_storefront:      { widthMult: 2.75, maxW: 330, maxH: PLAYER_CAR_VISUAL_H * 2.35, minOffset: 1.12, groundDrop: 0.010 },
+  codex_east_wa_auto_parts_store:     { widthMult: 2.85, maxW: 340, maxH: PLAYER_CAR_VISUAL_H * 2.35, minOffset: 1.12, groundDrop: 0.010 },
+  codex_east_wa_market_storefront:    { widthMult: 2.75, maxW: 330, maxH: PLAYER_CAR_VISUAL_H * 2.35, minOffset: 1.12, groundDrop: 0.010 },
+  codex_east_wa_vantage_truck_stop:   { widthMult: 3.10, maxW: 420, maxH: PLAYER_CAR_VISUAL_H * 2.45, minOffset: 1.20, groundDrop: 0.010 },
+  codex_east_wa_ritzville_diner_motel:{ widthMult: 3.35, maxW: 440, maxH: PLAYER_CAR_VISUAL_H * 2.65, minOffset: 1.18, groundDrop: 0.010 },
+  codex_east_wa_palouse_farm_store:   { heightMult: 3.45, maxW: 350, maxH: PLAYER_CAR_VISUAL_H * 3.45, minOffset: 1.28, groundDrop: 0.010 },
+  codex_east_wa_pullman_party_house:  { heightMult: 3.25, maxW: 330, maxH: PLAYER_CAR_VISUAL_H * 3.25, minOffset: 1.18, groundDrop: 0.010 },
+  // (codex_east_wa_doublewide_tan / _white profiles removed — source PNGs no longer ship.)
   east_wa_herd_3_cows:                { widthMult: 1.35, maxW: 145, maxH: PLAYER_CAR_VISUAL_H * 0.48, minOffset: 3.40, groundDrop: 0.002 },
   east_wa_herd_5_cows:                { widthMult: 1.80, maxW: 190, maxH: PLAYER_CAR_VISUAL_H * 0.76, minOffset: 3.60, groundDrop: 0.002 },
   east_wa_herd_6_cows:                { widthMult: 1.90, maxW: 205, maxH: PLAYER_CAR_VISUAL_H * 0.82, minOffset: 3.80, groundDrop: 0.002 },
@@ -161,6 +170,10 @@ export class GameScene extends Phaser.Scene {
   init(data) {
     this._missionConfig = data?.mission ?? null;
     this._hubReturn     = data?.hubReturn ?? null;
+    // Skip-title flag — Game Over's RETRY uses this to jump straight
+    // into a new run with the player's persisted difficulty / steering
+    // settings instead of bouncing through the title screen first.
+    this._skipTitle     = !!data?.skipTitle;
     // Resume-from-rest-stop: scene.start('Game', { resumeFromStop: 'C', score, ... })
     // tells us to skip the title overlay and place the player at the saved
     // mileage with the saved score. Set in RestStopScene "CONTINUE" or in
@@ -179,6 +192,10 @@ export class GameScene extends Phaser.Scene {
     // "RESTART FROM CHECKPOINT" button passes both.
     this._resumeFromPosition = data?.resumeFromPosition ?? null;
     this._crashRestartScore  = data?.crashRestartScore  ?? 0;
+    // Arrest endings already assess their displayed bail loss before the
+    // player reaches GameOver, so their checkpoint retry preserves that
+    // post-bail total instead of applying the crash half-cash penalty too.
+    this._checkpointRestartScore = data?.checkpointRestartScore ?? null;
     // Slider-restart drug levels (technical-loss / custom-mode flow) —
     // applied once after the scene reaches gameplay.
     this._customStartLevels  = data?.startDrugLevels ?? null;
@@ -259,10 +276,14 @@ export class GameScene extends Phaser.Scene {
     if (this._tiltAttached && this._tiltOnOrient) {
       window.removeEventListener('deviceorientation', this._tiltOnOrient, true);
     }
-    this._tiltAttached    = false;
-    this._tiltLeftActive  = false;
-    this._tiltRightActive = false;
-    this._tiltGamma       = 0;
+    if (this._tiltPrefetchCleanup) this._tiltPrefetchCleanup();
+    this._tiltAttached         = false;
+    this._tiltLeftActive       = false;
+    this._tiltRightActive      = false;
+    this._tiltGamma            = 0;
+    this._tiltRequestInFlight  = false;
+    this._tiltPendingCbs       = null;
+    this._tiltPrefetchInstalled = false;
   }
 
   create() {
@@ -325,13 +346,16 @@ export class GameScene extends Phaser.Scene {
     this._fiveStarSurvived = false;
     this._everHitStars     = false;      // for Crystal Clean (Pullman-end)
     this._everUsedRestStop = false;      // for Iron Bladder (Pullman-end)
-    // Custom-mode opt-in flags from the start-screen checkboxes.  Reset
+    // Custom-mode opt-in flags from the start-screen controls.  Reset
     // every init() so a previous Custom run can't bleed `noPolice` /
     // `noNpcDamage` into the next Normal/Easy/Hard launch.  The CUSTOM
     // modal sets these AFTER init() runs, before calling _startGameplay,
     // so the modal flow isn't broken by the unconditional reset.
     this._customFlags      = { noNpcDamage: false, noPolice: false };
     this._customStartStars = null;
+    this._customStartPosition = null;
+    this._customStartAccessories = null;
+    this._customStartVehicleId   = null;
 
     this.road    = new Road();
     this.drugs   = new DrugSystem();
@@ -872,6 +896,17 @@ export class GameScene extends Phaser.Scene {
     // scenery crash (tree / building / barrier).  During this window the
     // sprite blinks and _applyDamage is no-op.
     this._invincibleUntil = 0;
+    // ms-timestamp until which the post-crash "rolling start" auto-pilot
+    // is active — auto-ramps the player up to 60 mph regardless of input
+    // so the recovery lane delivers a controlled re-entry into traffic.
+    // Set only by the major crashes (scenery / head-on), NOT by the
+    // short bush-nudge i-frame.
+    this._crashRecoveryUntil = 0;
+    // Timestamp when the rolling-start ramp begins.  Each crash sets
+    // this to (now + 1000) so the first second of the i-frame blink
+    // keeps the car frozen at 0 mph; after that the auto-pilot ramps
+    // up to 60 mph for the remainder of the recovery window.
+    this._crashRollStartAt = 0;
     this.traffic         = [];
     this._trafficTimer   = 0;
     this._prevRegion     = 0;
@@ -931,7 +966,7 @@ export class GameScene extends Phaser.Scene {
     const buttonY = SCREEN_H - 62;
     const startOverBtn = this._buildPauseButton(
       SCREEN_W / 2 - 110, buttonY, 200, 38, 'START OVER',
-      0x993322, 0xFFFFFF,
+      0xFF39AF,
       () => {
         // In-game confirm — window.confirm freezes iOS WKWebView, so use a
         // Phaser-rendered modal that's reliable on every platform.
@@ -962,7 +997,10 @@ export class GameScene extends Phaser.Scene {
             // these, but explicit clear here makes the intent obvious.
             this._customFlags       = { noNpcDamage: false, noPolice: false };
             this._customStartStars  = null;
+            this._customStartPosition = null;
             this._customStartLevels = null;
+            this._customStartAccessories = null;
+            this._customStartVehicleId   = null;
             if (this.player) this.player.position = 0;
             // Reset HP to the current vehicle's max so the player
             // starts fresh, not at whatever durability they crashed at.
@@ -977,7 +1015,7 @@ export class GameScene extends Phaser.Scene {
     );
     this._pauseObjects.push(startOverBtn.bg, startOverBtn.txt);
 
-    // ── 🗺 MAP + 🚗 GARAGE icon buttons ──────────────────────────────
+    // ── MAP + GARAGE icon buttons ────────────────────────────────────
     // Positioned in a row JUST RIGHT of the rear-view mirror (swapped
     // from the left side per UX request — music cluster moved to the
     // left).  Same 56-px size + dark-gray fill + cyan stroke as the
@@ -988,48 +1026,40 @@ export class GameScene extends Phaser.Scene {
     // 1-px gap matches the tighter spacing applied to the music
     // cluster on the left side of the mirror.
     const iconGap  = 1;
-    const makeIconBtn = (px, glyph, onClick) => {
+    const makeIconBtn = (px, iconId, onClick) => {
       const bg = this.add.graphics().setDepth(62);
-      // Draw at full opacity; the per-button alpha conveys hover state.
-      // (Hover handlers that re-`fillRoundedRect` would lock the button
-      // to its closure-captured `px` and visibly "snap back" after the
-      // top-row handedness swap moves it.)
-      bg.fillStyle(0x222222, 1);
-      bg.fillRoundedRect(px, iconRowY, iconSize, iconSize, 10);
-      bg.lineStyle(3, 0x66CCFF, 1);
-      bg.strokeRoundedRect(px + 1.5, iconRowY + 1.5, iconSize - 3, iconSize - 3, 10);
-      bg.setAlpha(0.85);
       bg.setInteractive(new Phaser.Geom.Rectangle(px, iconRowY, iconSize, iconSize), Phaser.Geom.Rectangle.Contains);
       bg.input.cursor = 'pointer';
-      const lbl = this.add.text(px + iconSize / 2, iconRowY + iconSize / 2, glyph, {
-        fontSize: '32px',
-      }).setOrigin(0.5).setDepth(63);
-      bg.on('pointerover', () => bg.setAlpha(1));
-      bg.on('pointerout',  () => bg.setAlpha(0.85));
+      const lbl = this.add.image(px + iconSize / 2, iconRowY + iconSize / 2, this._topRowButtonTexture(iconId))
+        .setDisplaySize(iconSize, iconSize)
+        .setDepth(63);
+      bg.on('pointerover', () => lbl.setAlpha(1));
+      bg.on('pointerout',  () => lbl.setAlpha(0.96));
       bg.on('pointerdown', (ptr) => {
         ptr.event?.stopPropagation?.();
         onClick();
       });
       return [bg, lbl];
     };
-    // New layout — Mute sits immediately right of the mirror, then
-    // Map, then Garage further right.  (Wiper, when shown, sits
-    // beyond Garage; see music-cluster code above.)
-    const mapX = MIRROR_RIGHT + iconGap + iconSize + iconGap;   // past Mute
+    // New layout — readout reservation (speed/time/$) sits adjacent to
+    // the mirror, then Mute, then Map, then Garage further right.
+    // (Wiper, when shown, sits beyond Garage; see music-cluster code.)
+    const READOUT_W = 95;
+    const mapX = MIRROR_RIGHT + READOUT_W + iconGap + iconSize + iconGap;   // past Mute
     const garX = mapX + iconSize + iconGap;
-    const [mapBg, mapLbl] = makeIconBtn(mapX, '🗺', () => this._buildMapModal());
-    const [garBg, garLbl] = makeIconBtn(garX, '🚗', () => this._buildGarageModal());
+    const [mapBg, mapLbl] = makeIconBtn(mapX, 'map', () => this._buildMapModal());
+    const [garBg, garLbl] = makeIconBtn(garX, 'garage', () => this._buildGarageModal());
     // Tracked via _hudObjects (always-visible HUD pool) instead of
     // _pauseObjects so they survive the _togglePause visibility sweep.
     this._hudObjects.push(mapBg, mapLbl, garBg, garLbl);
     if (this._topRowButtons) {
-      this._topRowButtons.push({ id: 'map',    bg: mapBg, lbl: mapLbl, baseLeft: mapX, size: iconSize });
-      this._topRowButtons.push({ id: 'garage', bg: garBg, lbl: garLbl, baseLeft: garX, size: iconSize });
+      this._topRowButtons.push({ id: 'map',    bg: mapBg, lbl: mapLbl, artType: 'map',    baseLeft: mapX, size: iconSize });
+      this._topRowButtons.push({ id: 'garage', bg: garBg, lbl: garLbl, artType: 'garage', baseLeft: garX, size: iconSize });
     }
 
     const checkpointBtn = this._buildPauseButton(
       SCREEN_W / 2 + 110, buttonY, 200, 38, 'FROM CHECKPOINT',
-      0x44AA66, 0x000000,
+      0x39A8FF,
       () => {
         // Prompt for the save code instead of auto-loading the last
         // checkpoint.  Default the entry to the most recent saved code
@@ -1057,14 +1087,14 @@ export class GameScene extends Phaser.Scene {
     this._pauseVolLabel = this.add.text(SCREEN_W / 2, labelY,
       `MUSIC VOLUME  ${Math.round((this.audio?.volume ?? 0.32) * 100)}%`, {
       fontSize: '14px', fontFamily: 'Impact, Arial Black, sans-serif',
-      color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
+      color: '#F4F7FF', stroke: '#39A8FF', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(62).setVisible(false);
     this._pauseObjects.push(this._pauseVolLabel);
 
-    const sliderTrack = this.add.rectangle(sliderL, sliderY, sliderW, sliderH, 0x222222, 1)
-      .setOrigin(0, 0.5).setStrokeStyle(2, 0xFFFFFF).setDepth(62).setVisible(false)
+    const sliderTrack = this.add.rectangle(sliderL, sliderY, sliderW, sliderH, 0x050812, 0.94)
+      .setOrigin(0, 0.5).setStrokeStyle(2, 0x39A8FF).setDepth(62).setVisible(false)
       .setInteractive({ useHandCursor: true });
-    const sliderFill = this.add.rectangle(sliderL, sliderY, sliderW * (this.audio?.volume ?? 0.32), sliderH, 0x44CC88, 1)
+    const sliderFill = this.add.rectangle(sliderL + 2, sliderY, Math.max(0, sliderW * (this.audio?.volume ?? 0.32) - 4), sliderH - 4, 0xFF39AF, 0.90)
       .setOrigin(0, 0.5).setDepth(63).setVisible(false);
     // Invisible "safe zone" wrapping the slider track + label area.
     // Catches tap-near-misses as a UI tap (firing gameobjectdown) so
@@ -1085,7 +1115,7 @@ export class GameScene extends Phaser.Scene {
         this.audio.volume = t;
         if (this.audio._master) this.audio._master.gain.value = (this.audio.muted || this.audio.paused) ? 0 : t;
       }
-      sliderFill.setSize(sliderW * t, sliderH);
+      sliderFill.setSize(Math.max(0, sliderW * t - 4), sliderH - 4);
       this._pauseVolLabel.setText(`MUSIC VOLUME  ${Math.round(t * 100)}%`);
     };
     sliderTrack.on('pointerdown', (ptr) => setVolFromX(ptr.x));
@@ -1112,7 +1142,9 @@ export class GameScene extends Phaser.Scene {
       // HP (which they have to refill at rest stops).  Stars + drugs
       // still zero so the chase / chemical state genuinely resets.
       this.player.position = this._resumeFromPosition;
-      this.score           = Math.floor((this._crashRestartScore ?? 0) / 2);
+      this.score           = this._checkpointRestartScore != null
+        ? Math.max(0, Math.floor(this._checkpointRestartScore))
+        : Math.floor((this._crashRestartScore ?? 0) / 2);
       this.cops.stars         = 0;
       this.cops.cops          = [];
       this.cops.bumpCount     = 0;
@@ -1378,6 +1410,7 @@ export class GameScene extends Phaser.Scene {
     // Resume-from-stop bypasses the title.
     this._awaitingStart = !this._missionConfig
                        && !this._resumeFromStop
+                       && !this._skipTitle
                        && this._resumeFromPosition == null;
     this._introDone     = !this._awaitingStart;
     this._introGfx      = null;
@@ -1598,57 +1631,103 @@ export class GameScene extends Phaser.Scene {
       }
       this._tiltSteerAmt = frac;
     };
-    // If user previously enabled tilt, attach automatically (after the
-    // first tap to satisfy iOS gesture rule on cold load).
-    if (this.registry?.get?.('tiltSteerEnabled')) {
-      this.input.once('pointerdown', () => this._enableTiltSteer());
-    }
+    // Pre-arm a native-DOM gesture listener that fires iOS's
+    // requestPermission() INSIDE the same touch frame as the next user
+    // tap — preserving the user-gesture context that Phaser's queued
+    // dispatch otherwise loses.  Active on every load (title screen,
+    // cold load with tilt remembered, mid-run mode swap) and self-
+    // cleans once permission is granted.
+    this._armTiltPrefetch();
+  }
+
+  /** Install a one-time native-DOM gesture listener that calls iOS's
+   *  DeviceOrientationEvent.requestPermission() directly from the
+   *  user-gesture frame, BEFORE Phaser dispatches the same event to
+   *  its input queue.  This is what lets the tilt prompt accept on
+   *  first try — going through Phaser used to break the gesture
+   *  context, forcing a second "TAP ANYWHERE TO ENABLE TILT" tap.
+   *
+   *  No-op on browsers without DeviceOrientationEvent.requestPermission
+   *  (Android, desktop) — those don't need the gesture handoff.  Only
+   *  fires when the player currently has TILT selected; other steering
+   *  modes don't trigger a permission prompt. */
+  _armTiltPrefetch() {
+    if (this._tiltPrefetchInstalled) return;
+    const W = window.DeviceOrientationEvent;
+    if (!W || typeof W.requestPermission !== 'function') return;
+    this._tiltPrefetchInstalled = true;
+
+    const onGesture = () => {
+      if (this._tiltAttached || this._tiltRequestInFlight) return;
+      // Only fire when the player actually wants tilt — covers both
+      // the cold-load case (titleThumbsPick/steeringMode persisted as
+      // 'tilt') and the mid-run swap (carousel cursor on tilt).
+      const picked = this.registry?.get?.('titleThumbsPick')
+                  ?? this.registry?.get?.('steeringMode');
+      if (picked !== 'tilt') return;
+
+      this._tiltRequestInFlight = true;
+      W.requestPermission()
+        .then((res) => {
+          this._tiltRequestInFlight = false;
+          if (res === 'granted' && !this._tiltAttached) {
+            this._tiltAttached = true;
+            window.addEventListener('deviceorientation', this._tiltOnOrient, true);
+            // Permission resolved — listener no longer needed.
+            if (this._tiltPrefetchCleanup) this._tiltPrefetchCleanup();
+          }
+          // Flush any callbacks queued by _enableTiltSteer while the
+          // prefetch was in flight.
+          const cbs = this._tiltPendingCbs ?? [];
+          this._tiltPendingCbs = [];
+          for (const cb of cbs) cb?.(res === 'granted' ? 'granted' : 'denied');
+        })
+        .catch(() => {
+          this._tiltRequestInFlight = false;
+          const cbs = this._tiltPendingCbs ?? [];
+          this._tiltPendingCbs = [];
+          for (const cb of cbs) cb?.('denied');
+        });
+    };
+
+    const canvas = this.game?.canvas ?? document;
+    canvas.addEventListener('touchstart', onGesture, { capture: true, passive: true });
+    canvas.addEventListener('mousedown',  onGesture, { capture: true });
+    this._tiltPrefetchCleanup = () => {
+      canvas.removeEventListener('touchstart', onGesture, true);
+      canvas.removeEventListener('mousedown',  onGesture, true);
+      this._tiltPrefetchCleanup = null;
+      this._tiltPrefetchInstalled = false;
+    };
   }
 
   /** Request OS permission (iOS) and attach the orientation listener.
-   *  Calls back with 'granted' | 'denied' | 'unsupported'.  MUST be
-   *  called synchronously from a user-gesture handler (no `await`
-   *  before this) — iOS rejects requestPermission outside one. */
+   *  Calls back with 'granted' | 'denied' | 'unsupported'.
+   *
+   *  On iOS, the actual requestPermission() call goes through the
+   *  native-DOM prefetch listener installed by _armTiltPrefetch, NOT
+   *  through this function — Phaser's queued dispatch breaks the user-
+   *  gesture context iOS needs.  This function just queues the
+   *  caller's onResult callback until the prefetch resolves (or fires
+   *  it immediately if permission is already attached). */
   _enableTiltSteer(onResult) {
     if (this._tiltAttached) { onResult?.('granted'); return; }
     const W = window.DeviceOrientationEvent;
     if (!W) { onResult?.('unsupported'); return; }
-    const attach = () => {
-      if (!this._tiltAttached) {
-        this._tiltAttached = true;
-        window.addEventListener('deviceorientation', this._tiltOnOrient, true);
-      }
-      onResult?.('granted');
-    };
     const needsPerm = typeof W.requestPermission === 'function';
-    if (needsPerm) {
-      // iOS requires the requestPermission() call to occur from inside a
-      // real DOM touch/click handler.  Phaser's pointerdown sometimes
-      // loses that gesture context (especially in Chrome iOS / WKWebView),
-      // so we ALSO bind a one-shot DOM listener as a fallback: if the
-      // first attempt rejects, the next real touch fires it again from a
-      // fresh gesture frame.
-      const tryRequest = () => W.requestPermission()
-        .then((res) => {
-          if (res === 'granted') { attach(); return true; }
-          return false;
-        })
-        .catch(() => false);
-      tryRequest().then((ok) => {
-        if (ok) return;
-        // Fallback: re-request on the next real DOM tap.
-        const dom = (e) => {
-          document.removeEventListener('touchend', dom, true);
-          document.removeEventListener('click',    dom, true);
-          tryRequest().then((ok2) => onResult?.(ok2 ? 'granted' : 'denied'));
-        };
-        document.addEventListener('touchend', dom, true);
-        document.addEventListener('click',    dom, true);
-        this._showPopup?.('TAP ANYWHERE TO ENABLE TILT', '#FFCC44');
-      });
-    } else {
-      attach();
+    if (!needsPerm) {
+      // Android / desktop — no permission gate, attach directly.
+      this._tiltAttached = true;
+      window.addEventListener('deviceorientation', this._tiltOnOrient, true);
+      onResult?.('granted');
+      return;
     }
+    // iOS: defer to the native-DOM prefetch listener.  If a request is
+    // already in flight (the user just tapped), queue our callback.
+    // Otherwise arm the prefetch so the very next tap drives it.
+    this._armTiltPrefetch();
+    this._tiltPendingCbs = this._tiltPendingCbs ?? [];
+    this._tiltPendingCbs.push(onResult);
   }
 
   _disableTiltSteer() {
@@ -2663,17 +2742,26 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Handedness live-mirror — when the iPhone-menu hand button flips
-    // _leftHanded mid-run, statically-placed HUD text (HP, Mi/gas)
-    // needs its x + origin re-applied so it follows the weapon column
-    // to the opposite edge.  Only fires when the flag actually changes
-    // so we don't touch Phaser display state every frame.
+    // _leftHanded mid-run, the mirror-adjacent readout clusters need
+    // their x + origin re-applied so they swap sides with the rest of
+    // the HUD.  Only fires when the flag actually changes so we don't
+    // touch Phaser display state every frame.
     if (this._appliedLeftHanded !== this._leftHanded) {
-      const lh = !!this._leftHanded;
-      const x  = lh ? 80 : (SCREEN_W - 80);
-      const ox = lh ? 0 : 1;
-      if (this.hudHP)        { this.hudHP.x        = x; this.hudHP.setOrigin(ox, 0.5); }
-      if (this.hudGas)       { this.hudGas.x       = x; this.hudGas.setOrigin(ox, 0.5); }
-      if (this.hudHPDamage)  { this.hudHPDamage.setOrigin(ox, 0.5); }
+      const lh  = !!this._leftHanded;
+      const mx_  = (x) => lh ? (SCREEN_W - x) : x;
+      const mox_ = (o) => lh ? (1 - o) : o;
+      const READOUT_LEFT_X_  = SCREEN_W / 2 - 130 - 6;
+      const READOUT_RIGHT_X_ = SCREEN_W / 2 + 130 + 6;
+      const READOUT_LEFT_MULT_X_ = READOUT_LEFT_X_ - 60;
+      // LEFT cluster: Timer, Mult, Cash, HP, HPDamage (right-aligned in base coords).
+      if (this.hudPartyClock) { this.hudPartyClock.x = mx_(READOUT_LEFT_X_);      this.hudPartyClock.setOrigin(mox_(1), 0); }
+      if (this.hudMult)       { this.hudMult.x       = mx_(READOUT_LEFT_MULT_X_); this.hudMult.setOrigin(mox_(1), 0); }
+      if (this.hudScore)      { this.hudScore.x      = mx_(READOUT_LEFT_X_);      this.hudScore.setOrigin(mox_(1), 0); }
+      if (this.hudHP)         { this.hudHP.x         = mx_(READOUT_LEFT_X_);      this.hudHP.setOrigin(mox_(1), 0); }
+      if (this.hudHPDamage)   { this.hudHPDamage.setOrigin(mox_(1), 0); }
+      // RIGHT cluster: Speed, MPH, Gas (left-aligned in base coords).
+      if (this.hudSpeed)      { this.hudSpeed.x      = mx_(READOUT_RIGHT_X_);     this.hudSpeed.setOrigin(mox_(0), 0); }
+      if (this.hudGas)        { this.hudGas.x        = mx_(READOUT_RIGHT_X_);     this.hudGas.setOrigin(mox_(0), 0); }
       this._applyTopRowHandedness?.();
       this._applyPedalHandedness?.();
       this._appliedLeftHanded = this._leftHanded;
@@ -2803,6 +2891,21 @@ export class GameScene extends Phaser.Scene {
       if (targetSpeed > flatCap) targetSpeed = flatCap;
     }
 
+    // Crash-recovery auto-pilot — during the i-frame blink that follows
+    // a scenery or head-on crash, the first ~1 s keeps the car frozen
+    // at 0 mph (handled below), then this branch drives the car toward
+    // a 60 mph rolling re-entry regardless of input for the rest of
+    // the blink.  Steering re-enables once the ramp starts (see
+    // `_rollPhase` near the steering input block).
+    {
+      const _nowAP = this.time?.now ?? 0;
+      const _crUntil = this._crashRecoveryUntil ?? 0;
+      const _crRoll  = this._crashRollStartAt ?? 0;
+      if (_nowAP < _crUntil && _nowAP >= _crRoll) {
+        targetSpeed = mphToUnits(60);
+      }
+    }
+
     if (p.speed < targetSpeed) {
       // Weed (when alone) reduces ACCEL — slower throttle response.
       p.speed = Math.min(targetSpeed, p.speed + ACCEL * (phys.accelMul ?? 1) * dt * 60);
@@ -2835,12 +2938,19 @@ export class GameScene extends Phaser.Scene {
     //     STRAIGHT and the timer is paused until the player taps.
     //   • Steer-lock-until-tap — checkpoint resumes, car drives
     //     straight but the timer runs from scene load.
-    const _iframeActive = (this.time?.now ?? 0) < this._invincibleUntil;
+    const _now          = this.time?.now ?? 0;
+    const _iframeActive = _now < this._invincibleUntil;
+    // Once the rolling-start ramp begins (1 s into crash recovery),
+    // the player gets steering back even though the blink is still
+    // running.  Lets them aim the car as it accelerates back to 60 mph.
+    const _rollPhase    = _iframeActive
+                       && (this._crashRollStartAt ?? 0) > 0
+                       && _now >= (this._crashRollStartAt ?? 0);
     const _readyState   = !!this._awaitingFirstGameTap;
     const _steerLocked  = !!this._steerLockUntilTap;
     const _mode = this._steeringMode();
     let steerIn;
-    if (_iframeActive || _readyState || _steerLocked) {
+    if ((_iframeActive && !_rollPhase) || _readyState || _steerLocked) {
       steerIn = 0;
     } else if (_mode === 'flappy') {
       steerIn = (this._isRight() ? 1 : -1);
@@ -3271,12 +3381,22 @@ export class GameScene extends Phaser.Scene {
     // Combined effect: read 60 mph, cover ground as if at 150 mph.
     const lsdLvl = this.drugs?.get?.(DRUGS.LSD) ?? 0;
     const distMul = lsdLvl >= 0.90 ? 1.25 : 1.0;
-    // Crash i-frame freezes the world (speed pinned to zero, sprite
-    // blinks).  The pre-first-tap "ready" state does NOT freeze — the
-    // road keeps scrolling at idle and the car drives straight ahead
-    // (steerIn=0 handled above) until the player makes their first
-    // input, at which point Tap-mode's leftward pull kicks in.
-    if (_iframeActive) {
+    // Crash i-frame handling.  Three cases:
+    //  (a) Short-blink hits (e.g. the 200 ms bush nudge) freeze the
+    //      world entirely — speed pinned to zero, sprite blinks in
+    //      place.  No crash-recovery flag is set for those.
+    //  (b) Major-crash hold phase — first ~1 s of the i-frame after a
+    //      scenery / head-on hit.  Car stays frozen at 0 mph so the
+    //      impact reads as a real stop before the rolling start kicks in.
+    //  (c) Major-crash roll phase — remainder of the i-frame.  The
+    //      auto-pilot upstream forces a 60 mph target; let position
+    //      advance and the speed ramp run.  Steering also re-enables
+    //      via `_rollPhase` so the player can aim the recovery.
+    const _nowFr = this.time?.now ?? 0;
+    const _inCrashRecovery = _nowFr < (this._crashRecoveryUntil ?? 0);
+    const _inRollPhase     = _inCrashRecovery
+                          && _nowFr >= (this._crashRollStartAt ?? 0);
+    if (_iframeActive && !_inRollPhase) {
       p.speed = 0;
     } else {
       p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
@@ -4030,8 +4150,8 @@ export class GameScene extends Phaser.Scene {
    *  the collision-only rules so it still trickles through normally. */
   /** Reusable drug-slider modal.  10 horizontal sliders (one per drug),
    *  click+drag to set 0..1.  Modes:
-   *    'custom'  — title-screen Custom Mode start.  Includes the no-NPC-
-   *                damage and no-police checkboxes.
+   *    'custom'  — title-screen Custom Mode start.  Includes the neon
+   *                route, driving-type, police and damage controls.
    *    'live'    — in-game adjustment.  Pre-fills sliders with current
    *                bar levels; on confirm, writes them back without
    *                restarting the scene.
@@ -4040,6 +4160,10 @@ export class GameScene extends Phaser.Scene {
    *  `onConfirm({ drugLevels, checkpointPos, noNpcDamage, noPolice })`
    *  fires when the player taps START. */
   _buildDrugSliderModal({ mode = 'custom', onConfirm, onClose, initialLevels = null } = {}) {
+    if (mode === 'custom') {
+      this._buildCustomModeModal({ onConfirm, onClose, initialLevels });
+      return;
+    }
     if (this._sliderModalOpen) return;
     this._sliderModalOpen = true;
     const D = 280;
@@ -4447,6 +4571,370 @@ export class GameScene extends Phaser.Scene {
         customSub,
       });
     });
+
+    this._addHudObjs?.(...objs);
+  }
+
+  _buildCustomModeModal({ onConfirm, onClose, initialLevels = null } = {}) {
+    if (this._sliderModalOpen) return;
+    this._sliderModalOpen = true;
+    const D = 280;
+    const objs = [];
+    const releaseHandlers = [];
+    const add = (...nodes) => { objs.push(...nodes); return nodes; };
+
+    const backdrop = this.textures.exists('ui_loading_screen')
+      ? this.add.image(SCREEN_W / 2, SCREEN_H / 2, 'ui_loading_screen')
+        .setDisplaySize(SCREEN_W, SCREEN_H).setDepth(D)
+      : this.add.rectangle(SCREEN_W / 2, SCREEN_H / 2, SCREEN_W, SCREEN_H, 0x03050D).setDepth(D);
+    const dim = this.add.rectangle(SCREEN_W / 2, SCREEN_H / 2, SCREEN_W, SCREEN_H, 0x02040B, 0.36)
+      .setDepth(D + 1).setInteractive();
+    dim.on('pointerdown', ptr => ptr.event?.stopPropagation?.());
+    dim.on('pointerup', ptr => ptr.event?.stopPropagation?.());
+    add(backdrop, dim);
+
+    const panelX = 18, panelY = 12, panelW = SCREEN_W - 36, panelH = SCREEN_H - 24;
+    const panel = this.add.graphics().setDepth(D + 2);
+    panel.fillStyle(0x050812, 0.73);
+    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 12);
+    panel.lineStyle(4, 0x163550, 0.6);
+    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 12);
+    panel.lineStyle(2, 0x39A8FF, 1);
+    panel.strokeRoundedRect(panelX + 2, panelY + 2, panelW - 4, panelH - 4, 10);
+    panel.lineStyle(1, 0xFF39AF, 0.74);
+    panel.strokeRoundedRect(panelX + 7, panelY + 7, panelW - 14, panelH - 14, 8);
+    add(panel);
+
+    const title = this.add.text(SCREEN_W / 2, panelY + 8, 'CUSTOM MODE', {
+      fontSize: '25px', fontFamily: IMPACT, color: '#F4F7FF',
+      stroke: '#39A8FF', strokeThickness: 3,
+    }).setOrigin(0.5, 0).setDepth(D + 4).setShadow(0, 0, '#39A8FF', 8, true, true);
+    add(title);
+
+    const leftX = panelX + 18;
+    const dividerX = 380;
+    const rightX = dividerX + 18;
+    const division = this.add.graphics().setDepth(D + 3);
+    division.lineStyle(1, 0x39A8FF, 0.42);
+    division.lineBetween(dividerX, panelY + 45, dividerX, panelY + panelH - 18);
+    add(division);
+    add(this.add.text(leftX, panelY + 48, 'CHEMICAL LEVELS', {
+      fontSize: '15px', fontFamily: IMPACT, color: '#39D9FF',
+    }).setDepth(D + 4));
+
+    const drugLevels = {};
+    const drugKeys = {
+      alcohol: 'drug_beer', weed: 'drug_weed', cocaine: 'drug_cocaine',
+      shrooms: 'drug_shrooms', lsd: 'drug_lsd', heroin: 'drug_heroin',
+      rx: 'drug_rx', fentanyl: 'drug_fentanyl', ketamine: 'drug_ketamine', meth: 'drug_meth',
+    };
+    const shortLabels = {
+      alcohol: 'BEER', weed: 'WEED', cocaine: 'COKE', shrooms: 'SHROOMS', lsd: 'ACID',
+      heroin: 'HEROIN', rx: 'RX', fentanyl: 'FENT', ketamine: 'KET', meth: 'METH',
+    };
+    const trackX = leftX + 111, trackW = 171, trackH = 10;
+    const rowTop = panelY + 70, rowH = 34;
+    Object.values(DRUGS).forEach((id, i) => {
+      drugLevels[id] = initialLevels?.[id] ?? 0;
+      const cfg = DRUG_CONFIG[id];
+      const y = rowTop + i * rowH;
+      const textureKey = drugKeys[id];
+      if (this.textures.exists(textureKey)) {
+        add(this.add.image(leftX + 13, y + 12, textureKey).setDisplaySize(27, 27).setDepth(D + 5));
+      }
+      add(this.add.text(leftX + 32, y + 5, shortLabels[id], {
+        fontSize: '12px', fontFamily: IMPACT, color: cfg.hexCss ?? '#FFFFFF',
+        stroke: '#02040B', strokeThickness: 2,
+      }).setDepth(D + 5));
+      const track = this.add.graphics().setDepth(D + 4);
+      track.fillStyle(0x030712, 0.94);
+      track.fillRoundedRect(trackX, y + 8, trackW, trackH, 5);
+      track.lineStyle(1, 0x315173, 1);
+      track.strokeRoundedRect(trackX, y + 8, trackW, trackH, 5);
+      track.setInteractive(new Phaser.Geom.Rectangle(trackX, y + 3, trackW, 22), Phaser.Geom.Rectangle.Contains);
+      track.input.cursor = 'pointer';
+      const fill = this.add.graphics().setDepth(D + 5);
+      const pct = this.add.text(trackX + trackW + 7, y + 5, '0%', {
+        fontSize: '12px', fontFamily: IMPACT, color: '#F4F7FF',
+      }).setDepth(D + 5);
+      add(track, fill, pct);
+      const drawFill = value => {
+        fill.clear();
+        const width = Math.max(0, (trackW - 2) * value);
+        fill.fillStyle(cfg.color ?? 0x39D9FF, 0.94);
+        fill.fillRoundedRect(trackX + 1, y + 9, width, trackH - 2, 4);
+        pct.setText(`${Math.round(value * 100)}%`);
+      };
+      drawFill(drugLevels[id]);
+      let dragging = false;
+      const update = ptr => {
+        drugLevels[id] = Math.max(0, Math.min(1, (ptr.x - trackX) / trackW));
+        drawFill(drugLevels[id]);
+      };
+      track.on('pointerdown', ptr => { ptr.event?.stopPropagation?.(); dragging = true; update(ptr); });
+      track.on('pointermove', ptr => { if (dragging) update(ptr); });
+      const release = () => { dragging = false; };
+      this.input.on('pointerup', release);
+      releaseHandlers.push(release);
+    });
+
+    let customSub = Difficulty.customSub?.() ?? 'normal';
+    let noPolice = false;
+    let noNpcDamage = false;
+    let startStars = 0;
+    let checkpointPos = 0;
+    let checkpointLabel = CHECKPOINTS[0]?.name ?? 'West Seattle';
+    const driveOptions = [
+      { id: 'classic', label: 'THUMBS' },
+      { id: 'flappy', label: 'TAP' },
+      { id: 'tilt', label: 'TILT' },
+    ];
+    let drivingType = this.registry?.get?.('titleThumbsPick')
+                   ?? this.registry?.get?.('steeringMode')
+                   ?? 'classic';
+
+    const drawNeonButton = (g, x, y, w, h, color, selected) => {
+      g.clear();
+      const pts = [
+        new Phaser.Geom.Point(x + 7, y),
+        new Phaser.Geom.Point(x + w, y),
+        new Phaser.Geom.Point(x + w - 7, y + h),
+        new Phaser.Geom.Point(x, y + h),
+      ];
+      g.fillStyle(selected ? color : 0x060A14, selected ? 0.22 : 0.76);
+      g.fillPoints(pts, true);
+      g.lineStyle(selected ? 2 : 1, color, selected ? 1 : 0.7);
+      g.strokePoints(pts, true);
+    };
+    const makeToggleButton = (x, y, w, h, text, color, selected, action) => {
+      const bg = this.add.graphics().setDepth(D + 4);
+      const lbl = this.add.text(x + w / 2, y + h / 2, text, {
+        fontSize: '14px', fontFamily: IMPACT, color: '#F4F7FF',
+        stroke: '#050812', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(D + 5);
+      const refresh = on => {
+        drawNeonButton(bg, x, y, w, h, color, on);
+        lbl.setColor(on ? '#F4F7FF' : '#9EACC2');
+      };
+      refresh(selected);
+      bg.setInteractive(new Phaser.Geom.Rectangle(x, y, w, h), Phaser.Geom.Rectangle.Contains);
+      bg.input.cursor = 'pointer';
+      bg.on('pointerdown', ptr => { ptr.event?.stopPropagation?.(); action?.(); });
+      add(bg, lbl);
+      return { bg, lbl, refresh };
+    };
+
+    add(this.add.text(rightX, panelY + 50, 'GAMEPLAY', {
+      fontSize: '14px', fontFamily: IMPACT, color: '#F4F7FF',
+    }).setDepth(D + 4));
+    const subBtns = [];
+    ['easy', 'normal', 'hard'].forEach((id, i) => {
+      const btn = makeToggleButton(rightX + 82 + i * 90, panelY + 45, 83, 28,
+        id.toUpperCase(), id === 'normal' ? 0x39A8FF : (id === 'hard' ? 0xFF39AF : 0x39D9FF),
+        id === customSub, () => {
+          customSub = id;
+          subBtns.forEach(b => b.refresh(b.id === customSub));
+        });
+      subBtns.push({ id, ...btn });
+    });
+
+    const mapY = panelY + 345;
+    const mapLine = this.add.graphics().setDepth(D + 4);
+    const mapLeft = rightX + 7, mapRight = panelX + panelW - 26;
+    mapLine.lineStyle(2, 0x39A8FF, 0.72);
+    mapLine.lineBetween(mapLeft, mapY, mapRight, mapY);
+    mapLine.lineStyle(1, 0xFF39AF, 0.45);
+    mapLine.lineBetween(mapLeft, mapY + 3, mapRight, mapY + 3);
+    add(mapLine);
+    const cityReadout = this.add.text((mapLeft + mapRight) / 2, mapY - 23, 'SEATTLE', {
+      fontSize: '17px', fontFamily: IMPACT, color: '#FF39AF',
+      stroke: '#050812', strokeThickness: 2,
+    }).setOrigin(0.5, 0).setDepth(D + 5);
+    add(cityReadout);
+    add(this.add.text(mapLeft, mapY - 23, 'SEATTLE', {
+      fontSize: '14px', fontFamily: IMPACT, color: '#39D9FF',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+    add(this.add.text(mapRight, mapY - 23, 'PULLMAN', {
+      fontSize: '14px', fontFamily: IMPACT, color: '#39D9FF',
+    }).setOrigin(1, 0.5).setDepth(D + 5));
+    const cityNodes = [];
+    const refreshCities = () => {
+      cityNodes.forEach(({ bg, active }) => {
+        const selected = active();
+        bg.clear();
+        bg.fillStyle(selected ? 0xFF39AF : 0x050812, 1);
+        bg.fillCircle(0, 0, selected ? 5 : 3);
+        bg.lineStyle(selected ? 2 : 1, selected ? 0xFFFFFF : 0x39A8FF, 1);
+        bg.strokeCircle(0, 0, selected ? 6 : 4);
+      });
+    };
+    const customStartCities = CHECKPOINTS.filter(cp => !cp.isFinish);
+    customStartCities.forEach((cp, i) => {
+      // Space nodes uniformly for finger selection; the selected label and
+      // stored route mileage still identify the true start location.
+      const cx = mapLeft + ((mapRight - mapLeft) * i) / (CHECKPOINTS.length - 1);
+      const bg = this.add.graphics().setPosition(cx, mapY).setDepth(D + 5);
+      bg.setInteractive(new Phaser.Geom.Circle(0, 0, 8), Phaser.Geom.Circle.Contains);
+      bg.input.cursor = 'pointer';
+      bg.on('pointerdown', ptr => {
+        ptr.event?.stopPropagation?.();
+        checkpointPos = cp.t * (ROUTE_SEGS * SEG_LENGTH);
+        checkpointLabel = cp.name;
+        cityReadout.setText((cp.isStart ? 'Seattle' : cp.name).toUpperCase());
+        refreshCities();
+      });
+      cityNodes.push({ bg, active: () => checkpointLabel === cp.name });
+      add(bg);
+    });
+    refreshCities();
+
+    const policeY = panelY + 94;
+    add(this.add.text(rightX, policeY + 11, 'POLICE', {
+      fontSize: '15px', fontFamily: IMPACT, color: '#F4F7FF',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+    let policeBtn;
+    let refreshStars;
+    policeBtn = makeToggleButton(rightX + 66, policeY - 2, 80, 27, 'ON', 0x39A8FF, true, () => {
+      noPolice = !noPolice;
+      if (noPolice) startStars = 0;
+      policeBtn.lbl.setText(noPolice ? 'OFF' : 'ON');
+      policeBtn.refresh(!noPolice);
+      refreshStars?.();
+    });
+    add(this.add.text(rightX + 156, policeY + 11, 'WANTED', {
+      fontSize: '12px', fontFamily: IMPACT, color: '#A8C7E9',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+    const starButtons = [];
+    for (let i = 1; i <= 5; i++) {
+      const sx = rightX + 217 + (i - 1) * 28;
+      const star = this.add.text(sx, policeY + 11, '☆', {
+        fontSize: '23px', fontFamily: 'Arial, sans-serif', color: '#67738C',
+      }).setOrigin(0.5).setDepth(D + 5).setInteractive({ useHandCursor: true });
+      star.on('pointerdown', ptr => {
+        ptr.event?.stopPropagation?.();
+        noPolice = false;
+        policeBtn.lbl.setText('ON');
+        policeBtn.refresh(true);
+        startStars = startStars === i ? 0 : i;
+        refreshStars();
+      });
+      starButtons.push(star);
+      add(star);
+    }
+    refreshStars = () => {
+      starButtons.forEach((star, i) => {
+        const on = !noPolice && i < startStars;
+        star.setText(on ? '★' : '☆').setColor(on ? '#FFD34D' : '#67738C');
+        star.setStroke(on ? '#FF8A24' : '#0A1020', on ? 2 : 1);
+      });
+    };
+    refreshStars();
+
+    const damageY = panelY + 132;
+    add(this.add.text(rightX, damageY + 11, 'DAMAGE', {
+      fontSize: '15px', fontFamily: IMPACT, color: '#F4F7FF',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+    let damageBtn;
+    damageBtn = makeToggleButton(rightX + 66, damageY - 2, 80, 27, 'ON', 0xFF39AF, true, () => {
+      noNpcDamage = !noNpcDamage;
+      damageBtn.lbl.setText(noNpcDamage ? 'OFF' : 'ON');
+      damageBtn.refresh(!noNpcDamage);
+    });
+    add(this.add.text(rightX + 156, damageY + 11, 'PLAYER CAR TAKES NO DAMAGE', {
+      fontSize: '12px', fontFamily: IMPACT, color: '#A8C7E9',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+
+    const driveY = panelY + 171;
+    add(this.add.text(rightX, driveY + 14, 'DRIVING TYPE', {
+      fontSize: '14px', fontFamily: IMPACT, color: '#F4F7FF',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+    const driveBtns = [];
+    driveOptions.forEach((opt, i) => {
+      const btn = makeToggleButton(rightX + 103 + i * 86, driveY, 80, 28,
+        opt.label, 0xCE67FF, opt.id === drivingType, () => {
+          drivingType = opt.id;
+          // Persist immediately so _armTiltPrefetch's next-tap listener
+          // sees the pick and can request iOS tilt permission inside
+          // the same gesture frame.
+          this.registry?.set?.('titleThumbsPick', drivingType);
+          driveBtns.forEach(b => b.refresh(b.id === drivingType));
+        });
+      driveBtns.push({ id: opt.id, ...btn });
+    });
+
+    // ── VEHICLE picker (custom-mode sandbox: every vehicle unlocked) ──
+    const allVehIds = Object.keys(VEHICLES);
+    let vehicleId = this.player?.vehicleId
+                 ?? this.registry?.get?.('vehicleId')
+                 ?? 'beater';
+    if (!VEHICLES[vehicleId]) vehicleId = 'beater';
+    const vehY = panelY + 210;
+    add(this.add.text(rightX, vehY + 14, 'VEHICLE', {
+      fontSize: '14px', fontFamily: IMPACT, color: '#F4F7FF',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+    let vehBtn;
+    vehBtn = makeToggleButton(rightX + 103, vehY, 246, 28,
+      VEHICLES[vehicleId]?.label ?? vehicleId, 0x39D9FF, true, () => {
+        const i = allVehIds.indexOf(vehicleId);
+        vehicleId = allVehIds[(i + 1) % allVehIds.length];
+        vehBtn.lbl.setText(VEHICLES[vehicleId]?.label ?? vehicleId);
+      });
+
+    // ── ACCESSORIES toggles — sandbox override applied for this
+    // custom run only; the persisted save's accessories stay intact.
+    let bumper = false, traction = false, nos = 0;
+    const accY = panelY + 250;
+    add(this.add.text(rightX, accY + 14, 'ACCESSORIES', {
+      fontSize: '14px', fontFamily: IMPACT, color: '#F4F7FF',
+    }).setOrigin(0, 0.5).setDepth(D + 5));
+    const accBtnW = 76, accBtnH = 28, accGap = 4;
+    let bumperBtn, tracBtn, nosBtn;
+    bumperBtn = makeToggleButton(rightX + 103, accY, accBtnW, accBtnH,
+      'BUMPER', 0xFFC107, bumper, () => {
+        bumper = !bumper;
+        bumperBtn.refresh(bumper);
+      });
+    tracBtn = makeToggleButton(rightX + 103 + (accBtnW + accGap), accY, accBtnW, accBtnH,
+      'TRACTION', 0x88DDFF, traction, () => {
+        traction = !traction;
+        tracBtn.refresh(traction);
+      });
+    nosBtn = makeToggleButton(rightX + 103 + 2 * (accBtnW + accGap), accY, accBtnW, accBtnH,
+      `NOS ${nos}`, 0xFF39AF, nos > 0, () => {
+        nos = (nos + 1) % 4;
+        nosBtn.lbl.setText(`NOS ${nos}`);
+        nosBtn.refresh(nos > 0);
+      });
+
+    const prompt = this.add.text((rightX + panelX + panelW) / 2, panelY + 295,
+      'PICK A CITY. SET YOUR CHAOS. THEN DRIVE.', {
+        fontSize: '13px', fontFamily: IMPACT, color: '#F4F7FF',
+        stroke: '#39A8FF', strokeThickness: 2,
+      }).setOrigin(0.5, 0).setDepth(D + 5);
+    add(prompt);
+
+    const close = () => {
+      this._sliderModalOpen = false;
+      releaseHandlers.forEach(handler => this.input.off('pointerup', handler));
+      objs.forEach(obj => obj?.destroy?.());
+      onClose?.();
+    };
+    const actionY = panelY + panelH - 49;
+    add(this.add.text((rightX + panelX + panelW) / 2, actionY - 24, 'CUSTOM RUNS DO NOT SCORE', {
+      fontSize: '14px', fontFamily: IMPACT, color: '#39D9FF',
+      stroke: '#050812', strokeThickness: 2,
+    }).setOrigin(0.5, 0).setDepth(D + 5));
+    const start = makeToggleButton(rightX + 20, actionY, 144, 34, 'START', 0xFF39AF, true, () => {
+      close();
+      onConfirm?.({
+        drugLevels: { ...drugLevels }, checkpointPos, checkpointLabel,
+        noNpcDamage, noPolice, startStars, customSub, drivingType,
+        vehicleId, accessories: { bumper, traction, nos },
+      });
+    });
+    const cancel = makeToggleButton(rightX + 182, actionY, 144, 34, 'CANCEL', 0x39A8FF, false, () => close());
+    start.lbl.setFontSize(17);
+    cancel.lbl.setFontSize(17);
 
     this._addHudObjs?.(...objs);
   }
@@ -4873,10 +5361,9 @@ export class GameScene extends Phaser.Scene {
     const drugs = this.drugs;
     const isCollision = source && source !== 'offroad_bleed';
 
-    // Custom-mode "No NPC damage" — skip any traffic / cop / collision
-    // damage; offroad bleed still applies (otherwise it's not really
-    // driving, it's flying).
-    if (isCollision && this._customFlags?.noNpcDamage) return 0;
+    // Custom-mode DAMAGE: OFF suppresses every damage source, including
+    // traffic, police, scenery and off-road bleed.
+    if (this._customFlags?.noNpcDamage) return 0;
 
     if (isCollision) {
       const fent = drugs?.get?.(DRUGS.FENTANYL) ?? 0;
@@ -4915,8 +5402,18 @@ export class GameScene extends Phaser.Scene {
 
   /** Read the accessory map for the currently-driven vehicle.  Returns
    *  `{ bumper, traction, nos }` with safe defaults so call sites can
-   *  read fields directly without optional-chain noise. */
+   *  read fields directly without optional-chain noise.  In Custom
+   *  mode, a transient `_customStartAccessories` override wins over
+   *  the persisted save so sandbox runs don't clobber real progress. */
   _vehicleAccessories() {
+    if (this._customStartAccessories) {
+      const cur = this._customStartAccessories;
+      return {
+        bumper:   !!cur.bumper,
+        traction: !!cur.traction,
+        nos:      Math.max(0, Math.min(3, cur.nos ?? 0)),
+      };
+    }
     const save = this.registry?.get?.('save');
     const all  = save?.get?.('accessories') ?? {};
     const cur  = all[this.player?.vehicleId] ?? {};
@@ -4925,6 +5422,35 @@ export class GameScene extends Phaser.Scene {
       traction: !!cur.traction,
       nos:      Math.max(0, Math.min(3, cur.nos ?? 0)),
     };
+  }
+
+  /** Swap the player's currently-driven vehicle live, the same way
+   *  the Garage modal does.  Used by Custom mode so the player can
+   *  pick any vehicle without owning it.  Updates registry, player
+   *  fields, gas tank, damage model, and sprite. */
+  _applyVehicleSwap(vid) {
+    const v = VEHICLES[vid];
+    if (!v) return;
+    this.registry?.set?.('vehicleId', vid);
+    if (this.player) {
+      this.player.vehicleId = vid;
+      if (vid !== 'beater') this._leaveCockpitView?.();
+      this.player.gasMaxMi = v.rangeMi;
+      this.player.gasMi    = v.rangeMi;
+      this.damage?.setMax?.(v.hp);
+      this.damage?.setDurability?.(v.hp);
+    }
+    if (this.playerSprite) {
+      this.playerSprite.clearTint();
+      const backTex = v.spriteBack;
+      if (backTex && this.textures.exists(backTex)) {
+        this.playerSprite.setTexture(backTex);
+      } else {
+        this.playerSprite.setTexture('car_player');
+        if (vid !== 'beater' && v.tint) this.playerSprite.setTint(v.tint);
+      }
+      this._applyPlayerSpriteDisplaySize?.();
+    }
   }
 
   /** Set / merge accessory state for the currently-driven vehicle. */
@@ -5025,12 +5551,16 @@ export class GameScene extends Phaser.Scene {
         // recovery lane and grant 2-second i-frame.  All subsequent
         // damage is absorbed during the blink, so chaining a head-on
         // into a tree or another NPC costs only the first hit.
+        // Drop to the cold-start rolling speed; the crash-recovery
+        // auto-pilot then ramps back up to 60 mph during the blink.
         this.player.x             = this._postCrashLaneX();
         this.player.steerVelocity = 0;
         this.player.xImpulse      = 0;
-        this.player.speed        *= 0.5;
+        this.player.speed         = MAX_SPEED * 0.18;
         this._invincibleUntil = Math.max(this._invincibleUntil ?? 0,
           (this.time?.now ?? 0) + 2000);
+        this._crashRecoveryUntil = this._invincibleUntil;
+        this._crashRollStartAt   = (this.time?.now ?? 0) + 1000;
       }
       car.alive      = false;
       car.crashed    = true;
@@ -5121,13 +5651,17 @@ export class GameScene extends Phaser.Scene {
       this.effects.triggerShake(440 + impact.severity * 360, 0.015 + impact.severity * 0.012);
       this._applyDamage((3 + impact.severity * 3) * damageMul, 'cop_head_on');
       // Same spin-to-recovery-lane + 2-sec i-frame as NPC head-on —
-      // chained damage during the blink is fully absorbed.
+      // chained damage during the blink is fully absorbed.  Drop to
+      // the cold-start rolling speed; the crash-recovery auto-pilot
+      // then ramps back up to 60 mph during the blink.
       this.player.x             = this._postCrashLaneX();
       this.player.steerVelocity = 0;
       this.player.xImpulse      = 0;
-      this.player.speed        *= 0.5;
+      this.player.speed         = MAX_SPEED * 0.18;
       this._invincibleUntil = Math.max(this._invincibleUntil ?? 0,
         (this.time?.now ?? 0) + 2000);
+      this._crashRecoveryUntil = this._invincibleUntil;
+      this._crashRollStartAt   = (this.time?.now ?? 0) + 1000;
       const headons = this.cops.registerHeadOn();
       const left = 3 - headons;
       this._showPopup(
@@ -5321,10 +5855,14 @@ export class GameScene extends Phaser.Scene {
     // lateral momentum would shove the freshly-respawned car back
     // outside the asphalt within a frame or two.
     this.player.x             = this._postCrashLaneX();
-    this.player.speed        *= 0.5;
+    // Drop to the cold-start rolling speed; the crash-recovery
+    // auto-pilot then ramps back up to 60 mph during the blink.
+    this.player.speed         = MAX_SPEED * 0.18;
     this.player.steerVelocity = 0;
     this.player.xImpulse      = 0;
     this._invincibleUntil = (this.time?.now ?? 0) + 2500;
+    this._crashRecoveryUntil = this._invincibleUntil;
+    this._crashRollStartAt   = (this.time?.now ?? 0) + 1000;
     this._showPopup?.('💥 CRASH — recover!', '#FF4444');
   }
 
@@ -5680,6 +6218,9 @@ export class GameScene extends Phaser.Scene {
   _applyPedalHandedness() {
     if (!this._gasBtn || !this._brakeBtn) return;
     const PEDAL_W = this._pedalDim?.w ?? 70;
+    // Pedals sit on the OPPOSITE side from weapons — same side as the
+    // drug-icon column (which now uses a 2-col grid so it fits above
+    // the pedals comfortably).
     const x = this._leftHanded
       ? (SCREEN_W - PEDAL_W / 2 - 4)
       : (PEDAL_W / 2 + 4);
@@ -5690,6 +6231,201 @@ export class GameScene extends Phaser.Scene {
     this._layoutWiperButton?.();
   }
 
+  /** Angled neon glass cell used by the top toolbar and its redraw pass. */
+  _drawTopRowButton(bg, x, y, size, lit = false) {
+    const slant = 6;
+    const r = 4;
+    const pts = [
+      { x: x + slant, y: y + 1 },
+      { x: x + size, y: y + 1 },
+      { x: x + size - slant, y: y + size - 1 },
+      { x, y: y + size - 1 },
+    ];
+    const inset = (from, to, dist) => {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const len = Math.max(1, Math.hypot(dx, dy));
+      return { x: from.x + (dx / len) * dist, y: from.y + (dy / len) * dist };
+    };
+    const roundedCorner = (cur, from, to) => {
+      const a = inset(cur, from, r);
+      const b = inset(cur, to, r);
+      for (let s = 1; s <= 4; s++) {
+        const t = s / 4;
+        const mt = 1 - t;
+        bg.lineTo(
+          mt * mt * a.x + 2 * mt * t * cur.x + t * t * b.x,
+          mt * mt * a.y + 2 * mt * t * cur.y + t * t * b.y,
+        );
+      }
+    };
+    const drawRoundedSlant = () => {
+      const first = inset(pts[0], pts[1], r);
+      bg.beginPath();
+      bg.moveTo(first.x, first.y);
+      for (let i = 1; i <= pts.length; i++) {
+        const cur = pts[i % pts.length];
+        const prev = pts[(i - 1 + pts.length) % pts.length];
+        const next = pts[(i + 1) % pts.length];
+        const a = inset(cur, prev, r);
+        bg.lineTo(a.x, a.y);
+        roundedCorner(cur, prev, next);
+      }
+      bg.closePath();
+    };
+    bg.clear();
+    bg.fillStyle(lit ? 0x111827 : 0x03060D, lit ? 0.94 : 0.88);
+    drawRoundedSlant();
+    bg.fillPath();
+    bg.lineStyle(lit ? 4 : 3, lit ? 0xFF39AF : 0x39D9FF, lit ? 0.20 : 0.13);
+    drawRoundedSlant();
+    bg.strokePath();
+    bg.lineStyle(lit ? 2 : 1.5, lit ? 0xFF39AF : 0x39D9FF, 1);
+    drawRoundedSlant();
+    bg.strokePath();
+  }
+
+  _topRowButtonTexture(type, lit = false) {
+    if (type === 'pause') return lit ? 'ui_top_btn_pause_active' : 'ui_top_btn_pause';
+    if (type === 'ff') return lit ? 'ui_top_btn_ff_active' : 'ui_top_btn_ff';
+    if (type === 'genre') return 'ui_top_btn_genre';
+    if (type === 'mute') return lit ? 'ui_top_btn_mute' : 'ui_top_btn_unmute';
+    if (type === 'map') return 'ui_top_btn_map';
+    if (type === 'garage') return 'ui_top_btn_garage';
+    return 'ui_top_btn_genre';
+  }
+
+  _setTopRowButtonTexture(img, type, lit = false, size = 56) {
+    img?.setTexture?.(this._topRowButtonTexture(type, lit));
+    img?.setDisplaySize?.(size, size);
+  }
+
+  /** Small, code-drawn neon symbols stay crisp in the 56 px toolbar cells. */
+  _drawTopRowIcon(icon, type, accent = 0x39D9FF) {
+    const cyan = accent;
+    const pink = 0xFF39AF;
+    const white = 0xF4F7FF;
+    const glowLine = (width, color, alpha = 0.10) => icon.lineStyle(width, color, alpha);
+    const hotLine = (width, color) => icon.lineStyle(width, color, 1);
+    icon.clear();
+
+    if (type === 'map') {
+      const mapPts = [
+        { x: -15, y: -10 }, { x: -5, y: -15 }, { x: 5, y: -10 }, { x: 15, y: -15 },
+        { x: 15, y: 12 }, { x: 5, y: 16 }, { x: -5, y: 11 }, { x: -15, y: 16 },
+      ];
+      glowLine(3, cyan);
+      icon.strokePoints(mapPts, true);
+      hotLine(1.5, cyan);
+      icon.strokePoints(mapPts, true);
+      hotLine(1.5, cyan);
+      icon.lineBetween(-5, -14, -5, 11);
+      icon.lineBetween(5, -10, 5, 15);
+      glowLine(3, pink, 0.12);
+      icon.strokeCircle(7, -6, 5);
+      hotLine(2, pink);
+      icon.strokeCircle(7, -6, 5);
+      icon.lineBetween(7, -1, 7, 5);
+      icon.fillStyle(pink, 1);
+      icon.fillCircle(7, -6, 1.8);
+      return;
+    }
+
+    if (type === 'garage') {
+      const garagePts = [
+        { x: -16, y: 16 }, { x: -16, y: -6 }, { x: 0, y: -16 },
+        { x: 16, y: -6 }, { x: 16, y: 16 },
+      ];
+      glowLine(3, cyan);
+      icon.strokePoints(garagePts, false);
+      hotLine(2, cyan);
+      icon.strokePoints(garagePts, false);
+      hotLine(1.5, cyan);
+      icon.lineBetween(-10, 0, 10, 0);
+      icon.lineBetween(-10, 5, 10, 5);
+      icon.lineBetween(-10, 10, 10, 10);
+      icon.strokeRect(-7, 8, 14, 8);
+      const carPts = [
+        { x: -14, y: 18 }, { x: -10, y: 12 }, { x: 10, y: 12 },
+        { x: 14, y: 18 },
+      ];
+      icon.fillStyle(pink, 0.55);
+      icon.fillPoints([{ x: -14, y: 18 }, { x: -10, y: 12 }, { x: 10, y: 12 }, { x: 14, y: 18 }], true);
+      glowLine(3, pink, 0.12);
+      icon.strokePoints(carPts, false);
+      hotLine(2.5, pink);
+      icon.strokePoints(carPts, false);
+      icon.fillStyle(pink, 1);
+      icon.fillCircle(-9, 18, 2.4);
+      icon.fillCircle(9, 18, 2.4);
+      return;
+    }
+
+    if (type === 'genre') {
+      glowLine(3, cyan);
+      icon.lineBetween(-14, 14, -14, 5);
+      icon.lineBetween(-7, 14, -7, -1);
+      icon.lineBetween(0, 14, 0, -8);
+      hotLine(2, cyan);
+      icon.lineBetween(-14, 14, -14, 5);
+      icon.lineBetween(-7, 14, -7, -1);
+      icon.lineBetween(0, 14, 0, -8);
+      glowLine(3, pink, 0.12);
+      icon.lineBetween(10, -14, 10, 8);
+      icon.lineBetween(10, -14, 18, -10);
+      icon.strokeCircle(5, 11, 5);
+      hotLine(2, pink);
+      icon.lineBetween(10, -14, 10, 8);
+      icon.lineBetween(10, -14, 18, -10);
+      icon.strokeCircle(5, 11, 5);
+      return;
+    }
+
+    if (type === 'mute' || type === 'muted') {
+      const speaker = [
+        { x: -16, y: -5 }, { x: -9, y: -5 }, { x: 3, y: -14 },
+        { x: 3, y: 14 }, { x: -9, y: 5 }, { x: -16, y: 5 },
+      ];
+      glowLine(3, cyan);
+      icon.strokePoints(speaker, true);
+      hotLine(2, cyan);
+      icon.strokePoints(speaker, true);
+      glowLine(3, pink, 0.12);
+      icon.lineBetween(-14, 14, 16, -14);
+      hotLine(2, pink);
+      icon.lineBetween(-14, 14, 16, -14);
+      hotLine(1.5, cyan);
+      icon.strokePoints([{ x: 11, y: 2 }, { x: 14, y: 0 }, { x: 15, y: -3 }], false);
+      return;
+    }
+
+    if (type === 'ff') {
+      icon.fillStyle(cyan, 1);
+      icon.fillPoints([{ x: -15, y: -13 }, { x: -1, y: 0 }, { x: -15, y: 13 }], true);
+      icon.fillPoints([{ x: 1, y: -13 }, { x: 15, y: 0 }, { x: 1, y: 13 }], true);
+      glowLine(3, cyan, 0.12);
+      icon.strokePoints([{ x: -15, y: -13 }, { x: -1, y: 0 }, { x: -15, y: 13 }], true);
+      icon.strokePoints([{ x: 1, y: -13 }, { x: 15, y: 0 }, { x: 1, y: 13 }], true);
+      hotLine(1.5, cyan);
+      icon.strokePoints([{ x: -15, y: -13 }, { x: -1, y: 0 }, { x: -15, y: 13 }], true);
+      icon.strokePoints([{ x: 1, y: -13 }, { x: 15, y: 0 }, { x: 1, y: 13 }], true);
+      return;
+    }
+
+    if (type === 'pause') {
+      const isPaused = cyan === pink;
+      icon.fillStyle(isPaused ? pink : 0x050812, 1);
+      icon.fillRoundedRect(-12, -15, 8, 30, 2);
+      icon.fillRoundedRect(4, -15, 8, 30, 2);
+      glowLine(3, cyan, 0.12);
+      icon.strokeRoundedRect(-12, -15, 8, 30, 2);
+      icon.strokeRoundedRect(4, -15, 8, 30, 2);
+      hotLine(1.5, cyan);
+      icon.strokeRoundedRect(-12, -15, 8, 30, 2);
+      icon.strokeRoundedRect(4, -15, 8, 30, 2);
+    }
+  }
+
   _applyTopRowHandedness() {
     if (!this._topRowButtons?.length) return;
     const lh  = !!this._leftHanded;
@@ -5697,15 +6433,14 @@ export class GameScene extends Phaser.Scene {
     for (const btn of this._topRowButtons) {
       const x = lh ? btn.baseLeft : (SCREEN_W - btn.baseLeft - btn.size);
       const isPause = btn.id === 'pause';
-      const lit = isPause && this._paused;
-      btn.bg.clear();
-      // Draw at full opacity; dim/hover state is conveyed by bg.alpha
-      // (preserved across this redraw) so the per-button hover handlers
-      // don't get out of sync with the swapped position.
-      btn.bg.fillStyle(lit ? 0x44CCFF : 0x222222, 1);
-      btn.bg.fillRoundedRect(x, top, btn.size, btn.size, 10);
-      btn.bg.lineStyle(3, lit ? 0xFFEE00 : 0x66CCFF, 1);
-      btn.bg.strokeRoundedRect(x + 1.5, top + 1.5, btn.size - 3, btn.size - 3, 10);
+      const lit = isPause ? this._paused : (btn.id === 'mute' ? !!this.audio?.muted : false);
+      if (btn.artType) {
+        btn.bg.clear();
+        this._setTopRowButtonTexture(btn.lbl, btn.artType, lit, btn.size);
+      } else {
+        // Legacy vector fallback for any toolbar entry not converted to art.
+        this._drawTopRowButton(btn.bg, x, top, btn.size, lit);
+      }
       if (btn.lbl) btn.lbl.x = x + btn.size / 2;
       if (btn.bg.input) {
         btn.bg.input.hitArea = new Phaser.Geom.Rectangle(x, top, btn.size, btn.size);
@@ -5720,8 +6455,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Toggle paused state.  Used by both the SPACE key and the on-screen
-   *  ⏸ button in the upper-right corner. */
+  /** Toggle paused state.  Used by both the SPACE key and the on-screen button. */
   _togglePause() {
     this._paused = !this._paused;
     this._pauseGfx?.clear();
@@ -5734,13 +6468,11 @@ export class GameScene extends Phaser.Scene {
     } else {
       this._pauseText?.setVisible?.(this._paused);
     }
-    // Pause button visual — lit cyan when paused so the player can
-    // see at a glance that the run is on hold.  drawPause is the
-    // Graphics-redraw helper attached by _buildHUD.
+    // Pause button visual — a magenta neon glow signals the held state.
     if (this._redrawPauseBtn) this._redrawPauseBtn(0.85, this._paused);
     if (this._pauseBtnRef) this._pauseBtnRef.setAlpha(this._paused ? 0.95 : 0.85);
     if (this._pauseLblRef) {
-      this._pauseLblRef.setColor(this._paused ? '#000000' : '#FFFFFF');
+      this._setTopRowButtonTexture(this._pauseLblRef, 'pause', this._paused, 56);
     }
     // Score-multiplier ("combination") is hidden while paused so the
     // pause controls sitting in its slot aren't crowded.
@@ -6006,18 +6738,29 @@ export class GameScene extends Phaser.Scene {
     this.time?.delayedCall?.(50, () => { this._mapModalJustClosed = false; });
   }
 
-  /** Pause-menu button factory mirroring GameOverScene._makeButton. */
-  _buildPauseButton(cx, cy, w, h, label, fillColor, textColor, onClick) {
-    const bg = this.add.rectangle(cx, cy, w, h, fillColor, 1)
-      .setOrigin(0.5).setStrokeStyle(2, 0x000000).setDepth(62).setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    const css = `#${textColor.toString(16).padStart(6, '0')}`;
+  /** Dark glass + neon-outline pause control matching the ending screens. */
+  _buildPauseButton(cx, cy, w, h, label, neonColor, onClick) {
+    const bg = this.add.graphics().setDepth(62).setVisible(false);
+    const draw = (hover = false) => {
+      bg.clear();
+      bg.fillStyle(0x050812, hover ? 0.97 : 0.88);
+      bg.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 5);
+      bg.lineStyle(hover ? 3 : 2, neonColor, 1);
+      bg.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 5);
+    };
+    draw(false);
+    bg.setInteractive(
+      new Phaser.Geom.Rectangle(cx - w / 2, cy - h / 2, w, h),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    bg.input.cursor = 'pointer';
+    const css = `#${neonColor.toString(16).padStart(6, '0')}`;
     const txt = this.add.text(cx, cy, label, {
-      fontSize: '22px', fontFamily: 'Impact, Arial Black, sans-serif',
-      color: css, align: 'center',
+      fontSize: '20px', fontFamily: 'Impact, Arial Black, sans-serif',
+      color: '#F4F7FF', stroke: css, strokeThickness: 2, align: 'center',
     }).setOrigin(0.5).setDepth(63).setVisible(false);
-    bg.on('pointerover', () => bg.setFillStyle(fillColor, 0.85));
-    bg.on('pointerout',  () => bg.setFillStyle(fillColor, 1));
+    bg.on('pointerover', () => draw(true));
+    bg.on('pointerout',  () => draw(false));
     let armed = false;
     bg.on('pointerdown', () => { armed = true; });
     bg.on('pointerup',   () => { if (armed) { armed = false; onClick?.(); } });
@@ -7883,12 +8626,23 @@ export class GameScene extends Phaser.Scene {
         // so the bridge's water/structure paints over them, making the
         // bridge act as an occluder); fall back to the depth ramp.
         const depth = sp.renderDepth ?? (9.5 - Math.max(0, Math.min(1, relZ / 76000)) * 2.5);
+        // Auto-mirror any building/house placed on the LEFT side of the
+        // road.  All scenery PNGs are now authored from a right-side
+        // perspective; the renderer flips the left-side instances so a
+        // single asset covers both shoulders.  Textures whose filename
+        // ends in `_left` or `_right` are explicit directional pairs
+        // (PSE office, cranes, west_seattle_horizon) and are skipped —
+        // spawn code picks the correct variant per side already.
+        const autoFlipLeft = (sp.type === 'building' || sp.type === 'house')
+          && (sp.offset ?? 0) < 0
+          && typeof useTexKey === 'string'
+          && !/_left|_right/.test(useTexKey);
         s.setPosition(proj.sx, proj.sy)
           .setDisplaySize(targetW, targetH)
           .setY(proj.sy + targetH * (profile?.groundDrop ?? 0))
           .setDepth(depth)
           .setAlpha(1)
-          .setFlipX(!!sp.flipX)
+          .setFlipX(!!sp.flipX || autoFlipLeft)
           .setVisible(true);
       }
     }
@@ -8478,27 +9232,30 @@ export class GameScene extends Phaser.Scene {
     const mx  = (x) => lh ? (SCREEN_W - x) : x;
     const mox = (o) => lh ? (1 - o) : o;
 
-    // ── TOP-LEFT: Time → Cash → Distance (top-down stack) ──────────────
-    // Whole left column shifted down a few pixels so it doesn't crowd
-    // the screen edge.  Time sits above the dollar amount per user spec.
-    // Party clock + dollars stack above the drug bars, on whichever
-    // side the drug bars sit (right edge in left-handed mode, left
-    // edge otherwise) — they share the same column.
-    this.hudPartyClock = this.add.text(mx(10), 14, '⏱  --:--', {
-      fontSize: '13px', fontFamily: IMPACT,
+    // ── Time + Multiplier (top row) → Cash → HP — stacked next to the
+    // rear-view mirror (base coords). mx/mox flip the whole cluster
+    // to the OTHER side of the mirror in left-handed (default) mode.
+    // Timer sits adjacent to the mirror; multiplier extends further
+    // outward on the same row.
+    const READOUT_GAP = 6;
+    const READOUT_LEFT_X  = SCREEN_W / 2 - 130 - READOUT_GAP;
+    const READOUT_RIGHT_X = SCREEN_W / 2 + 130 + READOUT_GAP;
+    // Mult sits just past Timer's outward edge (timer text is ~58 px
+    // wide).  Smaller font keeps the readout clear of the next
+    // top-row button (Mute on the right side in default LH).
+    const READOUT_LEFT_MULT_X = READOUT_LEFT_X - 60;
+    this.hudPartyClock = this.add.text(mx(READOUT_LEFT_X), 4, '⏱  --:--', {
+      fontSize: '14px', fontFamily: IMPACT,
       color: '#FFFFFF', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(mox(0), 0).setDepth(d);
-    this.hudScore = this.add.text(mx(10), 32, '$0', {
+    }).setOrigin(mox(1), 0).setDepth(d);
+    this.hudMult = this.add.text(mx(READOUT_LEFT_MULT_X), 4, '', {
+      fontSize: '16px', fontFamily: IMPACT,
+      color: '#44FF88', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(mox(1), 0).setDepth(d);
+    this.hudScore = this.add.text(mx(READOUT_LEFT_X), 20, '$0', {
       fontSize: '22px', fontFamily: IMPACT,
-      color: '#FFEE00', stroke: '#000000', strokeThickness: 5,
-    }).setOrigin(mox(0), 0).setDepth(d);
-    // Multiplier sits directly UNDER the cash readout in the same
-    // top-left column.  Same x + origin as hudScore so they
-    // stack cleanly.
-    this.hudMult = this.add.text(mx(10), 60, '', {
-      fontSize: '18px', fontFamily: IMPACT,
-      color: '#44FF88', stroke: '#000000', strokeThickness: 4,
-    }).setOrigin(mox(0), 0).setDepth(d);
+      color: '#39FF8A', stroke: '#000000', strokeThickness: 5,
+    }).setOrigin(mox(1), 0).setDepth(d);
     // Mileage moved to the bottom — sits just LEFT of the region
     // label (centered at SCREEN_W/2, SCREEN_H - 8), right-aligned so
     // it reads "8 MI · WASHINGTON" across the bottom centre.
@@ -8519,53 +9276,46 @@ export class GameScene extends Phaser.Scene {
       fontSize: '13px', color: '#FFDD00', stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5, 1).setDepth(d);
 
-    // Car HP readout — sits LEFT of the gun weapon icon (top-right
-    // weapon column).  Starts green at 100, fades to red as it drops.
-    // HP right-edge aligned with the gas-gauge text below it so the
-    // "HP" and "mi" units stack right-justified.  Pulled fully inboard
-    // of the weapon column (which spans SCREEN_W-67 → SCREEN_W-10) so
-    // neither text overlaps a weapon icon.
-    this.hudHP = this.add.text(mx(SCREEN_W - 80), 76, '100 HP', {
-      fontSize: '28px', fontFamily: IMPACT,
-      color: '#44FF44', stroke: '#000000', strokeThickness: 4,
-    }).setOrigin(mox(1), 0.5).setDepth(d);
+    // Car HP readout — sits directly BELOW the cash readout in the
+    // mirror-adjacent cluster.  Font matches Cash (22 px) so the
+    // readout never extends past the cluster's right edge into the
+    // adjacent button column.  Color stays pink at every value; the
+    // floating "-X" damage popup beside it conveys took-damage events.
+    this.hudHP = this.add.text(mx(READOUT_LEFT_X), 44, '100 HP', {
+      fontSize: '22px', fontFamily: IMPACT,
+      color: '#FF39AF', stroke: '#000000', strokeThickness: 4,
+    }).setOrigin(mox(1), 0).setDepth(d);
 
-    // Floating "-X" damage popup — appears just on the CENTER-of-screen
-    // side of HP for 1.5 s after each hit.  Positioned dynamically in
-    // the damage listener so it tracks the live HP text bounds.
-    this.hudHPDamage = this.add.text(0, 76, '', {
-      fontSize: '19px', fontFamily: IMPACT,
+    // Floating "-X" damage popup — appears just on the OUTWARD side
+    // of HP for 1.5 s after each hit.  Positioned dynamically in the
+    // damage listener so it tracks the live HP text bounds.
+    this.hudHPDamage = this.add.text(0, 44, '', {
+      fontSize: '17px', fontFamily: IMPACT,
       color: '#FF2244', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(mox(1), 0.5).setDepth(d).setVisible(false);
+    }).setOrigin(mox(1), 0).setDepth(d).setVisible(false);
     this._hpDamageUntil = 0;
 
-    // ── Gas gauge (below HP, right edge) ─────────────────────────────
-    // Two parts: a 28-px-wide PNG pump icon (ui_gas_full when above
-    // 30 mi, ui_gas_empty at 30 mi or less) + the remaining-miles text
-    // to its left.  Green > 30 mi, amber 30→10, red ≤ 10 with a slow
-    // blink.  Updated each frame in _renderHUD via this.hudGas.setText /
-    // setColor and this.hudGasIcon.setTexture.
+    // ── Gas gauge (below MPH, in the speed cluster) ─────────────────
+    // PNG pump icon (ui_gas_full → ui_gas_empty swap below 30 mi) sits
+    // on the OUTWARD side of the remaining-miles text — pushed outside
+    // the speed cluster so it never tucks under the mirror.  Smaller
+    // displaySize (24 px) than the old 36 px so it fits beside the
+    // 22 px text without crowding the adjacent top-row button.
     const _gasIconKey = this.textures.exists('ui_gas_full') ? 'ui_gas_full' : null;
     if (_gasIconKey) {
-      // Icon lives on the CENTER side of the gas text (i.e. LEFT of
-      // the right-aligned text in right-handed mode, RIGHT of the
-      // left-aligned text in left-handed mode) so it never tucks under
-      // the weapon column at the screen edge.  Initial x is a sensible
-      // default; _renderHUD repositions it each frame against the live
-      // text bounds so the gap stays tight regardless of digit count.
-      this.hudGasIcon = this.add.image(mx(SCREEN_W - 180), 108, 'ui_gas_full')
-        .setOrigin(0.5, 0.5).setDepth(d).setDisplaySize(36, 36);
+      // Icon sits OUTWARD of the Speed number (away from the mirror)
+      // — aligned vertically with Speed's center.  _renderHUD repositions
+      // its x each frame relative to the live Speed text bounds.
+      this.hudGasIcon = this.add.image(mx(READOUT_RIGHT_X), 21, 'ui_gas_full')
+        .setOrigin(0.5, 0.5).setDepth(d).setDisplaySize(24, 24);
     } else {
       this.hudGasIcon = null;
     }
-    // Text right edge sits at the same x as HP (SCREEN_W - 80) so the
-    // "HP" and "mi" units stack right-justified.  When the PNG is
-    // missing, fall back to the legacy ⛽ emoji inline.
-    this.hudGas = this.add.text(mx(SCREEN_W - 80), 108,
+    this.hudGas = this.add.text(mx(READOUT_RIGHT_X), 56,
       this.hudGasIcon ? '--- mi' : '⛽ --- mi', {
-        fontSize: '28px', fontFamily: IMPACT,
-        color: '#44FF44', stroke: '#000000', strokeThickness: 4,
-      }).setOrigin(mox(1), 0.5).setDepth(d);
+        fontSize: '22px', fontFamily: IMPACT,
+        color: '#39A8FF', stroke: '#000000', strokeThickness: 4,
+      }).setOrigin(mox(0), 0).setDepth(d);
     // Accel-pedal charge bar — thin status bar that sits directly
     // under the gas readout.  Width matches the gas text bounds
     // (re-measured every frame in _renderHUD).  5 min full drain, 20
@@ -8574,37 +9324,28 @@ export class GameScene extends Phaser.Scene {
 
     // ── TOP-RIGHT: Speed (big) + radio ─────────────────────────────────
     // Speed colour matches the run's difficulty so the readout itself
-    // signals which mode you're in:
-    //   Easy   → green (Daisy Dukes drive)
-    //   Normal → amber (default)
-    //   Hard   → red (heavier heat)
-    //   Custom → cyan (no-score sandbox)
+    // signals which mode you're in.  Palette tracks the title-screen
+    // chrome: pink Easy, blue Normal, red Hard (matches "DRIVE"),
+    // purple Custom (matches "IMPROVISE").
     const speedTones = {
-      easy:   { main: '#44FF88', sub: '#88FFAA' },
-      normal: { main: '#FF6600', sub: '#FF9944' },
+      easy:   { main: '#FF39AF', sub: '#FF8FCC' },
+      normal: { main: '#39A8FF', sub: '#88DDFF' },
       hard:   { main: '#FF2244', sub: '#FF6688' },
-      custom: { main: '#44CCFF', sub: '#88DDFF' },
+      custom: { main: '#CE67FF', sub: '#BD70FF' },
     };
     const tones = speedTones[Difficulty.mode()] ?? speedTones.normal;
-    this.hudSpeed = this.add.text(mx(SCREEN_W - 10), 4, '0', {
+    // Speed sits IMMEDIATELY RIGHT of the rear-view mirror (base
+    // coords). mx/mox flips it to the left in left-handed (default) mode.
+    // READOUT_RIGHT_X is declared at the top of _buildHUD alongside
+    // READOUT_LEFT_X so the gas readout (built earlier) can use it too.
+    this.hudSpeed = this.add.text(mx(READOUT_RIGHT_X), 4, '0', {
       fontSize: '34px', fontFamily: IMPACT,
       color: tones.main, stroke: '#000000', strokeThickness: 6,
-    }).setOrigin(mox(1), 0).setDepth(d);
-    // Perf diagnostic readout — bottom-LEFT corner.  Shows live FPS +
-    // image-sprite count so we can quickly see which subsystem is
-    // tanking the frame.  Use URL params to disable subsystems:
-    //   ?nomirror  → skip rear-view glass paint
-    //   ?nosprites → skip image-based scenery (buildings + trees)
-    //   ?noeffects → skip drug effects pass
-    this.hudFPS = this.add.text(10, SCREEN_H - 26, '', {
-      fontSize: '11px', fontFamily: 'monospace',
-      color: '#00FF88', stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0, 1).setDepth(d + 5);
-    this._hudObjects?.push(this.hudFPS);
-    const _mphSub = this.add.text(mx(SCREEN_W - 10), 42, 'MPH', {
+    }).setOrigin(mox(0), 0).setDepth(d);
+    const _mphSub = this.add.text(mx(READOUT_RIGHT_X), 42, 'MPH', {
       fontSize: '11px', fontFamily: IMPACT,
       color: tones.sub, stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(mox(1), 0).setDepth(d);
+    }).setOrigin(mox(0), 0).setDepth(d);
     this._hudObjects?.push(_mphSub);
 
     // ── Party clock (top-center, below the radio name) ──────────────
@@ -8629,58 +9370,52 @@ export class GameScene extends Phaser.Scene {
     const MIRROR_LEFT_X  = SCREEN_W / 2 - 130;
     const MIRROR_RIGHT_X = SCREEN_W / 2 + 130;
     const TOP_GAP        = 1;
+    // Reserved column on each side of the mirror for the speed /
+    // time / dollars readouts.  Buttons slot OUTSIDE this reservation
+    // so they don't overlap the text.
+    const READOUT_W      = 95;
     // _topRowButtons is initialised at the top of create() so the
     // Map / Garage buttons created earlier can also register.
     const registerTopBtn = (entry) => this._topRowButtons.push(entry);
-    // Mute sits IMMEDIATELY RIGHT of the mirror by default.
-    const muteLeft  = MIRROR_RIGHT_X + TOP_GAP;
+    // Mute sits past the readout reservation on the mirror's right.
+    const muteLeft  = MIRROR_RIGHT_X + READOUT_W + TOP_GAP;
     const muteRight = muteLeft + muteSize;
     this.hudMuteBtn = this.add.graphics().setDepth(62);
-    this.hudMuteBtn.fillStyle(0x222222, 1);
-    this.hudMuteBtn.fillRoundedRect(muteLeft, muteTop, muteSize, muteSize, 10);
-    this.hudMuteBtn.lineStyle(3, 0x66CCFF, 1);
-    this.hudMuteBtn.strokeRoundedRect(muteLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
-    this.hudMuteBtn.setAlpha(0.85);
     this.hudMuteBtn.setInteractive(new Phaser.Geom.Rectangle(muteLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
     this.hudMuteBtn.input.cursor = 'pointer';
-    this.hudMuteLbl = this.add.text(muteLeft + muteSize / 2, muteTop + muteSize / 2, '🔊', {
-      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
-      stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(63);
-    this.hudMuteBtn.on('pointerover', () => this.hudMuteBtn.setAlpha(1));
-    this.hudMuteBtn.on('pointerout',  () => this.hudMuteBtn.setAlpha(0.85));
+    this.hudMuteLbl = this.add.image(muteLeft + muteSize / 2, muteTop + muteSize / 2, this._topRowButtonTexture('mute', !!this.audio?.muted))
+      .setDisplaySize(muteSize, muteSize)
+      .setDepth(63);
+    this._hudMuteIconState = !!this.audio?.muted;
+    this.hudMuteBtn.on('pointerover', () => this.hudMuteLbl.setAlpha(1));
+    this.hudMuteBtn.on('pointerout',  () => this.hudMuteLbl.setAlpha(0.96));
     this.hudMuteBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this.audio?.toggleMute?.();
-      this.hudMuteLbl.setText(this.audio?.muted ? '🔇' : '🔊');
+      this._hudMuteIconState = !!this.audio?.muted;
+      this._setTopRowButtonTexture(this.hudMuteLbl, 'mute', this._hudMuteIconState, muteSize);
     });
     this._hudObjects?.push(this.hudMuteBtn, this.hudMuteLbl);
-    registerTopBtn({ id: 'mute', bg: this.hudMuteBtn, lbl: this.hudMuteLbl, baseLeft: muteLeft, size: muteSize });
+    registerTopBtn({ id: 'mute', bg: this.hudMuteBtn, lbl: this.hudMuteLbl, artType: 'mute', baseLeft: muteLeft, size: muteSize });
 
-    // Music-note button (GENRE — cycle station) — sits IMMEDIATELY
-    // LEFT of the mirror, third from the left in the new layout.
-    const noteRight = MIRROR_LEFT_X - TOP_GAP;
+    // Music-note button (GENRE — cycle station) — sits past the readout
+    // reservation on the mirror's left.
+    const noteRight = MIRROR_LEFT_X - READOUT_W - TOP_GAP;
     const noteLeft  = noteRight - muteSize;
     this.hudNoteBtn = this.add.graphics().setDepth(62);
-    this.hudNoteBtn.fillStyle(0x222222, 1);
-    this.hudNoteBtn.fillRoundedRect(noteLeft, muteTop, muteSize, muteSize, 10);
-    this.hudNoteBtn.lineStyle(3, 0x66CCFF, 1);
-    this.hudNoteBtn.strokeRoundedRect(noteLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
-    this.hudNoteBtn.setAlpha(0.85);
     this.hudNoteBtn.setInteractive(new Phaser.Geom.Rectangle(noteLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
     this.hudNoteBtn.input.cursor = 'pointer';
-    this.hudNoteLbl = this.add.text(noteLeft + muteSize / 2, muteTop + muteSize / 2, '🎵', {
-      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
-      stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(63);
-    this.hudNoteBtn.on('pointerover', () => this.hudNoteBtn.setAlpha(1));
-    this.hudNoteBtn.on('pointerout',  () => this.hudNoteBtn.setAlpha(0.85));
+    this.hudNoteLbl = this.add.image(noteLeft + muteSize / 2, muteTop + muteSize / 2, this._topRowButtonTexture('genre'))
+      .setDisplaySize(muteSize, muteSize)
+      .setDepth(63);
+    this.hudNoteBtn.on('pointerover', () => this.hudNoteLbl.setAlpha(1));
+    this.hudNoteBtn.on('pointerout',  () => this.hudNoteLbl.setAlpha(0.96));
     this.hudNoteBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this.audio?.nextStation?.();
     });
     this._hudObjects?.push(this.hudNoteBtn, this.hudNoteLbl);
-    registerTopBtn({ id: 'genre', bg: this.hudNoteBtn, lbl: this.hudNoteLbl, baseLeft: noteLeft, size: muteSize });
+    registerTopBtn({ id: 'genre', bg: this.hudNoteBtn, lbl: this.hudNoteLbl, artType: 'genre', baseLeft: noteLeft, size: muteSize });
 
     // Skip-track button — same size, immediately LEFT of the note button.
     // Tapping skips to the next song on real-track stations (Country,
@@ -8690,26 +9425,26 @@ export class GameScene extends Phaser.Scene {
     const skipRight = noteRight - muteSize - TOP_GAP;
     const skipLeft  = skipRight - muteSize;
     this.hudSkipBtn = this.add.graphics().setDepth(62);
-    this.hudSkipBtn.fillStyle(0x222222, 1);
-    this.hudSkipBtn.fillRoundedRect(skipLeft, muteTop, muteSize, muteSize, 10);
-    this.hudSkipBtn.lineStyle(3, 0x66CCFF, 1);
-    this.hudSkipBtn.strokeRoundedRect(skipLeft + 1.5, muteTop + 1.5, muteSize - 3, muteSize - 3, 10);
-    this.hudSkipBtn.setAlpha(0.85);
     this.hudSkipBtn.setInteractive(new Phaser.Geom.Rectangle(skipLeft, muteTop, muteSize, muteSize), Phaser.Geom.Rectangle.Contains);
     this.hudSkipBtn.input.cursor = 'pointer';
-    this.hudSkipLbl = this.add.text(skipLeft + muteSize / 2, muteTop + muteSize / 2, '⏭', {
-      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
-      stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(63);
-    this.hudSkipBtn.on('pointerover', () => this.hudSkipBtn.setAlpha(1));
-    this.hudSkipBtn.on('pointerout',  () => this.hudSkipBtn.setAlpha(0.85));
+    this.hudSkipLbl = this.add.image(skipLeft + muteSize / 2, muteTop + muteSize / 2, this._topRowButtonTexture('ff'))
+      .setDisplaySize(muteSize, muteSize)
+      .setDepth(63);
+    this.hudSkipBtn.on('pointerover', () => this.hudSkipLbl.setAlpha(1));
+    this.hudSkipBtn.on('pointerout',  () => this.hudSkipLbl.setAlpha(0.96));
     this.hudSkipBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
-      if (this._awaitingStart) { this._fireTitleCursor?.(); return; }
+      this._setTopRowButtonTexture(this.hudSkipLbl, 'ff', true, muteSize);
+      // FF only skips the current track — never starts the game.
+      // The title screen's START panel is the only path into a run.
       this.audio?.skipTrack?.();
     });
+    const releaseFF = () => this._setTopRowButtonTexture(this.hudSkipLbl, 'ff', false, muteSize);
+    this.hudSkipBtn.on('pointerup', releaseFF);
+    this.hudSkipBtn.on('pointerupoutside', releaseFF);
+    this.hudSkipBtn.on('pointerout', releaseFF);
     this._hudObjects?.push(this.hudSkipBtn, this.hudSkipLbl);
-    registerTopBtn({ id: 'ff', bg: this.hudSkipBtn, lbl: this.hudSkipLbl, baseLeft: skipLeft, size: muteSize });
+    registerTopBtn({ id: 'ff', bg: this.hudSkipBtn, lbl: this.hudSkipLbl, artType: 'ff', baseLeft: skipLeft, size: muteSize });
 
     // Weather / wiper button — beside BRAKE on the inner side of the
     // pedal column. It mirrors with the pedals when handedness flips.
@@ -8719,6 +9454,10 @@ export class GameScene extends Phaser.Scene {
     const WIPER_PEDAL_H = 50;
     const WIPER_SIDE_GAP = 8;
     const WIPER_BRAKE_Y = SCREEN_H - 8;
+    // Wiper sits on the INNER side of the pedal column (toward screen
+    // center).  Pedals are on the side OPPOSITE the weapon column.
+    //   leftHanded=true  → pedals RIGHT, wiper LEFT of right pedal
+    //   leftHanded=false → pedals LEFT, wiper RIGHT of left pedal
     const getWiperLeft = () => this._leftHanded
       ? (SCREEN_W - WIPER_PEDAL_W - 4 - WIPER_SIDE_GAP - muteSize)
       : (WIPER_PEDAL_W + 4 + WIPER_SIDE_GAP);
@@ -8912,10 +9651,10 @@ export class GameScene extends Phaser.Scene {
     const PEDAL_W = 70, PEDAL_H = 50;
     const PEDAL_GAP = 4;                              // gap between stacked pedals
     // Pedal CENTER X.  Origin is (0.5, 1) so the rectangle's right
-    // edge sits at PEDAL_X + PEDAL_W/2. Side opposes the weapon edge:
-    // right for left-handed mode, left for right-handed mode.
-    // _applyPedalHandedness() below re-runs
-    // the same math when the flag flips mid-run.
+    // edge sits at PEDAL_X + PEDAL_W/2. Side OPPOSES the weapon edge
+    // so the drug-icon 2-col grid + pedals share the off-weapon side.
+    // _applyPedalHandedness() below re-runs the same math when the
+    // flag flips mid-run.
     this._pedalDim  = { w: PEDAL_W, h: PEDAL_H };
     const PEDAL_X   = this._leftHanded
       ? (SCREEN_W - PEDAL_W / 2 - 4)
@@ -8923,18 +9662,26 @@ export class GameScene extends Phaser.Scene {
     const BRAKE_Y   = SCREEN_H - 8;                   // bottom
     const GAS_Y     = BRAKE_Y - PEDAL_H - PEDAL_GAP;  // above brake
 
-    const refreshGas   = () => this._gasBtn?.setFillStyle?.(this._touchBoost ? 0x55DD55 : 0x22AA22, this._touchBoost ? 0.95 : 0.55);
-    const refreshBrake = () => this._brakeBtn?.setFillStyle?.(this._touchBrake ? 0xEE3333 : 0xCC2222, this._touchBrake ? 0.95 : 0.55);
+    const refreshGas = () => {
+      this._gasBtn
+        ?.setFillStyle?.(this._touchBoost ? 0x0F2A4A : 0x050812, this._touchBoost ? 0.96 : 0.72)
+        ?.setStrokeStyle?.(this._touchBoost ? 3 : 2, 0x39A8FF, this._touchBoost ? 1 : 0.88);
+    };
+    const refreshBrake = () => {
+      this._brakeBtn
+        ?.setFillStyle?.(this._touchBrake ? 0x3A112B : 0x050812, this._touchBrake ? 0.96 : 0.72)
+        ?.setStrokeStyle?.(this._touchBrake ? 3 : 2, 0xFF39AF, this._touchBrake ? 1 : 0.88);
+    };
     this._refreshPedals = () => { refreshGas(); refreshBrake(); };
 
     const gasBtn = this.add.rectangle(
-      PEDAL_X, GAS_Y, PEDAL_W, PEDAL_H, 0x22AA22, 0.55,
-    ).setOrigin(0.5, 1).setDepth(d + 1).setStrokeStyle(2, 0xAAFFAA);
+      PEDAL_X, GAS_Y, PEDAL_W, PEDAL_H, 0x050812, 0.72,
+    ).setOrigin(0.5, 1).setDepth(d + 1).setStrokeStyle(2, 0x39A8FF, 0.88);
     this._gasBtn = gasBtn;
     const gasLbl = this.add.text(PEDAL_X, GAS_Y - PEDAL_H / 2,
-      'ACCEL\n▲', {
-        fontSize: '12px', fontFamily: IMPACT,
-        color: '#FFFFFF', stroke: '#000', strokeThickness: 3, align: 'center',
+      '▲\nACCEL', {
+        fontSize: '16px', fontFamily: IMPACT,
+        color: '#F4F7FF', stroke: '#39A8FF', strokeThickness: 2, align: 'center',
       }).setOrigin(0.5).setDepth(d + 2);
     this._gasLbl = gasLbl;
     gasBtn.setInteractive({ useHandCursor: true });
@@ -8946,13 +9693,13 @@ export class GameScene extends Phaser.Scene {
     });
 
     const brakeBtn = this.add.rectangle(
-      PEDAL_X, BRAKE_Y, PEDAL_W, PEDAL_H, 0xCC2222, 0.55,
-    ).setOrigin(0.5, 1).setDepth(d + 1).setStrokeStyle(2, 0xFFAAAA);
+      PEDAL_X, BRAKE_Y, PEDAL_W, PEDAL_H, 0x050812, 0.72,
+    ).setOrigin(0.5, 1).setDepth(d + 1).setStrokeStyle(2, 0xFF39AF, 0.88);
     this._brakeBtn = brakeBtn;
     const brakeLbl = this.add.text(PEDAL_X, BRAKE_Y - PEDAL_H / 2,
       'BRAKE\n▼', {
-        fontSize: '13px', fontFamily: IMPACT,
-        color: '#FFFFFF', stroke: '#000', strokeThickness: 3, align: 'center',
+        fontSize: '17px', fontFamily: IMPACT,
+        color: '#F4F7FF', stroke: '#FF39AF', strokeThickness: 2, align: 'center',
       }).setOrigin(0.5).setDepth(d + 2);
     this._brakeLbl = brakeLbl;
     brakeBtn.setInteractive({ useHandCursor: true });
@@ -8963,12 +9710,13 @@ export class GameScene extends Phaser.Scene {
       this._refreshPedals();
     });
 
+    this._refreshPedals();
     this._hudObjects?.push(gasBtn, gasLbl, brakeBtn, brakeLbl);
 
     // ── Pause button — upper-right area, but moved LEFT of the speed
     //    cluster so it never overlaps the MPH readout.  Tappable on
     //    phones, also still triggered by SPACE.
-    // Pause sits 4 px to the right of mute → tight cluster: Note 🎵 | Mute 🔊 | Pause ⏸
+    // Pause sits as a separate control at the outer end of the music cluster.
     // Right edge at SCREEN_W-75 leaves ~65 px to the speedometer.
     const pauseSize = 56;
     // Pause is now the LEFTMOST top-row button — sits two slots left
@@ -8979,32 +9727,26 @@ export class GameScene extends Phaser.Scene {
     const pauseLeft  = pauseRight - pauseSize;
     const pauseTop   = 2;
     const pauseBtn = this.add.graphics().setDepth(62);
-    // drawPause takes a "lit" flag — when paused, the fill goes cyan
-    // and the stroke goes bright yellow so the button reads as the
-    // active resume control.  _togglePause re-invokes this with the
-    // new state.
+    // drawPause takes a "lit" flag so the border glows magenta while
+    // the paused screen is active. _togglePause redraws it on state changes.
     // Geometry redraw only — alpha (hover dim / lit) is conveyed via
     // pauseBtn.setAlpha so it survives _applyTopRowHandedness redraws.
     const drawPause = (_alpha = 0.85, lit = false) => {
+      const x = this._leftHanded ? pauseLeft : (SCREEN_W - pauseLeft - pauseSize);
       pauseBtn.clear();
-      pauseBtn.fillStyle(lit ? 0x44CCFF : 0x222222, 1);
-      pauseBtn.fillRoundedRect(pauseLeft, pauseTop, pauseSize, pauseSize, 10);
-      pauseBtn.lineStyle(3, lit ? 0xFFEE00 : 0x66CCFF, 1);
-      pauseBtn.strokeRoundedRect(pauseLeft + 1.5, pauseTop + 1.5, pauseSize - 3, pauseSize - 3, 10);
+      this._setTopRowButtonTexture(this._pauseLblRef, 'pause', lit, pauseSize);
     };
     // Draw at full opacity; hover toggles bg.alpha so the redraw
     // position captured in drawPause's closure doesn't override the
     // handedness-swapped location.
     drawPause(1, false);
-    pauseBtn.setAlpha(0.85);
     pauseBtn.setInteractive(new Phaser.Geom.Rectangle(pauseLeft, pauseTop, pauseSize, pauseSize), Phaser.Geom.Rectangle.Contains);
     pauseBtn.input.cursor = 'pointer';
-    const pauseLbl = this.add.text(pauseLeft + pauseSize / 2, pauseTop + pauseSize / 2, '⏸', {
-      fontSize: '32px', fontFamily: IMPACT, color: '#FFFFFF',
-      stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(63);
-    pauseBtn.on('pointerover', () => pauseBtn.setAlpha(1));
-    pauseBtn.on('pointerout',  () => pauseBtn.setAlpha(this._paused ? 0.95 : 0.85));
+    const pauseLbl = this.add.image(pauseLeft + pauseSize / 2, pauseTop + pauseSize / 2, this._topRowButtonTexture('pause'))
+      .setDisplaySize(pauseSize, pauseSize)
+      .setDepth(63);
+    pauseBtn.on('pointerover', () => pauseLbl.setAlpha(1));
+    pauseBtn.on('pointerout',  () => pauseLbl.setAlpha(0.96));
     pauseBtn.on('pointerdown', (ptr) => {
       ptr.event?.stopPropagation?.();
       this._togglePause();
@@ -9014,7 +9756,7 @@ export class GameScene extends Phaser.Scene {
     this._pauseLblRef     = pauseLbl;
     this._redrawPauseBtn  = drawPause;
     this._hudObjects?.push(pauseBtn, pauseLbl);
-    registerTopBtn({ id: 'pause', bg: pauseBtn, lbl: pauseLbl, baseLeft: pauseLeft, size: pauseSize });
+    registerTopBtn({ id: 'pause', bg: pauseBtn, lbl: pauseLbl, artType: 'pause', baseLeft: pauseLeft, size: pauseSize });
 
     // ── REAR-COP indicator (cop behind the player; visible only when active)
     this.hudRearCop = this.add.text(SCREEN_W / 2, SCREEN_H - 32, '', {
@@ -9069,28 +9811,53 @@ export class GameScene extends Phaser.Scene {
     // Interactive menu zones align to the four bottom cards in the artwork.
     // START and LOAD SAVE are fully baked; selector interiors receive live
     // text because the choice can change.
-    const panelY = 353;
+    const panelY = 350;
     const panelH = 58;
+    const compactPanelH = 47;
     const btnY = panelY;
     this._titleDifficultyBtns = [];
     this._titleWheelMap = {};
 
-    const makeTitleZone = (x, y, w, h, glow, onTap, paintInterior = null) => {
+    const titlePanelShape = (x, w, h = panelH, slant = 12) => ({
+      points: [
+        new Phaser.Geom.Point(x + slant, panelY),
+        new Phaser.Geom.Point(x + w, panelY),
+        new Phaser.Geom.Point(x + w - slant, panelY + h),
+        new Phaser.Geom.Point(x, panelY + h),
+      ],
+      outline: [
+        new Phaser.Geom.Point(x + slant + 5, panelY),
+        new Phaser.Geom.Point(x + w - 5, panelY),
+        new Phaser.Geom.Point(x + w - 2, panelY + 1),
+        new Phaser.Geom.Point(x + w, panelY + 5),
+        new Phaser.Geom.Point(x + w - slant + 2, panelY + h - 5),
+        new Phaser.Geom.Point(x + w - slant, panelY + h - 2),
+        new Phaser.Geom.Point(x + w - slant - 4, panelY + h),
+        new Phaser.Geom.Point(x + 5, panelY + h),
+        new Phaser.Geom.Point(x + 2, panelY + h - 1),
+        new Phaser.Geom.Point(x, panelY + h - 5),
+        new Phaser.Geom.Point(x + slant - 2, panelY + 5),
+        new Phaser.Geom.Point(x + slant, panelY + 2),
+      ],
+    });
+    const makeTitleZone = (shape, glow, onTap, paintInterior = null) => {
       const g = this.add.graphics().setDepth(d + 10);
       const draw = (hover = false) => {
         g.clear();
         paintInterior?.(g);
         if (hover) {
           g.lineStyle(2, glow, 1);
-          g.strokeRoundedRect(x + 1, y + 1, w - 2, h - 2, 10);
+          g.strokePoints(shape.outline, true);
         }
       };
       draw();
-      g.setInteractive(new Phaser.Geom.Rectangle(x, y, w, h), Phaser.Geom.Rectangle.Contains);
+      const hitArea = new Phaser.Geom.Polygon(shape.points);
+      g.setInteractive(hitArea, Phaser.Geom.Polygon.Contains);
       g.input.cursor = 'pointer';
       g.on('pointerover', () => draw(true));
       g.on('pointerout',  () => draw(false));
       g.on('pointerdown', (ptr) => {
+        draw(true);
         ptr.event?.stopPropagation?.();
         onTap?.();
       });
@@ -9127,8 +9894,8 @@ export class GameScene extends Phaser.Scene {
       g.fillStyle(0x070B14, 0.92);
       g.fillRoundedRect(x + 8, panelY + 6, w - 16, panelH - 12, 6);
     };
-    const diffX = 236, diffW = 164;
-    const steeringX = 405, steeringW = 175;
+    const diffX = 249, diffW = 177;
+    const steeringX = 422, steeringW = 190;
 
     this._titleDiffHeader = this.add.text(diffX + diffW / 2, panelY + 9, 'DIFFICULTY', {
       fontSize: '13px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
@@ -9157,28 +9924,44 @@ export class GameScene extends Phaser.Scene {
       this._titleThumbsHeader, this._titleThumbsValue, this._titleThumbsBlurb,
     );
 
+    // Difficulty value tint mirrors the in-game Speed/MPH palette so
+    // the player sees their selected mode's color before the run even
+    // starts (pink Easy / blue Normal / red Hard / purple Custom).
+    const diffValueColors = {
+      easy:   '#FF39AF',
+      normal: '#39A8FF',
+      hard:   '#FF2244',
+      custom: '#CE67FF',
+    };
     const updateSelectionText = () => {
+      const diffId = DIFF_OPTIONS[diffIdx].id;
       this._titleDiffValue?.setText(DIFF_OPTIONS[diffIdx].label);
+      this._titleDiffValue?.setColor(diffValueColors[diffId] ?? '#37B9FF');
       this._titleDiffBlurb?.setText(DIFF_OPTIONS[diffIdx].blurb);
       this._titleThumbsValue?.setText(THUMBS_OPTIONS[thumbsIdx].label);
       this._titleThumbsBlurb?.setText(THUMBS_OPTIONS[thumbsIdx].blurb);
     };
     this._refreshDifficultyHighlights = updateSelectionText;
 
-    const startBg = makeTitleZone(77, panelY, 157, panelH, 0xFF5FCC,
+    const startBg = makeTitleZone(titlePanelShape(74, 176, compactPanelH, 11), 0xFF5FCC,
       () => this._fireTitleCursor?.());
-    const diffBg = makeTitleZone(diffX, panelY, diffW, panelH, 0x3CCBFF, () => {
+    const diffBg = makeTitleZone(titlePanelShape(diffX, diffW), 0x3CCBFF, () => {
       diffIdx = (diffIdx + 1) % DIFF_OPTIONS.length;
       this._wheelCursor = DIFF_OPTIONS[diffIdx].id;
       updateSelectionText();
       diffBg._titleDraw?.(true);
     }, g => dynamicFill(g, diffX, diffW));
-    const steeringBg = makeTitleZone(steeringX, panelY, steeringW, panelH, 0xCE67FF, () => {
+    const steeringBg = makeTitleZone(titlePanelShape(steeringX, steeringW), 0xCE67FF, () => {
       thumbsIdx = (thumbsIdx + 1) % THUMBS_OPTIONS.length;
+      // Persist the carousel pick immediately so _armTiltPrefetch's
+      // next-tap listener can see whether the user is about to start
+      // a tilt run.  Without this the registry only updates on START,
+      // by which point we've missed the iOS gesture frame.
+      this.registry?.set?.('titleThumbsPick', THUMBS_OPTIONS[thumbsIdx].id);
       updateSelectionText();
       steeringBg._titleDraw?.(true);
     }, g => dynamicFill(g, steeringX, steeringW));
-    const savedBg = makeTitleZone(591, panelY, 136, panelH, 0x4BB7FF,
+    const savedBg = makeTitleZone(titlePanelShape(611, 154, compactPanelH, 12), 0x4BB7FF,
       () => this._promptForCode(last?.code ?? ''));
     this._titleDifficultyBtns.push(startBg, diffBg, steeringBg, savedBg);
     this._titleResume = savedBg;
@@ -9209,12 +9992,26 @@ export class GameScene extends Phaser.Scene {
       if (cur === 'custom') {
         this._buildDrugSliderModal({
           mode: 'custom',
-          onConfirm: ({ drugLevels, noNpcDamage, noPolice, startStars, customSub }) => {
+          onConfirm: ({ drugLevels, checkpointPos, noNpcDamage, noPolice, startStars, customSub, drivingType, vehicleId, accessories }) => {
             Difficulty.set('custom', this.registry);
             if (customSub) Difficulty.setCustomSub(customSub, this.registry);
+            if (drivingType) {
+              this.registry?.set?.('titleThumbsPick', drivingType);
+              this._setSteeringMode?.(drivingType);
+            }
+            // Custom is a sandbox — let the player drive ANY vehicle
+            // and toggle ANY accessory for this run.  Stored as
+            // scene-instance overrides so the persisted save state
+            // (ownedVehicles, accessories[vid]) isn't clobbered.
+            if (vehicleId && VEHICLES[vehicleId]) {
+              this._customStartVehicleId = vehicleId;
+              this._applyVehicleSwap?.(vehicleId);
+            }
+            this._customStartAccessories = accessories ?? null;
             this._customStartLevels = drugLevels;
             this._customFlags = { noNpcDamage: !!noNpcDamage, noPolice: !!noPolice };
             this._customStartStars = Math.max(0, Math.min(5, startStars ?? 0));
+            this._customStartPosition = Math.max(0, checkpointPos ?? 0);
             // Reset the party clock to Custom's setting (40 min by spec)
             // so the run begins with a fresh countdown.
             this._partyClockSec    = Difficulty.partyClockSec();
@@ -9383,8 +10180,7 @@ export class GameScene extends Phaser.Scene {
       // like it kept going after the readout hit zero.
       const dur = this.damage.getDurability?.() ?? 100;
       const hp  = Math.max(0, Math.ceil(dur));
-      const color = hp > 50 ? '#44FF44' : hp > 20 ? '#FFAA22' : '#FF2244';
-      this.hudHP.setText(`${hp} HP`).setColor(color);
+      this.hudHP.setText(`${hp} HP`).setColor('#FF39AF');
     }
     // Hide the floating "-X" damage popup once its 1.5-s window passes.
     if (this.hudHPDamage?.visible && this._hpDamageUntil
@@ -9399,19 +10195,15 @@ export class GameScene extends Phaser.Scene {
     // approaches), per spec.
     if (this.hudGas) {
       const gas = Math.max(0, Math.round(this.player.gasMi ?? 0));
-      const _curMi = this._odometer ?? 0;
-      // Find next forward rest stop; warn when within 1 mi of its mileage.
-      let nearExitWarn = false;
-      for (const rs of REST_STOPS) {
-        const dToExit = rs.mileage - _curMi;
-        if (dToExit > 0 && dToExit <= 1) { nearExitWarn = true; break; }
-      }
+      // Color tracks the gas level only.  The old near-exit warning
+      // flicker (orange when ≤1 mi from a rest stop) was dropped per
+      // player feedback — it made the gas readout strobe between
+      // blue and orange as exits passed.
       let gColor;
       if (gas <= 0)                       gColor = '#888888';
       else if (gas <= 10)                 gColor = (Math.sin(this.gameTime * 6) > 0 ? '#FF2244' : '#660000');
       else if (gas <= GAS_LIGHT_AT_MI)    gColor = '#FFAA22';
-      else if (nearExitWarn)              gColor = '#FFAA22';
-      else                                gColor = '#44FF44';
+      else                                gColor = '#39A8FF';
       // If the PNG icon is mounted, render text-only (no emoji); icon
       // texture swaps to gas_empty once miles ≤ GAS_LIGHT_AT_MI (30).
       if (this.hudGasIcon) {
@@ -9421,16 +10213,15 @@ export class GameScene extends Phaser.Scene {
             && this.textures.exists(wantKey)) {
           this.hudGasIcon.setTexture(wantKey);
         }
-        // Reposition icon on the CENTER-of-screen side of the gas
-        // text so it never tucks under the weapon column.  Right-
-        // handed: icon LEFT of text (centered on text's left edge).
-        // Left-handed: icon RIGHT of text (mirror).
-        const tb = this.hudGas.getBounds?.();
+        // Position icon just OUTWARD of the Speed number — away from
+        // the mirror.  Speed cluster mirrors with handedness, so the
+        // icon hugs Speed's outward edge on both sides.
+        const tb = this.hudSpeed?.getBounds?.();
         if (tb) {
-          const GAP = 6, ICON_HALF = 18;
+          const GAP = 5, ICON_HALF = 12;
           this.hudGasIcon.x = this._leftHanded
-            ? (tb.right + GAP + ICON_HALF)
-            : (tb.left  - GAP - ICON_HALF);
+            ? (tb.left  - GAP - ICON_HALF)
+            : (tb.right + GAP + ICON_HALF);
         }
       } else {
         this.hudGas.setText(gas <= 0 ? '⛽ EMPTY' : `⛽ ${gas} mi`).setColor(gColor);
@@ -9449,7 +10240,7 @@ export class GameScene extends Phaser.Scene {
         const barX = tb.left;
         const barW = tb.width;
         const pct  = Math.max(0, Math.min(1, (this._accelCharge ?? 100) / 100));
-        const fillColor = pct < 0.2 ? 0xFF4444 : (pct < 0.5 ? 0xFFAA00 : 0x44FF44);
+        const fillColor = pct < 0.2 ? 0xFF4444 : (pct < 0.5 ? 0xFFAA00 : 0x39A8FF);
         this.hudAccelBar.fillStyle(0x222222, 0.7).fillRect(barX, barY, barW, barH);
         this.hudAccelBar.fillStyle(fillColor, 0.95).fillRect(barX, barY, barW * pct, barH);
       }
@@ -9479,16 +10270,17 @@ export class GameScene extends Phaser.Scene {
     }
     this.hudDist.setText(`${milesRaw.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MI`);
     this.hudSpeed.setText(`${mph}`);
-    // Re-apply the difficulty-tinted MPH color each frame.  _buildHUD's
+    // Re-apply the difficulty-tinted Speed color each frame.  _buildHUD's
     // initial color was being locked at scene-init time (before the
     // player tapped a difficulty button), so it stuck on the previous
     // mode's tone.  Resolved here against the current Difficulty.
+    // Palette mirrors the title-screen chrome (pink/blue/red/purple).
     {
       const tones = {
-        easy:   '#44FF88',
-        normal: '#FF6600',
+        easy:   '#FF39AF',
+        normal: '#39A8FF',
         hard:   '#FF2244',
-        custom: '#44CCFF',
+        custom: '#CE67FF',
       };
       const c = tones[Difficulty.mode()] ?? tones.normal;
       if (this.hudSpeed && this.hudSpeed.style.color !== c) this.hudSpeed.setColor(c);
@@ -9522,22 +10314,12 @@ export class GameScene extends Phaser.Scene {
     // covers any path that flips audio.muted from outside this
     // button's own click handler (iPhone-menu long-press, etc.).
     if (this.hudMuteLbl) {
-      const want = this.audio?.muted ? '🔇' : '🔊';
-      if (this.hudMuteLbl.text !== want) this.hudMuteLbl.setText(want);
+      const muted = !!this.audio?.muted;
+      if (this._hudMuteIconState !== muted) {
+        this._hudMuteIconState = muted;
+        this._setTopRowButtonTexture(this.hudMuteLbl, 'mute', muted, 56);
+      }
     }
-    // Perf readout — live FPS + scenery sprite count.  Flags show
-    // which heavy passes are currently disabled via ?no… URL params.
-    if (this.hudFPS) {
-      const fps = Math.round(this.game?.loop?.actualFps ?? 0);
-      const spr = this._renderedSpriteCount ?? 0;
-      const flags = [
-        this._perf?.noMirror  && 'noMirror',
-        this._perf?.noSprites && 'noSprites',
-        this._perf?.noEffects && 'noEffects',
-      ].filter(Boolean).join(' ');
-      this.hudFPS.setText(`FPS ${fps}  SPR ${spr}${flags ? '  [' + flags + ']' : ''}`);
-    }
-
     const stars = this.cops.starDisplay;
     let starsText = stars > 0 ? '★'.repeat(stars) + '☆'.repeat(5 - stars) : '';
     // Surface whichever per-type counter is closest to busting the player
@@ -9552,7 +10334,11 @@ export class GameScene extends Phaser.Scene {
 
     this.hudRadio.setText(`${this.audio.currentName}`);
     if (this.hudMuteLbl) {
-      this.hudMuteLbl.setText(this.audio?.muted ? '🔇' : '🔊');
+      const muted = !!this.audio?.muted;
+      if (this._hudMuteIconState !== muted) {
+        this._hudMuteIconState = muted;
+        this._setTopRowButtonTexture(this.hudMuteLbl, 'mute', muted, 56);
+      }
     }
 
     // ── Rear-view mirror — populate sprite pools with rear scene ──
@@ -9810,6 +10596,14 @@ export class GameScene extends Phaser.Scene {
             const proj = projectRear(vz, sp.offset, MIRROR_FAR_Z);
             const s = buildingPool[usedBuildings++];
             placeSprite(s, sp.texKey, proj.x, proj.y, proj.depthT, 22);
+            // Same auto-mirror rule as the forward scene-sprite pass:
+            // left-side buildings/houses flip so a single right-side
+            // authored PNG covers both shoulders.  Directional pairs
+            // (texture name ends in _left/_right) are skipped.
+            const autoFlipLeft = (sp.type === 'building' || sp.type === 'house')
+              && (sp.offset ?? 0) < 0
+              && !/_left|_right/.test(sp.texKey);
+            s.setFlipX(!!sp.flipX || autoFlipLeft);
             if (usedBuildings >= buildingPool.length) break;
           }
         }
@@ -9956,16 +10750,18 @@ export class GameScene extends Phaser.Scene {
       ketamine: 'drug_ketamine',
       meth:     'drug_meth',
     };
-    // 50×42 icons — slightly smaller than weapons (66×56) so all 10
-    // drugs fit comfortably stacked.
-    const iconW = 50, iconH = 42, rowGap = 4;
+    // 2-column grid of square-ish icons.  All 10 drugs fit in 5 rows
+    // × 2 cols above the pedal stack, leaving the bottom of the
+    // off-weapon edge for ACCEL/BRAKE.
+    const iconW = 46, iconH = 42, rowGap = 4, colGap = 4;
     const yTop  = 65;
-    // Drugs sit on the OPPOSITE side from weapons.  Weapons use the
-    // dominant-thumb side (right when left-handed=false).
+    // Drug column sits on the OPPOSITE side from weapons.
     const drugsOnRight = !!this._leftHanded;
     const xLeft   = 10;
     const xRight  = SCREEN_W - 10;
-    const x       = drugsOnRight ? (xRight - iconW) : xLeft;
+    // Inner column is closest to screen center; outer column hugs the edge.
+    const xOuter  = drugsOnRight ? (xRight - iconW)                : xLeft;
+    const xInner  = drugsOnRight ? (xRight - iconW * 2 - colGap)   : (xLeft + iconW + colGap);
 
     if (!this._drugIcons) this._drugIcons = {};
     const showAllDrugs = Difficulty.mode?.() === 'custom';
@@ -9974,11 +10770,15 @@ export class GameScene extends Phaser.Scene {
     this._drugBarHits.length = 0;
     this._ensureDrugBarDragHandler();
 
-    let row = 0;
+    let slotIdx = 0;
     for (const id of Object.values(DRUGS)) {
       if (!showAllDrugs && !this.drugs.isUnlocked(id)) continue;
       const level = Math.max(0, Math.min(1, this.drugs.get(id)));
       const cfg   = DRUG_CONFIG[id];
+      // 2-column fill order: alternate (0,0), (1,0), (0,1), (1,1), …
+      const col   = slotIdx % 2;
+      const row   = Math.floor(slotIdx / 2);
+      const x     = col === 0 ? xOuter : xInner;
       const y     = yTop + row * (iconH + rowGap);
 
       // ── Lazy create the icon + interactive hit zone ──────────────
@@ -10045,7 +10845,7 @@ export class GameScene extends Phaser.Scene {
       this._drugBarHits.push({
         id, x, y, w: iconW, h: iconH,
       });
-      row++;
+      slotIdx++;
     }
 
     // Hide any drugs we didn't render this frame (rest stop, etc.).
@@ -10153,20 +10953,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Wire up the click/drag handler for the HUD drug bars.  Idempotent
-   *  — only attaches once.  Active only in custom mode.  Sets the bar's
-   *  drug level to the horizontal fraction the player dragged to. */
+   *  — only attaches once.  Active only in custom mode.  The bars fill
+   *  vertically (bottom = empty, top = full), so dragging tracks the
+   *  pointer's VERTICAL position within the cell.  Tap-to-set lands the
+   *  level wherever the player tapped on first contact, then the drag
+   *  follows; once a cell is grabbed, the pointer can leave the cell
+   *  and the level still tracks (clamped 0..1). */
   _ensureDrugBarDragHandler() {
     if (this._drugBarDragWired) return;
     this._drugBarDragWired = true;
     this._draggingDrugId = null;
 
-    const setLevelFromPointer = (px) => {
+    const setLevelFromPointer = (py) => {
       const id = this._draggingDrugId;
       if (!id) return;
       const hits = this._drugBarHits;
       const hit  = hits && hits.find(h => h.id === id);
       if (!hit) return;
-      const frac = Math.max(0, Math.min(1, (px - hit.x) / hit.w));
+      // Vertical map: top of cell → 1.0, bottom of cell → 0.0.
+      const frac = Math.max(0, Math.min(1, 1 - (py - hit.y) / hit.h));
       if (this.drugs?.levels) this.drugs.levels[id] = frac;
       // Mark unlocked so the bar keeps rendering even if the player
       // pulled it from 0 (otherwise unlocked-only filter hides it next
@@ -10179,15 +10984,21 @@ export class GameScene extends Phaser.Scene {
 
     const isCustom = () => Difficulty.mode?.() === 'custom';
 
+    // Pad the touch target around each cell so a slightly-off finger
+    // still grabs the bar.  Only affects hit-detection on first
+    // contact; once held, the level tracks ptr.y unconditionally.
+    const TOUCH_PAD = 12;
+
     this.input.on('pointerdown', (ptr) => {
       if (!isCustom()) return;
       const hits = this._drugBarHits;
       if (!hits) return;
       const px = ptr.x, py = ptr.y;
       for (const h of hits) {
-        if (px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h) {
+        if (px >= h.x - TOUCH_PAD && px <= h.x + h.w + TOUCH_PAD
+         && py >= h.y - TOUCH_PAD && py <= h.y + h.h + TOUCH_PAD) {
           this._draggingDrugId = h.id;
-          setLevelFromPointer(px);
+          setLevelFromPointer(py);
           break;
         }
       }
@@ -10195,7 +11006,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on('pointermove', (ptr) => {
       if (!this._draggingDrugId) return;
       if (!isCustom()) { this._draggingDrugId = null; return; }
-      setLevelFromPointer(ptr.x);
+      setLevelFromPointer(ptr.y);
     });
     const endDrag = () => { this._draggingDrugId = null; };
     this.input.on('pointerup',     endDrag);
@@ -10225,10 +11036,10 @@ export class GameScene extends Phaser.Scene {
     // bullet total, not the number of stacked tokens.
     counts.gun = this.cops.gunAmmo ?? 0;
 
-    // Touch-target sized icons — 15% bigger than the old 57×49 cells
-    // (now 66×56) to be more thumb-friendly.  yTop pushed down 10 px
-    // so the larger cells don't crowd the MPH readout.
-    const iconW = 66, iconH = 56, rowGap = 6;
+    // Touch-target sized icons — squarer cells (was 66×56, now 58×56)
+    // per UX feedback that the rectangles read too wide.  Roughly a
+    // square thumb pad.
+    const iconW = 58, iconH = 56, rowGap = 6;
     // Stack anchors against whichever edge is the player's "dominant"
     // thumb — right edge by default, left edge in left-handed mode.
     const lhWeap = !!this._leftHanded;
@@ -10626,19 +11437,24 @@ export class GameScene extends Phaser.Scene {
     objs.push(scrim);
 
     const cardW = 380, cardH = 180;
-    const card = this.add.rectangle(cx, cy, cardW, cardH, 0x1A1A1A, 1)
-      .setStrokeStyle(2, 0xFFFFFF).setDepth(D + 1);
+    const card = this.add.graphics().setDepth(D + 1);
+    card.fillStyle(0x050812, 0.97);
+    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 7);
+    card.lineStyle(3, 0x39A8FF, 0.92);
+    card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 7);
+    card.lineStyle(1, 0xFF39AF, 0.70);
+    card.strokeRoundedRect(cx - cardW / 2 + 5, cy - cardH / 2 + 5, cardW - 10, cardH - 10, 5);
     objs.push(card);
 
     const ttl = this.add.text(cx, cy - 56, title, {
-      fontSize: '20px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
-      align: 'center',
+      fontSize: '20px', fontFamily: '"Arial Black", sans-serif', color: '#F4F7FF',
+      stroke: '#FF39AF', strokeThickness: 2, align: 'center',
     }).setOrigin(0.5).setDepth(D + 2);
     objs.push(ttl);
 
     const msg = this.add.text(cx, cy - 16, message, {
       fontSize: '13px', fontFamily: '"Helvetica Neue", Arial, sans-serif',
-      color: '#CCCCCC', align: 'center', wordWrap: { width: cardW - 30 },
+      color: '#E3EDFF', align: 'center', wordWrap: { width: cardW - 30 },
     }).setOrigin(0.5).setDepth(D + 2);
     objs.push(msg);
 
@@ -10647,23 +11463,41 @@ export class GameScene extends Phaser.Scene {
       objs.forEach(o => o?.destroy?.());
     };
 
-    const yesBg = this.add.rectangle(cx + 80, cy + 50, 120, 36, 0xAA3322, 1)
-      .setStrokeStyle(1, 0xFFFFFF).setDepth(D + 2)
-      .setInteractive({ useHandCursor: true });
-    const yesTxt = this.add.text(cx + 80, cy + 50, 'YES', {
-      fontSize: '16px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
-    }).setOrigin(0.5).setDepth(D + 3);
-    yesBg.on('pointerdown', (p) => { p.event?.stopPropagation?.(); close(); onYes?.(); });
-    objs.push(yesBg, yesTxt);
-
-    const noBg = this.add.rectangle(cx - 80, cy + 50, 120, 36, 0x444444, 1)
-      .setStrokeStyle(1, 0xFFFFFF).setDepth(D + 2)
-      .setInteractive({ useHandCursor: true });
-    const noTxt = this.add.text(cx - 80, cy + 50, 'CANCEL', {
-      fontSize: '16px', fontFamily: '"Arial Black", sans-serif', color: '#FFFFFF',
-    }).setOrigin(0.5).setDepth(D + 3);
-    noBg.on('pointerdown', (p) => { p.event?.stopPropagation?.(); close(); onNo?.(); });
-    objs.push(noBg, noTxt);
+    const makeModalBtn = (x, label, neonColor, handler) => {
+      const bg = this.add.graphics().setDepth(D + 2);
+      const draw = (hover = false) => {
+        bg.clear();
+        bg.fillStyle(0x050812, hover ? 1 : 0.92);
+        bg.fillRoundedRect(x - 60, cy + 32, 120, 36, 5);
+        bg.lineStyle(hover ? 3 : 2, neonColor, 1);
+        bg.strokeRoundedRect(x - 60, cy + 32, 120, 36, 5);
+      };
+      draw(false);
+      bg.setInteractive(
+        new Phaser.Geom.Rectangle(x - 60, cy + 32, 120, 36),
+        Phaser.Geom.Rectangle.Contains,
+      );
+      bg.input.cursor = 'pointer';
+      const css = `#${neonColor.toString(16).padStart(6, '0')}`;
+      const txt = this.add.text(x, cy + 50, label, {
+        fontSize: '16px', fontFamily: '"Arial Black", sans-serif',
+        color: '#F4F7FF', stroke: css, strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(D + 3);
+      bg.on('pointerover', () => draw(true));
+      bg.on('pointerout', () => draw(false));
+      bg.on('pointerdown', handler);
+      objs.push(bg, txt);
+    };
+    makeModalBtn(cx + 80, 'YES', 0xFF39AF, (p) => {
+      p.event?.stopPropagation?.();
+      close();
+      onYes?.();
+    });
+    makeModalBtn(cx - 80, 'CANCEL', 0x39A8FF, (p) => {
+      p.event?.stopPropagation?.();
+      close();
+      onNo?.();
+    });
 
     this._addHudObjs(...objs);
   }
@@ -10865,8 +11699,23 @@ export class GameScene extends Phaser.Scene {
     // Resume paths set _resumeFromPosition / _resumeFromStop and have
     // already pinned position; only reset when starting fresh.
     if (this._resumeFromPosition == null && !this._resumeFromStop) {
-      this.player.position = 0;
-      this._odometer       = 0;
+      const startPosition = Math.max(0, this._customStartPosition ?? 0);
+      const startProgress = startPosition / (ROUTE_SEGS * SEG_LENGTH);
+      this.player.position = startPosition;
+      this._odometer       = startProgress * TOTAL_ROUTE_MILES;
+      this._passedCheckpoints = new Set(
+        CHECKPOINTS.filter(cp => cp.t <= startProgress).map(cp => cp.name),
+      );
+      this._passedRestStops = new Set(
+        REST_STOPS.filter(rs => rs.t <= startProgress).map(rs => rs.id),
+      );
+      const startCp = [...CHECKPOINTS].reverse().find(cp => cp.t <= startProgress);
+      this._lastCheckpoint = {
+        name: startCp?.name ?? 'West Seattle',
+        position: startPosition,
+        scoreAtCP: 0,
+      };
+      this._customStartPosition = null;
     }
     this.lastSegIdx = Math.floor(this.player.position / SEG_LENGTH);
     this.gameTime   = 0;
@@ -10912,52 +11761,12 @@ export class GameScene extends Phaser.Scene {
     const earnedSince = Math.max(0, this.score - cp.scoreAtCP);
     const lost        = Math.floor(earnedSince / 2);
     this.score       -= lost;
-
-    // Warp back to last checkpoint
-    this.player.position      = cp.position;
-    this.player.speed         = MAX_SPEED * 0.25;
-    this.player.x             = this._postCrashLaneX();
-    this.player.xImpulse      = 0;
-    this.player.steerVelocity = 0;
-
-    // Clear cops, reset stars
-    this.cops.clearArrest();
-
-    // Reset the drug-bump star-gate flags too — without this, Path B
-    // ("20 NPC bumps while drug ≥ 30%") is permanently disabled after
-    // the first arrest because `_drugBumpFired` stays true forever.
-    // _npcCrashesPostDrink also resets so Path A doesn't carry stale
-    // counts from the pre-arrest run.
-    this._drugBumpFired       = false;
-    this._drugBumpCount       = 0;
-    this._npcCrashesPostDrink = 0;
-
-    // Remove traffic near warp point to prevent instant re-collision
-    this.traffic = this.traffic.filter(t => Math.abs(t.position - cp.position) > 15000);
-
-    // Probation: any drug use within 30s = +2 stars
-    this._probationTimer = 30;
-
-    this.effects.triggerShake(700, 0.02);
-    this._showPopup(
-      `ARRESTED!\nBack to ${cp.name}\n−$${lost}`,
-      '#FF2222'
-    );
-
-    // Follow-up popup once the arrest message clears — warns the player
-    // they're on probation and any drug pickup will spike heat back up.
-    this.time.delayedCall(2300, () => {
-      this._showPopup(
-        '⚖️  ON PROBATION\nStay CLEAN for 60 seconds!\nAny drug pickup = +1 star',
-        '#FFCC44',
-      );
-    });
+    this._endGame('busted', { charge: 'DUI', losses: lost });
   }
 
-  /** Overdose handler — same shape as _onArrested but caused by drugs.
-   *  Warps to the last checkpoint, zeroes ALL drug bars (player is
-   *  pumped clean by the EMTs), and clears the wanted level.  Costs the
-   *  same 50% of points-since-last-checkpoint penalty as arrest. */
+  /** Overdose handler — freezes the last frame and fades into the
+   *  dedicated Overdosed ending screen.  Checkpoint retry handles the
+   *  existing monetary/reset consequence from there. */
   _onOverdose(drugId) {
     if (this._odEnding) return;
     this._odEnding = true;
@@ -11034,9 +11843,13 @@ export class GameScene extends Phaser.Scene {
       // Pass distance in MILES directly — player.position is in
       // segment-world-units, not feet, so the previous /5280 conversion
       // was wildly wrong (read 640 mi after a 6 mi drive).
-      distanceMi:      Math.round(this._odometer ?? 0),
+      distanceMi:      this._odometer ?? 0,
+      runTimeSec:      Math.floor(this.gameTime ?? 0),
       cause,
       drug:            extra.drug ?? null,
+      charge:          extra.charge ?? null,
+      losses:          Math.round(extra.losses ?? 0),
+      checkpointCode:  this.registry.get('save')?.get?.('lastRestStop')?.code ?? null,
       drugSummary,
       lastCheckpoint:  this._lastCheckpoint
         ? {

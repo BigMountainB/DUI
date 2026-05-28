@@ -26,21 +26,21 @@ const CY = SCREEN_H / 2;
 const CAUSE = {
   busted: {
     headline: 'BUSTED',
-    color:    '#2244FF',
-    subtitle: 'The long arm of the law caught up with you.',
-    image:    'ui_crash_collision',
+    color:    '#35A7FF',
+    subtitle: 'NOT WORTH THE RISK.',
+    image:    'ui_end_busted_screen',
   },
   overdose: {
     headline: 'OVERDOSED',
-    color:    '#FF4422',
-    subtitle: "Your body couldn't take any more.",
-    image:    'ui_crash_overdose',
+    color:    '#FF3BAF',
+    subtitle: 'ONE DECISION. A LIFETIME OF CONSEQUENCES.',
+    image:    'ui_end_overdose_neon',
   },
   crash: {
-    headline: 'WRECKED',
-    color:    '#FF8800',
-    subtitle: 'The car is totaled. The road won.',
-    image:    'ui_crash_collision',
+    headline: 'CRASHED',
+    color:    '#FF3BAF',
+    subtitle: 'ONE BAD DECISION. ONE LAST RIDE.',
+    image:    'ui_end_crashed_neon',
   },
   finish: {
     headline: 'YOU MADE IT',
@@ -59,12 +59,24 @@ export class GameOverScene extends Phaser.Scene {
     this.finalMiles     = data?.distanceMi ?? 0;
     this.cause          = data?.cause      ?? 'busted';
     this.deathDrug      = data?.drug       ?? null;
+    this.charge         = data?.charge     ?? 'DUI';
+    this.losses         = data?.losses     ?? 0;
+    this.runTimeSec     = data?.runTimeSec ?? 0;
+    this.checkpointCode = data?.checkpointCode ?? null;
     this.lastCheckpoint = data?.lastCheckpoint ?? null;
     this.drugSummary    = data?.drugSummary ?? null;
   }
 
   create() {
     const meta = CAUSE[this.cause] ?? CAUSE.busted;
+    if (this.cause === 'overdose') {
+      this._createNeonEnding(meta);
+      return;
+    }
+    if (this.cause === 'busted' || this.cause === 'crash') {
+      this._createBakedButtonEnding(meta);
+      return;
+    }
 
     // ── Background ─────────────────────────────────────────────────────
     this.add.rectangle(0, 0, SCREEN_W, SCREEN_H, 0x000000).setOrigin(0);
@@ -108,7 +120,7 @@ export class GameOverScene extends Phaser.Scene {
       fontSize: '22px', fontFamily: IMPACT,
       color: '#FFCC44', stroke: '#000', strokeThickness: 3,
     }).setOrigin(0.5, 0);
-    this.add.text(CX, SCREEN_H * 0.58 + 30, `DISTANCE  ${this.finalMiles.toLocaleString()} mi`, {
+    this.add.text(CX, SCREEN_H * 0.58 + 30, `DISTANCE  ${this.finalMiles.toFixed(2)} mi`, {
       fontSize: '14px', fontFamily: 'Arial',
       color: '#AACCFF',
     }).setOrigin(0.5, 0);
@@ -152,11 +164,167 @@ export class GameOverScene extends Phaser.Scene {
     }
 
     // Keyboard shortcuts.
-    this.input.keyboard?.once('keydown-SPACE', () => {
-      cp?.position != null ? this._restartAtCheckpoint(cp.position) : this._startOver();
-    });
+    this.input.keyboard?.once('keydown-SPACE', () => this._retrySameSettings());
     this.input.keyboard?.once('keydown-ENTER', () => this._startOver());
     this.input.keyboard?.on('keydown-L', () => this._openDrugLog());
+  }
+
+  _createBakedButtonEnding(meta) {
+    this.add.rectangle(0, 0, SCREEN_W, SCREEN_H, 0x03050F).setOrigin(0);
+    if (this.textures.exists(meta.image)) {
+      this.add.image(CX, CY, meta.image)
+        .setOrigin(0.5)
+        .setDisplaySize(SCREEN_W, SCREEN_H);
+    }
+
+    // Keep the authored plate intact, but surface the useful resume code
+    // in the open strip above its baked-in action buttons.
+    const code = this.checkpointCode ?? this.lastCheckpoint?.code ?? 'NONE PASSED';
+    const codePanel = this.add.graphics().setDepth(40);
+    codePanel.fillStyle(0x040711, 0.84);
+    codePanel.fillRoundedRect(CX - 106, 329, 212, 23, 4);
+    codePanel.lineStyle(1, 0x39A8FF, 0.92);
+    codePanel.strokeRoundedRect(CX - 106, 329, 212, 23, 4);
+    this.add.text(CX, 340, `CHECKPOINT CODE: ${code}`, {
+      fontSize: '11px',
+      fontFamily: IMPACT,
+      color: '#EEF5FF',
+      stroke: '#071224',
+      strokeThickness: 2,
+      letterSpacing: 1,
+    }).setOrigin(0.5).setDepth(41);
+
+    // The authored Crashed and Busted plates already contain their full
+    // typography and button faces.
+    // These hit zones trace those angled buttons and paint only an extra
+    // hover/press glow so the art is never obscured by duplicate UI.
+    const cp = this.lastCheckpoint;
+    this._makeImageButtonZone([
+      { x: 139, y: 400 }, { x: 150, y: 361 },
+      { x: 296, y: 361 }, { x: 285, y: 400 },
+    ], 0xFF39AF, () => this._startOver());
+    this._makeImageButtonZone([
+      { x: 306, y: 400 }, { x: 317, y: 361 },
+      { x: 467, y: 361 }, { x: 456, y: 400 },
+    ], 0x39A8FF, () => this._retrySameSettings());
+    this._makeImageButtonZone([
+      { x: 474, y: 400 }, { x: 485, y: 361 },
+      { x: 647, y: 361 }, { x: 636, y: 400 },
+    ], 0xF4F7FF, () => this._returnToTitle());
+
+    this.input.keyboard?.once('keydown-SPACE', () => this._startOver());
+    this.input.keyboard?.once('keydown-ENTER', () => this._returnToTitle());
+  }
+
+  _createNeonEnding(meta) {
+    this.add.rectangle(0, 0, SCREEN_W, SCREEN_H, 0x03050F).setOrigin(0);
+    if (this.textures.exists(meta.image)) {
+      this.add.image(CX, CY, meta.image)
+        .setOrigin(0.5)
+        .setDisplaySize(SCREEN_W, SCREEN_H);
+    }
+
+    const isBust = this.cause === 'busted';
+    const accent = isBust ? 0x2D9BFF : 0xFF2AAB;
+    const accentCss = isBust ? '#39A8FF' : '#FF39AF';
+    const secondCss = isBust ? '#FF39AF' : '#39A8FF';
+    const g = this.add.graphics();
+    g.fillStyle(0x02040D, 0.60);
+    g.fillRect(0, 0, SCREEN_W, 125);
+    g.fillStyle(0x02040D, 0.78);
+    g.fillRect(0, 232, SCREEN_W, SCREEN_H - 232);
+    g.lineStyle(2, accent, 0.85);
+    g.lineBetween(102, 113, SCREEN_W - 102, 113);
+
+    // Offset neon glow beneath a pale chrome-looking headline.
+    this.add.text(CX + 3, 15, meta.headline, {
+      fontSize: '64px', fontFamily: IMPACT,
+      color: accentCss, stroke: accentCss, strokeThickness: 8,
+    }).setOrigin(0.5, 0).setAlpha(0.52);
+    this.add.text(CX, 11, meta.headline, {
+      fontSize: '64px', fontFamily: IMPACT,
+      color: '#EAF2FF', stroke: '#152250', strokeThickness: 6,
+      shadow: { offsetX: 1, offsetY: 2, color: accentCss, blur: 8, fill: true },
+    }).setOrigin(0.5, 0);
+    this.add.text(CX, 88, meta.subtitle, {
+      fontSize: '17px', fontFamily: IMPACT,
+      color: accentCss, stroke: '#070A18', strokeThickness: 3,
+    }).setOrigin(0.5, 0);
+
+    const panelX = 24;
+    const panelY = 244;
+    const panelW = 398;
+    const panelH = 113;
+    const panel = this.add.graphics();
+    panel.fillStyle(0x040711, 0.90);
+    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 6);
+    panel.lineStyle(2, accent, 0.92);
+    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 6);
+    panel.lineStyle(1, 0xE4EEFF, 0.40);
+    panel.lineBetween(panelX + 15, panelY + 30, panelX + panelW - 15, panelY + 30);
+
+    this.add.text(panelX + 16, panelY + 9, 'RUN REPORT', {
+      fontSize: '12px', fontFamily: IMPACT, color: '#EAF2FF',
+      letterSpacing: 2,
+    });
+
+    const drugLabel = DRUG_CONFIG[this.deathDrug]?.label ?? null;
+    const rows = isBust
+      ? [
+          ['CHARGE', this.charge || 'DUI'],
+          ['DISTANCE / TIME', `${this.finalMiles.toFixed(2)} MI   ${this._formatRunTime()}`],
+          ['BAIL LOSSES', `-$${Math.max(0, this.losses).toLocaleString()}`],
+          ['CHECKPOINT CODE', this.checkpointCode ?? 'NONE SAVED'],
+        ]
+      : [
+          ['CAUSE', drugLabel ? `${drugLabel} OVERDOSE` : 'OVERDOSE'],
+          ['DISTANCE / TIME', `${this.finalMiles.toFixed(2)} MI   ${this._formatRunTime()}`],
+          ['CASH', `$${this.finalScore.toLocaleString()}`],
+          ['CHECKPOINT CODE', this.checkpointCode ?? 'NONE SAVED'],
+        ];
+    rows.forEach(([label, value], idx) => {
+      const y = panelY + 38 + idx * 17;
+      this.add.text(panelX + 16, y, `${label}:`, {
+        fontSize: '11px', fontFamily: IMPACT, color: idx % 2 ? secondCss : accentCss,
+      });
+      this.add.text(panelX + 162, y, value, {
+        fontSize: '11px', fontFamily: IMPACT, color: '#FFFFFF',
+      });
+    });
+
+    const cp = this.lastCheckpoint;
+    this._makeNeonButton(520, 263, 242, 39, 'RETRY', accent, () => this._retrySameSettings());
+    this._makeNeonButton(520, 310, 242, 39, 'START OVER', 0x2D9BFF, () => this._startOver());
+
+    this.add.text(520, 365, 'NEED SUPPORT?', {
+      fontSize: '12px', fontFamily: IMPACT, color: accentCss,
+    }).setOrigin(0.5, 0);
+    this.add.text(520, 383, 'CALL OR TEXT 988  |  CRISIS SUPPORT', {
+      fontSize: '11px', fontFamily: IMPACT, color: '#FFFFFF',
+    }).setOrigin(0.5, 0);
+    this.add.text(520, 400, 'SAMHSA: 1-800-662-HELP (4357)', {
+      fontSize: '10px', fontFamily: IMPACT, color: '#D6E8FF',
+    }).setOrigin(0.5, 0);
+    this.add.text(CX, 432, isBust
+      ? "IT'S NOT JUST YOUR LIFE. IT'S EVERYONE ELSE'S."
+      : 'HELP IS AVAILABLE. YOU DO NOT HAVE TO DO THIS ALONE.', {
+      fontSize: '10px', fontFamily: IMPACT, color: '#A9B7CC',
+      letterSpacing: 1,
+    }).setOrigin(0.5);
+
+    if (this.drugSummary) {
+      this._makeNeonButton(SCREEN_W - 68, 20, 114, 25, 'DRUG LOG', accent, () => this._openDrugLog());
+    }
+    this.input.keyboard?.once('keydown-SPACE', () => this._retrySameSettings());
+    this.input.keyboard?.once('keydown-ENTER', () => this._startOver());
+    this.input.keyboard?.on('keydown-L', () => this._openDrugLog());
+  }
+
+  _formatRunTime() {
+    const total = Math.max(0, Math.floor(this.runTimeSec ?? 0));
+    const min = Math.floor(total / 60).toString().padStart(2, '0');
+    const sec = (total % 60).toString().padStart(2, '0');
+    return `${min}:${sec}`;
   }
 
   /** Fully broken windshield laid above the wreck artwork, below the UI text. */
@@ -295,6 +463,56 @@ export class GameOverScene extends Phaser.Scene {
     this._drugLogLayer = null;
   }
 
+  _makeNeonButton(cx, cy, w, h, label, neonColor, onClick) {
+    const g = this.add.graphics().setDepth(50);
+    const draw = (hover = false) => {
+      g.clear();
+      g.fillStyle(0x050812, hover ? 0.97 : 0.90);
+      g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 5);
+      g.lineStyle(hover ? 3 : 2, neonColor, 1);
+      g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 5);
+    };
+    draw(false);
+    g.setInteractive(
+      new Phaser.Geom.Rectangle(cx - w / 2, cy - h / 2, w, h),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    g.input.cursor = 'pointer';
+    const css = `#${neonColor.toString(16).padStart(6, '0')}`;
+    const txt = this.add.text(cx, cy, label, {
+      fontSize: label.length > 17 ? '12px' : '15px',
+      fontFamily: IMPACT,
+      color: '#EEF5FF',
+      stroke: css,
+      strokeThickness: 1,
+      align: 'center',
+    }).setOrigin(0.5).setDepth(51);
+    g.on('pointerover', () => draw(true));
+    g.on('pointerout', () => draw(false));
+    g.on('pointerdown', () => onClick?.());
+    return { bg: g, txt };
+  }
+
+  _makeImageButtonZone(points, neonColor, onClick) {
+    const polygon = new Phaser.Geom.Polygon(points);
+    const hit = this.add.graphics().setDepth(50);
+    const draw = (active = false) => {
+      hit.clear();
+      if (!active) return;
+      hit.lineStyle(3, neonColor, 1);
+      hit.strokePoints(points, true);
+    };
+    hit.setInteractive(polygon, Phaser.Geom.Polygon.Contains);
+    hit.input.cursor = 'pointer';
+    hit.on('pointerover', () => draw(true));
+    hit.on('pointerout', () => draw(false));
+    hit.on('pointerdown', () => {
+      draw(true);
+      onClick?.();
+    });
+    return hit;
+  }
+
   /** Build a clean rectangle button with crisply-rendered text on top.
    *  Bumped depth to 50 so it sits above any later-added overlays (e.g.
    *  the drug-log scrim) and listens to BOTH pointerdown and pointerup
@@ -321,14 +539,23 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   _restartAtCheckpoint(position) {
-    // Pass the pre-crash score along — GameScene's resume path halves
-    // it (per user spec: "lose half your money" on crash) and starts
-    // the player at 50 % HP, so they have to earn the rest back at
-    // rest stops.
-    this.scene.start('Game', {
-      resumeFromPosition: position,
-      crashRestartScore:  this.finalScore ?? 0,
-    });
+    const restartData = { resumeFromPosition: position };
+    if (this.cause === 'busted') {
+      // Busted already displayed/applied its bail loss before this screen.
+      restartData.checkpointRestartScore = this.finalScore ?? 0;
+    } else {
+      // Wreck/OD checkpoint retries use the existing half-cash consequence.
+      restartData.crashRestartScore = this.finalScore ?? 0;
+    }
+    this.scene.start('Game', restartData);
+  }
+
+  /** Retry the run with the same difficulty + steering settings —
+   *  skip the title screen, preserve drug unlocks/progress, just drop
+   *  the player straight into a fresh Seattle start.  Used by the
+   *  RETRY button on the Crashed / Busted plate. */
+  _retrySameSettings() {
+    this.scene.start('Game', { skipTitle: true });
   }
 
   _startOver() {
@@ -344,6 +571,12 @@ export class GameOverScene extends Phaser.Scene {
     this.registry?.remove?.('drugProgress');
     const save = this.registry?.get?.('save');
     save?.set?.('lastRestStop', null);
+    this.scene.start('Game', {});
+  }
+
+  _returnToTitle() {
+    // Exit the ended run without wiping persistent saves/unlocks; a new
+    // Game scene with no resume data presents the normal title screen.
     this.scene.start('Game', {});
   }
 }

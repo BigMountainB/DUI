@@ -150,6 +150,16 @@ export const ASSET_MANIFEST = {
     { key: 'codex_east_wa_abandoned_bungalow',  path: 'assets/buildings/codex/east_wa_abandoned_bungalow.webp' },
     { key: 'codex_east_wa_two_story_brick_shop', path: 'assets/buildings/codex/east_wa_two_story_brick_shop.webp' },
     { key: 'codex_east_wa_block_repair_shop',   path: 'assets/buildings/codex/east_wa_block_repair_shop.webp' },
+    { key: 'codex_east_wa_main_street_storefront', path: 'assets/buildings/codex/east_wa_main_street_storefront.webp' },
+    { key: 'codex_east_wa_cafe_storefront',      path: 'assets/buildings/codex/east_wa_cafe_storefront.webp' },
+    { key: 'codex_east_wa_auto_parts_store',     path: 'assets/buildings/codex/east_wa_auto_parts_store.webp' },
+    { key: 'codex_east_wa_market_storefront',    path: 'assets/buildings/codex/east_wa_market_storefront.webp' },
+    { key: 'codex_east_wa_vantage_truck_stop',  path: 'assets/buildings/codex/east_wa_vantage_truck_stop.webp' },
+    { key: 'codex_east_wa_ritzville_diner_motel', path: 'assets/buildings/codex/east_wa_ritzville_diner_motel.webp' },
+    { key: 'codex_east_wa_palouse_farm_store',  path: 'assets/buildings/codex/east_wa_palouse_farm_store.webp' },
+    { key: 'codex_east_wa_pullman_party_house', path: 'assets/buildings/codex/east_wa_pullman_party_house.webp' },
+    // (codex_east_wa_doublewide_tan / _white removed — source PNGs no
+    //  longer ship; spawn code never references them post-cleanup.)
     { key: 'codex_west_seattle_horizon_left',       path: 'assets/buildings/codex/west_seattle_horizon_left.png' },
     { key: 'codex_west_seattle_horizon_right',      path: 'assets/buildings/codex/west_seattle_horizon_right.png' },
     { key: 'codex_west_seattle_lowrise_apartments', path: 'assets/buildings/codex/west_seattle_lowrise_apartments.png' },
@@ -277,12 +287,25 @@ export const ASSET_MANIFEST = {
   // (props removed — prop_marker + prop_blood were vestigial manifest
   //  entries with no gameplay code referencing them.)
   ui: [
-    { key: 'ui_crash_collision', path: 'assets/ui/crash_collision.png' },
-    { key: 'ui_crash_overdose',  path: 'assets/ui/crash_overdose.png' },
+    // Loaded first by BootScene so the remaining asset fetches have a
+    // title-quality neon splash behind the live progress bar.
+    { key: 'ui_loading_screen',   path: 'assets/ui/loading_screen.webp' },
+    { key: 'ui_end_crashed_neon', path: 'assets/ui/end_crashed_neon.webp' },
+    { key: 'ui_end_overdose_neon', path: 'assets/ui/end_overdose_neon.webp' },
+    { key: 'ui_end_busted_screen', path: 'assets/ui/end_busted_screen.webp' },
     // Gas-gauge HUD swap.  Full pump shows above 30 mi remaining,
     // empty pump shows once the tank is at 30 mi or less.
     { key: 'ui_gas_full',        path: 'assets/ui/gas_full.png' },
     { key: 'ui_gas_empty',       path: 'assets/ui/gas_empty.png' },
+    { key: 'ui_top_btn_genre',   path: 'assets/ui/top_btn_genre.png' },
+    { key: 'ui_top_btn_mute',    path: 'assets/ui/top_btn_mute.png' },
+    { key: 'ui_top_btn_unmute',  path: 'assets/ui/top_btn_unmute.png' },
+    { key: 'ui_top_btn_map',     path: 'assets/ui/top_btn_map.png' },
+    { key: 'ui_top_btn_garage',  path: 'assets/ui/top_btn_garage.png' },
+    { key: 'ui_top_btn_ff',      path: 'assets/ui/top_btn_ff.png' },
+    { key: 'ui_top_btn_ff_active', path: 'assets/ui/top_btn_ff_active.png' },
+    { key: 'ui_top_btn_pause',   path: 'assets/ui/top_btn_pause.png' },
+    { key: 'ui_top_btn_pause_active', path: 'assets/ui/top_btn_pause_active.png' },
     // Portrait phone-as-menu background.  Rotating the device to
     // portrait (or pressing M on desktop) launches PhoneMenuScene with
     // this PNG as the full-screen letterboxed background.
