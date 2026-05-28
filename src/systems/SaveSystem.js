@@ -11,7 +11,21 @@ const SCHEMA_VERSION = 2;
 // drug inventory, owned cars) lives in the per-mode profile.
 const GLOBAL_KEYS = new Set(['achievements', 'settings', 'checkpointTiers']);
 
+// Storage-key names for each profile bucket.  Kept as-is for backward
+// compatibility with on-disk saves.  The GameScene UI uses 'flappy' and
+// 'lr' as user-facing labels; we alias those into 'tap' and 'classic'
+// via MODE_ALIASES below so the wrong-vocabulary call doesn't silently
+// fall through to a no-op (which was the old behavior — a TAP-mode
+// player's setMode('flappy') was rejected and the profile stayed on
+// whatever was previously active).
 const VALID_MODES = ['tap', 'classic', 'tilt'];
+const MODE_ALIASES = {
+  flappy: 'tap',       // newer UI name for the tap-to-steer scheme
+  lr:     'classic',   // newer UI name for the left/right-thumb scheme
+};
+function normalizeMode(mode) {
+  return MODE_ALIASES[mode] ?? mode;
+}
 
 const DEFAULT_PROFILE = {
   money:           0,
@@ -49,11 +63,14 @@ export class SaveSystem {
   }
 
   /** Switch the active profile.  Call this whenever the player's
-   *  steering mode changes.  Subsequent save/load operations read &
-   *  write that profile's slot. */
+   *  steering mode changes.  Accepts both legacy ('tap'/'classic') and
+   *  newer UI ('flappy'/'lr') mode names — both resolve to the same
+   *  underlying storage bucket via normalizeMode.  Subsequent save/load
+   *  operations read & write that profile's slot. */
   setMode(mode) {
-    if (!VALID_MODES.includes(mode)) return;
-    this._mode = mode;
+    const m = normalizeMode(mode);
+    if (!VALID_MODES.includes(m)) return;
+    this._mode = m;
   }
 
   /** The active per-mode profile.  Wallet reads/writes `.money` on

@@ -120,11 +120,26 @@ const _boot = () => {
   window.__steeringMode = {
     get: () => game.registry.get('steeringMode') ?? 'flappy',
     set: (m) => {
-      game.registry.set('steeringMode', m);
-      const save = game.registry.get('save');
-      save?.setMode?.(m);
-      // Restart the live game so the new save profile + mode wire in.
-      try { game.scene.getScene('Game')?.scene?.restart(); } catch (e) {}
+      m = m === 'lr' ? 'classic' : m;
+      // Route through GameScene._setSteeringMode when the scene is
+      // live — that's the path that calls _enableTiltSteer() (so the
+      // deviceorientation listener actually attaches on desktop and
+      // the iOS permission prompt fires through the user-gesture
+      // prefetch).  The direct registry.set used previously skipped
+      // all of that, leaving tilt mode "selected" but never wired up.
+      const scene = game.scene.getScene('Game');
+      const restart = () => {
+        try { scene?.scene?.restart(); } catch (e) {}
+      };
+      if (scene && typeof scene._setSteeringMode === 'function') {
+        scene._setSteeringMode(m, restart);
+      } else {
+        // No live scene yet — just persist for the next boot.
+        game.registry.set('steeringMode', m);
+        const save = game.registry.get('save');
+        save?.setMode?.(m);
+        restart();
+      }
     },
   };
 

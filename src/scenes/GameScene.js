@@ -1613,6 +1613,7 @@ export class GameScene extends Phaser.Scene {
     this._tiltGamma = 0;
     this._tiltLeftActive  = false;
     this._tiltRightActive = false;
+    this._tiltSteerAmt = 0;
     this._tiltAttached = false;
     this._tiltOnOrient = (e) => {
       const angle = (screen.orientation?.angle ?? window.orientation ?? 0);
@@ -1650,6 +1651,17 @@ export class GameScene extends Phaser.Scene {
     // cold load with tilt remembered, mid-run mode swap) and self-
     // cleans once permission is granted.
     this._armTiltPrefetch();
+    // If the persisted steering mode is already 'tilt' (e.g., the player
+    // selected it last session, or the phone-menu setter persisted it
+    // and restarted the scene), wire the deviceorientation listener
+    // now.  _enableTiltSteer handles both desktop (attach directly) and
+    // iOS (queue for the prefetch).  Without this, a cold-load run with
+    // mode='tilt' would have NO listener attached and tilt would silently
+    // do nothing.
+    const persistedMode = this.registry?.get?.('steeringMode');
+    if (persistedMode === 'tilt' && !this._tiltAttached) {
+      this._enableTiltSteer?.();
+    }
   }
 
   /** Install a one-time native-DOM gesture listener that calls iOS's
@@ -1666,30 +1678,32 @@ export class GameScene extends Phaser.Scene {
   _armTiltPrefetch() {
     if (this._tiltPrefetchInstalled) return;
     const W = window.DeviceOrientationEvent;
-    if (!W || typeof W.requestPermission !== 'function') return;
+    if (!W) return;
+    const P = (typeof W.requestPermission === 'function')
+      ? W
+      : ((typeof window.DeviceMotionEvent?.requestPermission === 'function')
+        ? window.DeviceMotionEvent
+        : null);
+    if (!P) return;
     this._tiltPrefetchInstalled = true;
 
-    const onGesture = () => {
+    const onGesture = (e) => {
       if (this._tiltAttached || this._tiltRequestInFlight) return;
-      // Only fire when the player actually wants tilt — covers both
-      // the cold-load case (titleThumbsPick/steeringMode persisted as
-      // 'tilt') and the mid-run swap (carousel cursor on tilt).
+      const confirm = e?.target?.closest?.('#phone-confirm');
+      if (confirm && !e?.target?.closest?.('#phone-confirm-ok')) return;
       const picked = this.registry?.get?.('titleThumbsPick')
                   ?? this.registry?.get?.('steeringMode');
       if (picked !== 'tilt') return;
 
       this._tiltRequestInFlight = true;
-      W.requestPermission()
+      P.requestPermission()
         .then((res) => {
           this._tiltRequestInFlight = false;
           if (res === 'granted' && !this._tiltAttached) {
             this._tiltAttached = true;
             window.addEventListener('deviceorientation', this._tiltOnOrient, true);
-            // Permission resolved — listener no longer needed.
             if (this._tiltPrefetchCleanup) this._tiltPrefetchCleanup();
           }
-          // Flush any callbacks queued by _enableTiltSteer while the
-          // prefetch was in flight.
           const cbs = this._tiltPendingCbs ?? [];
           this._tiltPendingCbs = [];
           for (const cb of cbs) cb?.(res === 'granted' ? 'granted' : 'denied');
@@ -1702,12 +1716,20 @@ export class GameScene extends Phaser.Scene {
         });
     };
 
-    const canvas = this.game?.canvas ?? document;
-    canvas.addEventListener('touchstart', onGesture, { capture: true, passive: true });
-    canvas.addEventListener('mousedown',  onGesture, { capture: true });
+    const targets = Array.from(new Set([this.game?.canvas, document].filter(Boolean)));
+    targets.forEach(target => {
+      target.addEventListener('touchstart', onGesture, { capture: true, passive: true });
+      target.addEventListener('pointerdown', onGesture, { capture: true });
+      target.addEventListener('pointerup',   onGesture, { capture: true });
+      target.addEventListener('mousedown',  onGesture, { capture: true });
+    });
     this._tiltPrefetchCleanup = () => {
-      canvas.removeEventListener('touchstart', onGesture, true);
-      canvas.removeEventListener('mousedown',  onGesture, true);
+      targets.forEach(target => {
+        target.removeEventListener('touchstart', onGesture, true);
+        target.removeEventListener('pointerdown', onGesture, true);
+        target.removeEventListener('pointerup',   onGesture, true);
+        target.removeEventListener('mousedown',  onGesture, true);
+      });
       this._tiltPrefetchCleanup = null;
       this._tiltPrefetchInstalled = false;
     };
@@ -1726,7 +1748,12 @@ export class GameScene extends Phaser.Scene {
     if (this._tiltAttached) { onResult?.('granted'); return; }
     const W = window.DeviceOrientationEvent;
     if (!W) { onResult?.('unsupported'); return; }
-    const needsPerm = typeof W.requestPermission === 'function';
+    const P = (typeof W.requestPermission === 'function')
+      ? W
+      : ((typeof window.DeviceMotionEvent?.requestPermission === 'function')
+        ? window.DeviceMotionEvent
+        : null);
+    const needsPerm = !!P;
     if (!needsPerm) {
       // Android / desktop — no permission gate, attach directly.
       this._tiltAttached = true;
@@ -1748,6 +1775,7 @@ export class GameScene extends Phaser.Scene {
     this._tiltAttached = false;
     this._tiltLeftActive = this._tiltRightActive = false;
     this._tiltGamma = 0;
+    this._tiltSteerAmt = 0;
   }
 
   _isLeftRaw()  {
@@ -1766,12 +1794,14 @@ export class GameScene extends Phaser.Scene {
    *  boolean so existing saves still have tilt steering if they had it. */
   _steeringMode() {
     let m = this.registry?.get?.('steeringMode');
+    if (m === 'lr') m = 'classic';
+    if (m === 'tap') m = 'flappy';
     if (!m) {
       // Default: 'flappy' (tap-to-steer) — the headline control scheme.
       // Existing players with legacy `tiltSteerEnabled` keep tilt.
       m = this.registry?.get?.('tiltSteerEnabled') ? 'tilt' : 'flappy';
-      this.registry?.set?.('steeringMode', m);
     }
+    this.registry?.set?.('steeringMode', m);
     return m;
   }
   /** Reset all wanted-level state (stars, active cops, bump counters,
@@ -1793,9 +1823,13 @@ export class GameScene extends Phaser.Scene {
     this.cops.helicopterActive = false;
   }
 
-  _setSteeringMode(mode) {
+  _setSteeringMode(mode, onDone) {
+    mode = mode === 'lr' ? 'classic' : mode;
     const prev = this._steeringMode();
-    if (prev === mode) return;
+    if (prev === mode && (mode !== 'tilt' || this._tiltAttached)) {
+      onDone?.('unchanged');
+      return;
+    }
     // Push the new mode into SaveSystem so subsequent get/set hit the
     // right per-mode profile (wallet, restStopSaves, etc).  Achievements
     // stay cross-mode since SaveSystem flags them as global.
@@ -1806,10 +1840,12 @@ export class GameScene extends Phaser.Scene {
       this._enableTiltSteer?.((res) => {
         if (res === 'granted') {
           this.registry?.set?.('steeringMode', 'tilt');
+          this.registry?.set?.('titleThumbsPick', 'tilt');
           this.registry?.set?.('tiltSteerEnabled', true);
           save?.setMode?.('tilt');
         } else {
           this.registry?.set?.('steeringMode', 'classic');
+          this.registry?.set?.('titleThumbsPick', 'classic');
           this.registry?.set?.('tiltSteerEnabled', false);
           save?.setMode?.('classic');
           this._showPopup?.(res === 'denied'
@@ -1818,6 +1854,7 @@ export class GameScene extends Phaser.Scene {
         }
         this._refreshSteeringBtn?.();
         this._wipeWantedState?.();
+        onDone?.(res);
       });
       return;
     }
@@ -1826,10 +1863,12 @@ export class GameScene extends Phaser.Scene {
       this.registry?.set?.('tiltSteerEnabled', false);
     }
     this.registry?.set?.('steeringMode', mode);
+    this.registry?.set?.('titleThumbsPick', mode);
     save?.setMode?.(mode);
     // Switching control schemes resets wanted level — you can't use a
     // steering swap to skip out of a chase / under a 5★ helicopter.
     this._wipeWantedState?.();
+    onDone?.('granted');
   }
 
   /** Steering input with optional drunk-delay buffer.  When alcohol is

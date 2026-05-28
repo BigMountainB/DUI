@@ -966,8 +966,11 @@
       });
 
       // ── Steering selection highlight ──────────────────────────────────
-      // 'flappy' (tap), 'tilt', 'lr' — map to the matching .phone-hit.
-      const STEER_BUTTONS = { tap: 'flappy', tilt: 'tilt', lr: 'lr' };
+      // 'flappy' (tap), 'tilt', 'classic' (L/R) — map to the matching
+      // .phone-hit.  The gameplay code calls the two-thumb mode
+      // "classic"; keeping "lr" here made the phone UI disagree with
+      // the scene/save mode names.
+      const STEER_BUTTONS = { tap: 'flappy', tilt: 'tilt', lr: 'classic' };
       const applySteering = () => {
         // Defensive sweep — wipe any stale .selected from EVERY hit
         // zone first, then apply only to the active steering button.
@@ -1027,12 +1030,22 @@
         _lastSteerFire = now;
         const mode = STEER_BUTTONS[btn.dataset.action];
         const current = window.__steeringMode?.get?.() ?? 'flappy';
-        // No-op if tapping the already-selected mode.
-        if (current === mode) return;
+        // No-op if tapping the already-selected non-tilt mode.  Tilt is
+        // allowed to run again because the registry can say "tilt" even
+        // when the orientation listener did not attach.
+        if (current === mode && mode !== 'tilt') return;
+        if (mode === 'tilt') {
+          window.__phaserGame?.registry?.set?.('titleThumbsPick', 'tilt');
+        }
         // Centered iOS-style confirmation — set() will restart the
         // Game scene, ending the active run.
         const ok = await showConfirm('Modifying your steering controls will end your current game.');
-        if (!ok) return;
+        if (!ok) {
+          if (mode === 'tilt') {
+            window.__phaserGame?.registry?.set?.('titleThumbsPick', current);
+          }
+          return;
+        }
         // Update the visual FIRST — directly mark the clicked
         // button.  Doesn't depend on the game-side get()
         // returning the new value (scene.restart inside set()
