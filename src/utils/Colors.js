@@ -126,8 +126,8 @@ export const REGION_PALETTES = {
     sky:     0x6CA0CE,   // bluer, clearer (rain-shadow side)
     fog:     0xA9C2D5,
     horizon: 0x8B9D88,
-    grass1:  0x6E8A3C,   // drier yellow-green grasslands
-    grass2:  0x546E2C,
+    grass1:  0x9E9438,   // dry yellow-green grasslands, more golden
+    grass2:  0x7A742B,
     road1:   0x6A6A62,
     road2:   0x66665E,
     rumble1: 0xFFFFFF,
@@ -148,12 +148,25 @@ export const REGION_PALETTES = {
     lane:    0xFFFFCC,
   },
   palouse: {
-    name: 'Palouse / Spokane',
+    name: 'Palouse',
     sky:     0x6FA1CE,
     fog:     0xACC4D6,
     horizon: 0xC6B881,   // golden wheat horizon
-    grass1:  0xC9B14F,   // wheat fields
+    grass1:  0xC9B14F,   // golden wheat fields (mile 195+)
     grass2:  0x9C8636,
+    road1:   0x686860,
+    road2:   0x64645C,
+    rumble1: 0xFFFFFF,
+    rumble2: 0xFFFFFF,
+    lane:    0xFFFFCC,
+  },
+  late_palouse: {
+    name: 'Eastern Palouse',
+    sky:     0x6FA1CE,
+    fog:     0xA8B5BD,
+    horizon: 0x9B7E4D,   // browning-out wheat at dusk
+    grass1:  0x8B6B2C,   // dried-out late-summer brown
+    grass2:  0x614E20,
     road1:   0x686860,
     road2:   0x64645C,
     rumble1: 0xFFFFFF,
@@ -180,7 +193,8 @@ export const REGION_ORDER = [
   { start: 0.1297, end: 0.3003, key: 'cascades'        }, //  38–88 mi: Snoqualmie Pass + Easton + Cle Elum
   { start: 0.3003, end: 0.4710, key: 'east_cascades'   }, //  88–138 mi: Thorp → Ellensburg → Vantage
   { start: 0.4710, end: 0.6655, key: 'columbia_basin'  }, // 138–195 mi: Royal City → Othello (WA-26 desert)
-  { start: 0.6655, end: 1.0000, key: 'palouse'         }, // 195–293 mi: Washtucna → Colfax → Pullman
+  { start: 0.6655, end: 0.8190, key: 'palouse'         }, // 195–240 mi: golden wheat (Washtucna entry)
+  { start: 0.8190, end: 1.0000, key: 'late_palouse'    }, // 240–293 mi: browning-out fields → Colfax → Pullman
 ];
 
 export function getPaletteAtProgress(t) {

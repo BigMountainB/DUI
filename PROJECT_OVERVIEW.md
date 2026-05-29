@@ -24,9 +24,11 @@ A single-doc orientation for anyone (human or AI) joining the project mid-flight
 ```
 cd DUI/
 npm install
-npm run dev        # http://localhost:3000  + LAN IP for iPhone testing
+npm run dev        # https://localhost:3000 + HTTPS LAN IP for phone tilt testing
 npm run build      # → dist/ for deploys
 ```
+
+**Tilt steering trap:** phone/browser motion APIs require a secure context on real devices. Use the HTTPS Vite URL, including on LAN (`https://<LAN-IP>:3000`). Chrome/Safari may expose the permission gate on either `DeviceOrientationEvent.requestPermission` **or** `DeviceMotionEvent.requestPermission`; support both.
 
 **Recurring trap:** Vite HMR sometimes serves stale module exports after edits. Fix: `pkill -9 -f "node.*vite" && rm -rf node_modules/.vite && npm run dev`.
 
@@ -248,6 +250,11 @@ Forward warps **drain gas** equal to trip distance. Hard mode disallows warping 
 - **DELETE THE DEV WARP** — digit-keys 1-9 mile-warp cheat in [src/scenes/GameScene.js](src/scenes/GameScene.js), bracketed by `// ── DEV WARP — REMOVE BEFORE RELEASE ──`. **Must be deleted before shipping.**
 
 ### Tier 1 — Active features the user has flagged
+- **Phone-menu navigation buttons broken** — flagged during the 2026-05-29 session. The lock / trophies / L+R-hand-tap buttons in the portrait phone-menu work, but the music / garage / maps / start-over / checkpoint / main-menu buttons don't respond. Suspect a tap-handler binding issue specific to the modal-opening flow. Logic is in `index.html`; tested fixes in main.js audio/tilt didn't address it.
+- **Large trucks in Eastern Washington traffic** — user wants visibly larger truck NPCs (semis, hauler trailers) populating Vantage → Pullman stretches. The existing NPC vehicle pool uses `npc_car_*` textures sized via texture aspect; the same path could pull from a `truck_*` texture set with a wider lane footprint, slower base speed, and longer body. Requires new art OR reusing the existing player-vehicle truck PNGs at NPC scale.
+- **Finish cinematic — park in front of Pullman Party House** — when crossing the new mile-289 finish, lock player input, ramp speed to 0 over ~3 seconds, steer the car laterally toward the house, then trigger the Game Over panel. House sprite is already placed at mile 288.4-289.0 (`EASTERN_TOWN_WINDOWS` in `RouteData.js`). User wants this for both on-time and late finishes.
+- **Visible trees along the invisible outer wall** — the mile-14+ outer tree-wall barrier currently crashes the car at ±5.5 lanes from center with no visible feature there in sparse stretches. Spawn actual tall tree sprites at ±5.5 in stretches where no town/pasture/utility run is already filling that side, so the player can SEE why they're being blocked.
+- **NPC headlights/tail lights in the rear-view mirror** — the night-lighting pass painted lights on the main world view but the mirror reflection (rendered separately via `_mirrorCarPool` in GameScene.js) doesn't carry them. Needs the same dot/beam logic applied to the mirror render path so a car catching up from behind shows its headlights in the mirror glass and same-direction traffic ahead shows tail lights.
 - **Title-screen stoplight redesign (SPECCED, NOT BUILT)** — replace Easy/Normal/Hard buttons with 3 stacked stoplight buttons (same size as current difficulty buttons):
   - **Red — Thumbs: 2/1/0** (cycles, wraps). Subtitles: "Left and Right Thumb, basic" / "Just one thumb, like Flippy Burd" / "Look, Ma! No thumbs! (Tilt steering)". Maps to existing steering modes (classic L/R, flappy-tap, tilt).
   - **Yellow — Difficulty: Easy/Normal/Hard/Custom** (cycles, wraps). Reuse existing short-sentence blurbs inline.
@@ -275,7 +282,97 @@ Photo mode, in-game settings menu, accessibility toggles.
 
 ## 8. Major build-history (newest first)
 
-### 2026-05-27 (latest) — HUD restructure, crash-recovery rolling start, iOS tilt permission fix, asset cleanup, building auto-flip
+### 2026-05-29 — Night lighting pass, astronomy model, audio polish, audit cleanup, roadside barriers, finish-line move
+
+**Night lighting pass (multi-day arc on tip)** ([GameScene.js](src/scenes/GameScene.js), [src/utils/Colors.js](src/utils/Colors.js), [src/road/Road.js](src/road/Road.js), [src/road/RouteData.js](src/road/RouteData.js))
+- Palette tweaks: Ellensburg grass pushed yellower; new `late_palouse` region (mile 240→293) tweens golden wheat into dried late-summer brown. `REGION_TRAITS.late_palouse` mirrors `palouse` traits so the road geometry doesn't break at the visual boundary.
+- Scenery sprites tinted by `TimeOfDay.darkness()` × 55%, with a slight cool bias on the blue channel for moonlight cast. Full night = 45% sprite brightness with a blue lean.
+- **Player headlight cones** rebuilt from the ground up over ~10 iterations: two-layer beam (outer halo + inner core) with a road-tip illumination ellipse, origin at mid-sprite (`carY - carH × 0.50`), tip lands on pavement not horizon. Final occlusion uses a `Phaser.Display.Masks.BitmapMask` from the player sprite with `invertAlpha = true` — body silhouette occludes the beam, transparent PNG areas show it through. Depth-ordering alone wasn't enough because the player PNGs have subtle semi-transparency throughout the body.
+- **Per-vehicle headlight profiles** in `_vehicleHeadlightProfile(id)`: brightness (0.30 beater → 0.70 playdoutS3X), tip width, central road-pool boost (EVs get wider middle), inner/outer colors (warmer for EVs, neutral for ICE), `asymInner` for the beater's barely-mismatched bulb tint on the left side.
+- **NPC same-direction headlights** use a parallel pool of 36 masked Graphics objects, one per `_carSpritePool` slot, each `BitmapMask`-occluded by its NPC sprite. `_drawNpcForwardBeams(slotIdx, t)` is called from inside `_renderVehicles.place()` so the beam Graphics tracks its NPC's mask. NPC peak alpha capped at 0.10 (below the beater's 0.145 core) so the player's beams always dominate.
+- **NPC traffic dots** (in shared `headlightGfx`): warm-white halos + cores for oncoming traffic (with a minimum-size floor so distant lights remain visible), red mid-height corner-positioned tail lights for same-direction traffic. Lights cull at `proj.sw < 8` and match the vehicle render's `nearCull` (cockpit 100 / chase 1950) so no orphan glows after a car despawns.
+- **Road shoulder reflectors** drawn additively in the headlight gfx, white dots both sides every ~22 segments (~120 ft), darkness-gated.
+- **Headlight + reflector + dim-tint together** kick in around mile 130 (start of dusk) and ramp to full at mile 180.
+
+**Astronomical model — moon + Milky Way** ([src/road/Road.js](src/road/Road.js))
+- Replaced left-to-right linear arc with proper azimuth/altitude projection assuming east-facing observer.
+- **Moon at 3× real speed**: rises ESE (azimuth 110°, altitude 0°) at mile 160, transits Due South at mile 184 (peak altitude 55°), sets West at mile 208. The phase calc starts at -0.10 (mile ~155) with negative altitude so the disc physically rises through the horizon line — ground/landscape graphics drawn after the sky naturally clip the lower half.
+- **Milky Way** comes out at mile 215 (7-mile gap after moon set), fades in over 10 miles. Bezier band starts as a low flat NNE→SE arch (faint NNE end at azimuth 22°, bright Sagittarius core at SE/135°). Over the 75 miles to Pullman the core sweeps toward Due South while the band tilts up — implemented as time-varying bezier control points + a midpoint that bulges higher as `mwSky` advances. Core-brightening Gaussian moved from `t=0.55` (middle) to `t=0.88` (near SE/S end) so the bright cluster reads where the spec puts it.
+
+**Audio polish** ([src/systems/AudioSystem.js](src/systems/AudioSystem.js), [src/main.js](src/main.js), [src/scenes/GameScene.js](src/scenes/GameScene.js), [index.html](index.html))
+- **Page-level audio unlock via inline `<script>` in index.html `<head>`**: runs before Vite even fetches the module bundle. First user gesture (touchstart / pointerdown / touchend / pointerup / click / mousedown / keydown / keyup on `window` or `document`) creates ONE throwaway AudioContext, plays a 1-second silent buffer, calls `resume()`. iOS Safari + Chrome iOS need the silent-buffer trick — `resume()` alone snaps back to suspended. After success the listeners self-detach, and `window.__audio.init()` boots music immediately so the user hears something even on their first tap.
+- **Pause-music ducking**: `setPaused(true)` clamps `audio.volume` DOWN to `PAUSE_DUCK_CEILING = 0.15` (only if it was higher — never raises). Slider always reads `audio.volume`, so the visible position matches what plays (WYSIWYG). User dragging during pause marks `_userTouchedVolumeWhilePaused`; on resume the pre-pause volume restores only if the user didn't override.
+- **Perceptual volume curve**: `AudioSystem.volumeToGain(v) = v * v` quadratic. Linear slider feels logarithmic to the ear so 50% sounds like half (not "nearly max").
+- **Default volume lowered** 0.32 → 0.20 to address "game runs loud."
+- **`_applyMasterGain()` helper** is the single source of truth for the master node — every `_master.gain.value =` write was redirected through it.
+- **AudioSystem track-error infinite-recursion safeguard**: `_onTrackEnded()` was synchronously calling `_startTrack()` which re-attached the error handler → tight loop on a bad URL. Added a consecutive-failure counter that bails after 6 fast failures within 1.5s, with the `playing` event resetting the counter on success.
+
+**Roadside crash barriers** ([GameScene.js](src/scenes/GameScene.js))
+- Three concentric barriers fire in the speed-math update, after the bridge-rail block:
+  - **±2.35 utility pole** — one-shot −10 HP + crash recovery (2s i-frame, 1s hold, ramp to 60), 1.5s cooldown. Active inside `seg.utilityLineSide` runs.
+  - **±2.00 fence rail** — sustained −3 HP/sec while in contact, bounces back. Active inside `seg.ruralFence` segments.
+  - **±5.50 outer treeline wall** — full crash (−10 HP + recovery, `_postCrashLaneX()` reset). Active past mile 14. **Fires unconditionally regardless of water/bridge flags** so the previous Vantage exploit (water-tagged segment let players drive infinitely off-road on grass) is closed.
+- `_applyDamage` already absorbs HP during i-frames, but the lane-clamp and crash-recovery setup fire anyway — so even mid-blink the player gets yanked back to the recovery lane.
+
+**Bushes / shrubs as glances** ([GameScene.js](src/scenes/GameScene.js))
+- Shrub collision now goes through `_sceneryGlance(proj, damage, sp)` instead of `_triggerSceneryRespawn`. No crash, no smoke, no respawn. Small HP nick (0.5–1.0), strong lateral push (`xImpulse = ±0.18`), speed clamps to 40 mph through the brush, 200ms i-frame to prevent retrigger.
+- Bush sprite stamps with `sp.kickDir` and `sp.kickUntil` — renderer in `_renderSceneSprites` applies `kickPx = (sp.kickDir) * targetW * 0.12 * remain` over 400ms so the shrub visibly leans away from the car then settles back.
+
+**Pullman finish line moved to mile 289** ([src/constants.js](src/constants.js), [src/scenes/GameScene.js](src/scenes/GameScene.js), [src/road/RouteData.js](src/road/RouteData.js))
+- Was at mile 279 (`Pullman` city limit) which auto-busted players with 5★+late-clock at the wrong time. Split into two checkpoints: `Pullman` (city limit, mile 279) for the label, and `Pullman, WA` (`isFinish: true`, mile 289) for the actual finish + bust evaluation.
+- HARD-mode autocheckpoint gate: at line ~2740 in `GameScene.js`, passing a `CHECKPOINT` marker no longer auto-sets `_lastCheckpoint` when `Difficulty.mode() === 'hard'`. Only pulling off at a rest stop counts as a save point on HARD.
+- Pullman Party House landmark relocated from `EASTERN_TOWN_WINDOWS` mile 271-272 to a fresh window at 288.4-289.0 with `homes: 0` so just the landmark spawns next to the finish.
+- Mile-279 bust path retained for the case the user IS already at 5★+late when crossing the actual finish at 289 — `_endGame('busted_late')`.
+
+**Crash screen rebuild** ([src/scenes/GameOverScene.js](src/scenes/GameOverScene.js))
+- Buttons rewired to match the baked artwork labels: leftmost pink polygon → `_retrySameSettings()` (was `_startOver()`), middle blue → `_restartAtCheckpoint(cp.position)` falling back to retry if no checkpoint (was `_retrySameSettings()`), rightmost white → `_returnToTitle()` (unchanged). Visible labels (RETRY / LOAD SAVE / MAIN MENU) now do what they say.
+- Polygon hit zones on Graphics objects → invisible Rectangle game objects sized to the polygon bounding box. Phaser polygon hit testing on Graphics is unreliable on touch (especially iOS Chrome); rectangle hit zones on dedicated game objects are bulletproof.
+- Defensive scene-input setup at the top of `create()`: `this.input.setTopOnly(false)`, `this.input.enabled = true`, `this.scene.bringToTop()`. Recovers from edge cases where scene transitions left input disabled on the new scene.
+
+**Bug + dead-code + perf audit pass** (3 parallel agents)
+- **Deleted**: `src/road/Road 2.js`, `src/road/Road 3.js` (Finder backup duplicates); lifecycle `console.log` spam in `BootScene.js` and `GameScene.js`; all `.DS_Store` files in `public/assets/**`; the `_stateDebugTxt` debug overlay (was running every frame); the `[F12]` per-init console log.
+- **`DEV_WARP` removed then RESTORED** — initially deleted by the audit, then restored after the user clarified that "Release" means actual public/App Store release, not Netlify deploys or beta. Memory note `feedback-dui-skip-ci-does-not-work` and `project-dui-dev-warp-removal` updated to reflect that the cheats stay through every Netlify deploy and the entire beta phase; only strip them for actual ship.
+- **Tilt SHUTDOWN reset**: `_tiltShutdownHooked = false` now resets in `init()` so the `events.once(SHUTDOWN, …)` cleanup re-arms across scene-instance reuse. Without this the second-and-later restarts after the first crash left the orient listener leaking.
+- **HUD setText diffing**: every per-frame setText on `hudScore / hudHP / hudGas / hudDist / hudSpeed / hudRegion / hudStars / hudRadio / hudPartyClock` now compares `obj.text !== str` before calling setText. Avoids forcing Phaser to rebuild the Text texture each frame when the string hasn't changed. Same diff applied to color setters on HP / gas / party clock.
+
+**Driving-type carousel color-tinted** ([GameScene.js](src/scenes/GameScene.js))
+- Title screen "DRIVING TYPE" value label now colors by mode: **THUMBS pink** (`#FF39AF`), **TAP blue** (`#39A8FF`), **TILT red** (`#FF2244`), matching the in-game palette. Stroke and blurb stay unchanged.
+
+**East WA building profiles + utility-run alignment** ([GameScene.js](src/scenes/GameScene.js), [src/road/RouteData.js](src/road/RouteData.js))
+- Added rendering profiles for `codex_east_wa_doublewide_tan/_white` and `codex_east_wa_fenced_house_tan/_white` (they were spawning but falling through to the default profile). Doublewides use `widthMult: 2.85` with a low `maxH` so they read as flat single-stories; fenced houses use `heightMult: 2.80–2.85`.
+- Two new `EASTERN_UTILITY_RUNS` entries (mile 94.6–96.8 and 270.6–277.0) and extended-end edits on four others so every eastern town window now has a power-line corridor overlapping it. Existing runs gained `nearHomes: true` where they overlap a town so transformer cadence tightens around frontages.
+
+---
+
+### 2026-05-28 — phone-menu tilt fix, steering mode normalization
+
+**Tilt steering from phone menu** ([GameScene.js](src/scenes/GameScene.js), [index.html](index.html), [src/main.js](src/main.js))
+- Final root cause: mobile browser motion permission is not consistently exposed on `DeviceOrientationEvent.requestPermission`. Chrome/iOS paths can expose the permission prompt on `DeviceMotionEvent.requestPermission` instead. Checking only `DeviceOrientationEvent` made Tilt appear selected while the browser never delivered useful tilt events.
+- `_armTiltPrefetch()` now selects the permission API in this order:
+  - `DeviceOrientationEvent.requestPermission`
+  - `DeviceMotionEvent.requestPermission`
+  - no permission gate → attach `deviceorientation` directly
+- The prefetch listener now watches `touchstart`, `pointerdown`, `pointerup`, and `mousedown` on both the Phaser canvas and `document`. This matters because the phone-menu confirm modal is HTML and uses pointer handlers; listening only on the canvas / only to touch could miss the Continue gesture.
+- The phone-menu Tilt button writes `titleThumbsPick = 'tilt'` before showing the confirm modal, then restores the prior pick if canceled. This lets the native DOM prefetch know the next gesture is intended to authorize Tilt.
+- `window.__steeringMode.set()` now routes live scene changes through `GameScene._setSteeringMode()` instead of only writing `registry.steeringMode`. The direct registry write skipped `_enableTiltSteer()` and could leave the UI selected but no orientation listener attached.
+- `_setupTilt()` now reattaches the orientation listener when a scene starts and persisted `steeringMode` is already `tilt`. Without this, a restart/cold-load could have mode=`tilt` with no listener.
+- `_setSteeringMode('tilt')` is allowed to run again if mode is already `tilt` but `_tiltAttached` is false. This fixes the “stuck selected, cannot re-arm” state after a failed permission attempt.
+- `_tiltSteerAmt` is reset on setup/disable so stale analog input cannot bleed between modes.
+
+**Steering vocabulary cleanup** ([index.html](index.html), [src/main.js](src/main.js), [GameScene.js](src/scenes/GameScene.js), [SaveSystem.js](src/systems/SaveSystem.js))
+- Gameplay mode names are:
+  - `classic` = L/R two-thumb steering
+  - `flappy` = one-thumb tap steering
+  - `tilt` = motion steering
+- The phone UI previously sent `lr` for L/R while gameplay expected `classic`; the save system also accepted storage names `tap/classic/tilt` while UI/game used `flappy/classic/tilt`. This caused UI highlight, runtime mode, and save-profile selection to drift.
+- Phone menu now maps L/R to `classic`. `main.js` and `GameScene._steeringMode()` normalize old values (`lr → classic`, `tap → flappy`). `SaveSystem.setMode()` aliases `flappy → tap` and `lr → classic` for backward-compatible profile buckets.
+
+**Retest notes**
+- Use a hard refresh after editing tilt code; stale Vite/client state can keep old registry values around.
+- Test Tilt via `https://<LAN-IP>:3000`, not plain `http://`.
+- If Tilt appears selected but behaves like L/R, inspect whether `_tiltAttached` is true and whether `steeringMode` is actually `tilt`; the likely failure is permission/listener attachment, not the analog steering branch.
+
+### 2026-05-27 — HUD restructure, crash-recovery rolling start, iOS tilt permission fix, asset cleanup, building auto-flip
 
 **HUD layout overhaul** ([GameScene.js](src/scenes/GameScene.js))
 - Restructured the top-of-screen readouts into two mirror-adjacent clusters instead of edge-anchored singletons:

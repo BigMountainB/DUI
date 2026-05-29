@@ -260,7 +260,13 @@ const _CP_RAW = [
   { name: 'Washtucna',         mileage: 225, end: 235 },
   { name: 'La Crosse',         mileage: 250, end: 260 },
   { name: 'Colfax',            mileage: 272, end: 278 },
-  { name: 'Pullman',           mileage: 279, end: 293, isFinish: true },
+  // 'Pullman' city limit (mile 279) is just the entrance to the
+  // greater Pullman region; the actual rest stop / destination is at
+  // mile 289 (WSU campus area).  Splitting into two checkpoints so
+  // the "city limit" sign reads at 279 but the run only finishes
+  // (and the TOO LATE + 5★ technical loss only triggers) at 289.
+  { name: 'Pullman',           mileage: 279, end: 289 },
+  { name: 'Pullman, WA',       mileage: 289, end: 293, isFinish: true },
 ];
 // Total route length is the END mile of the final checkpoint (Pullman = 293).
 export const TOTAL_ROUTE_MILES = _CP_RAW[_CP_RAW.length - 1].end ?? _CP_RAW[_CP_RAW.length - 1].mileage;

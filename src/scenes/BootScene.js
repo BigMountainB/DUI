@@ -9,7 +9,6 @@ export class BootScene extends Phaser.Scene {
   constructor() { super({ key: 'Boot' }); }
 
   preload() {
-    console.log('[BootScene] preload start');
     const manifest = flattenManifest();
     // _failedKeys tracks ONLY keys that genuinely errored (404, decode
     // failure).  Previously we used _missingKeys = everything-not-yet-
@@ -70,7 +69,6 @@ export class BootScene extends Phaser.Scene {
   }
 
   _doCreate() {
-    console.log('[BootScene] create — building textures');
     // Legacy procedural textures still used by current GameScene code paths.
     this._makeCarTexture('player_car',  0xFF4400, 0xCC3300);
     this._makeCarTexture('traffic_car', 0x4488FF, 0x3366CC);
@@ -110,7 +108,6 @@ export class BootScene extends Phaser.Scene {
     this.registry.set('save',         save);
     this.registry.set('wallet',       wallet);
 
-    console.log('[BootScene] starting Game scene');
     // Boot straight into GameScene — its own title overlay handles the
     // pre-start intro, so the road style is identical to gameplay (same
     // Road class, same painted asphalt) with no jarring scene transition.

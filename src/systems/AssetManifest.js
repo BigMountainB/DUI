@@ -148,6 +148,12 @@ export const ASSET_MANIFEST = {
     { key: 'codex_east_wa_weathered_house',     path: 'assets/buildings/codex/east_wa_weathered_house.webp' },
     { key: 'codex_east_wa_barn',                path: 'assets/buildings/codex/east_wa_barn.webp' },
     { key: 'codex_east_wa_abandoned_bungalow',  path: 'assets/buildings/codex/east_wa_abandoned_bungalow.webp' },
+    { key: 'codex_east_wa_brick_storefront_1',  path: 'assets/buildings/codex/east_wa_brick_storefront_1.webp' },
+    { key: 'codex_east_wa_brick_storefront_2',  path: 'assets/buildings/codex/east_wa_brick_storefront_2.webp' },
+    { key: 'codex_east_wa_doublewide_tan',      path: 'assets/buildings/codex/east_wa_doublewide_tan.webp' },
+    { key: 'codex_east_wa_doublewide_white',    path: 'assets/buildings/codex/east_wa_doublewide_white.webp' },
+    { key: 'codex_east_wa_fenced_house_tan',    path: 'assets/buildings/codex/east_wa_fenced_house_tan.webp' },
+    { key: 'codex_east_wa_fenced_house_white',  path: 'assets/buildings/codex/east_wa_fenced_house_white.webp' },
     { key: 'codex_east_wa_two_story_brick_shop', path: 'assets/buildings/codex/east_wa_two_story_brick_shop.webp' },
     { key: 'codex_east_wa_block_repair_shop',   path: 'assets/buildings/codex/east_wa_block_repair_shop.webp' },
     { key: 'codex_east_wa_main_street_storefront', path: 'assets/buildings/codex/east_wa_main_street_storefront.webp' },
@@ -158,8 +164,6 @@ export const ASSET_MANIFEST = {
     { key: 'codex_east_wa_ritzville_diner_motel', path: 'assets/buildings/codex/east_wa_ritzville_diner_motel.webp' },
     { key: 'codex_east_wa_palouse_farm_store',  path: 'assets/buildings/codex/east_wa_palouse_farm_store.webp' },
     { key: 'codex_east_wa_pullman_party_house', path: 'assets/buildings/codex/east_wa_pullman_party_house.webp' },
-    // (codex_east_wa_doublewide_tan / _white removed — source PNGs no
-    //  longer ship; spawn code never references them post-cleanup.)
     { key: 'codex_west_seattle_horizon_left',       path: 'assets/buildings/codex/west_seattle_horizon_left.png' },
     { key: 'codex_west_seattle_horizon_right',      path: 'assets/buildings/codex/west_seattle_horizon_right.png' },
     { key: 'codex_west_seattle_lowrise_apartments', path: 'assets/buildings/codex/west_seattle_lowrise_apartments.png' },

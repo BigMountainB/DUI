@@ -68,6 +68,13 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   create() {
+    // Defensive: explicitly enable input + bring this scene to the
+    // top of the scene stack.  Some crash-recovery transitions from
+    // GameScene have left input disabled on the new scene.
+    try { this.input?.setTopOnly?.(false); } catch (_) {}
+    try { if (this.input && this.input.enabled === false) this.input.enabled = true; } catch (_) {}
+    try { this.scene?.bringToTop?.(); } catch (_) {}
+
     const meta = CAUSE[this.cause] ?? CAUSE.busted;
     if (this.cause === 'overdose') {
       this._createNeonEnding(meta);
@@ -195,24 +202,30 @@ export class GameOverScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(41);
 
     // The authored Crashed and Busted plates already contain their full
-    // typography and button faces.
-    // These hit zones trace those angled buttons and paint only an extra
-    // hover/press glow so the art is never obscured by duplicate UI.
+    // typography and button faces (RETRY / LOAD SAVE / MAIN MENU).
+    // Hit zones trace those buttons and route to the matching handler:
+    //   RETRY     → fresh run from mile 0, skip title (same settings)
+    //   LOAD SAVE → resume at last checkpoint (falls back to fresh run
+    //               if no checkpoint exists this run)
+    //   MAIN MENU → back to the title screen
     const cp = this.lastCheckpoint;
     this._makeImageButtonZone([
       { x: 139, y: 400 }, { x: 150, y: 361 },
       { x: 296, y: 361 }, { x: 285, y: 400 },
-    ], 0xFF39AF, () => this._startOver());
+    ], 0xFF39AF, () => this._retrySameSettings());
     this._makeImageButtonZone([
       { x: 306, y: 400 }, { x: 317, y: 361 },
       { x: 467, y: 361 }, { x: 456, y: 400 },
-    ], 0x39A8FF, () => this._retrySameSettings());
+    ], 0x39A8FF, () => {
+      if (cp?.position != null) this._restartAtCheckpoint(cp.position);
+      else this._retrySameSettings();
+    });
     this._makeImageButtonZone([
       { x: 474, y: 400 }, { x: 485, y: 361 },
       { x: 647, y: 361 }, { x: 636, y: 400 },
     ], 0xF4F7FF, () => this._returnToTitle());
 
-    this.input.keyboard?.once('keydown-SPACE', () => this._startOver());
+    this.input.keyboard?.once('keydown-SPACE', () => this._retrySameSettings());
     this.input.keyboard?.once('keydown-ENTER', () => this._returnToTitle());
   }
 
@@ -494,19 +507,40 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   _makeImageButtonZone(points, neonColor, onClick) {
-    const polygon = new Phaser.Geom.Polygon(points);
-    const hit = this.add.graphics().setDepth(50);
+    // Use a real Rectangle GAME OBJECT (invisible) as the hit target —
+    // this gives Phaser a proper sized + positioned interactive object,
+    // not a Graphics with a custom hit area.  Polygon hit tests on
+    // Graphics fail on touch in Phaser 3.  A Rectangle game object
+    // gets correct touch + click + pointerdown handling everywhere.
+    //
+    // A separate Graphics object draws the angled hover outline so the
+    // visual affordance still matches the artwork.
+    let minX =  Infinity, minY =  Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const w = maxX - minX;
+    const h = maxY - minY;
+    const cx = minX + w / 2;
+    const cy = minY + h / 2;
+    const outline = this.add.graphics().setDepth(50);
     const draw = (active = false) => {
-      hit.clear();
+      outline.clear();
       if (!active) return;
-      hit.lineStyle(3, neonColor, 1);
-      hit.strokePoints(points, true);
+      outline.lineStyle(3, neonColor, 1);
+      outline.strokePoints(points, true);
     };
-    hit.setInteractive(polygon, Phaser.Geom.Polygon.Contains);
-    hit.input.cursor = 'pointer';
+    const hit = this.add.rectangle(cx, cy, w, h, 0x000000, 0)
+      .setDepth(49)
+      .setInteractive({ useHandCursor: true });
     hit.on('pointerover', () => draw(true));
-    hit.on('pointerout', () => draw(false));
-    hit.on('pointerdown', () => {
+    hit.on('pointerout',  () => draw(false));
+    hit.on('pointerdown', (ptr) => {
+      ptr?.event?.stopPropagation?.();
       draw(true);
       onClick?.();
     });

@@ -7,6 +7,11 @@ import { SCREEN_W, SCREEN_H, VEHICLES } from './constants.js';
 import { AchievementSystem } from './systems/AchievementSystem.js';
 import { AudioSystem }       from './systems/AudioSystem.js';
 
+// Audio unlock is installed by an inline <script> at the top of
+// index.html so the listener is in place BEFORE the module bundle is
+// even fetched.  See window.__audioUnlockCount / __audioUnlockedRunning
+// / __audioUnlockDiag for runtime state.
+
 const config = {
   type: Phaser.AUTO,
   width:  SCREEN_W,
@@ -45,7 +50,14 @@ const _boot = () => {
   // checks for an existing instance instead of overwriting this one,
   // so save/wallet still get wired up the same way.
   if (!game.registry.get('audio')) {
-    game.registry.set('audio', new AudioSystem());
+    const _audio = new AudioSystem();
+    game.registry.set('audio', _audio);
+    // Expose so the inline unlock script can boot music as soon as
+    // iOS lets us — regardless of which button the user tapped first.
+    window.__audio = _audio;
+    if (window.__audioUnlockedRunning) {
+      try { _audio.init?.(); } catch (_) {}
+    }
   }
 
   // Block native touch behavior everywhere EXCEPT inside the
@@ -359,7 +371,13 @@ const _boot = () => {
       if (!audio) return;
       const t = Math.max(0, Math.min(1, Number(v) || 0));
       audio.volume = t;
-      if (audio._master) audio._master.gain.value = (audio.muted || audio.paused) ? 0 : t;
+      // While paused, mark this as a user-initiated change so the
+      // resume path doesn't snap back to the pre-pause level — the
+      // player explicitly set this volume.
+      if (audio.paused) audio._userTouchedVolumeWhilePaused = true;
+      // All gain writes go through the perceptual-curve helper so
+      // the slider feels linear to the ear.
+      audio._applyMasterGain?.();
     },
     isPaused: () => {
       const audio = game.registry.get('audio');

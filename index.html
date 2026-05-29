@@ -7,6 +7,79 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>DUI</title>
+  <script>
+    // ── INLINE AUDIO UNLOCK ───────────────────────────────────────────
+    // Runs before any module imports.  iOS Chrome / Safari keep
+    // AudioContext suspended until a user gesture directly creates +
+    // resumes one.  This installs a one-shot capture-phase listener on
+    // the window so the very first tap, anywhere on the page, unlocks
+    // audio for the whole session.  Creates ONE throwaway AudioContext
+    // (iOS limits each page to ~6) and plays a 1-second silent buffer.
+    (function () {
+      window.__audioUnlockCount     = 0;
+      window.__audioUnlockedRunning = false;
+      window.__audioUnlockDiag      = '';
+      var _unlockCtx = null;
+      var UNLOCK_EVENTS = [
+        'touchstart','touchend','pointerdown','pointerup',
+        'mousedown','mouseup','click','keydown','keyup'
+      ];
+      function cleanup() {
+        UNLOCK_EVENTS.forEach(function (evt) {
+          window.removeEventListener(evt, prime, true);
+          document.removeEventListener(evt, prime, true);
+        });
+      }
+      function prime() {
+        window.__audioUnlockCount += 1;
+        if (window.__audioUnlockedRunning) { cleanup(); return; }
+        try {
+          var Ctx = window.AudioContext || window.webkitAudioContext;
+          if (!Ctx) { window.__audioUnlockDiag = 'noctx'; return; }
+          if (!_unlockCtx) {
+            try { _unlockCtx = new Ctx(); }
+            catch (e) { window.__audioUnlockDiag = 'newfail'; return; }
+            try {
+              var sr  = _unlockCtx.sampleRate || 22050;
+              var buf = _unlockCtx.createBuffer(1, sr, sr);
+              var src = _unlockCtx.createBufferSource();
+              src.buffer = buf;
+              src.connect(_unlockCtx.destination);
+              if (typeof src.start === 'function') src.start(0);
+              else if (typeof src.noteOn === 'function') src.noteOn(0);
+            } catch (e) { window.__audioUnlockDiag = 'buffail'; }
+          }
+          window.__audioUnlockDiag = 'res:' + (_unlockCtx.state && _unlockCtx.state[0]);
+          _unlockCtx.resume().then(function () {
+            window.__audioUnlockDiag = 'post:' + (_unlockCtx && _unlockCtx.state && _unlockCtx.state[0]);
+            if (_unlockCtx && _unlockCtx.state === 'running') {
+              window.__audioUnlockedRunning = true;
+              // Boot music IMMEDIATELY if the audio system has already
+              // been instantiated (main.js sets window.__audio during
+              // boot, before any user tap happens).  This means music
+              // starts on the first tap anywhere — no need to wait for
+              // the user to find and tap the START button.
+              if (window.__audio && !window.__audio._inited) {
+                try {
+                  window.__audio.init();
+                  window.__audio._inited = true;
+                } catch (e) {}
+              }
+              cleanup();
+            }
+          }).catch(function (e) {
+            window.__audioUnlockDiag = 'rej:' + (e && e.name ? e.name.slice(0, 8) : '?');
+          });
+        } catch (e) {
+          window.__audioUnlockDiag = 'thr:' + (e && e.name ? e.name.slice(0, 8) : '?');
+        }
+      }
+      UNLOCK_EVENTS.forEach(function (evt) {
+        window.addEventListener(evt, prime, { capture: true, passive: true });
+        document.addEventListener(evt, prime, { capture: true, passive: true });
+      });
+    })();
+  </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {

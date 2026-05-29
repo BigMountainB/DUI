@@ -401,7 +401,7 @@ export class AudioSystem {
     // play when a fresh run starts.
     this.currentStation = 0;
     this.muted         = false;
-    this.volume        = 0.32;
+    this.volume        = 0.20;
     this.ready         = false;
 
     // Song structure state — tracks where we are in the current "song" so
@@ -418,16 +418,67 @@ export class AudioSystem {
     this._drumMute       = false;
   }
 
+  /** Install a one-shot native-DOM gesture listener that resumes the
+   *  AudioContext from inside the user-gesture frame.  Phaser's input
+   *  pipeline queues taps and dispatches them OUTSIDE the gesture
+   *  frame, so an ctx.resume() call from a Phaser handler can be
+   *  silently ignored by Chrome / iOS Safari.  Listening at the DOM
+   *  capture phase guarantees we run inside the gesture.  Self-cleans
+   *  once the context is running.  Safe to call multiple times —
+   *  guarded by _ctxUnlockArmed. */
+  _armCtxUnlock() {
+    if (this._ctxUnlockArmed) return;
+    this._ctxUnlockArmed = true;
+    const tryResume = () => {
+      if (!this._ctx) return;
+      try {
+        // Canonical iOS Safari / Chrome iOS unlock: a real BufferSource
+        // started inside the gesture frame, plus ctx.resume().  The
+        // sample rate matches ctx.sampleRate; the buffer is one second
+        // of silence so the context stays "warm" while resume() settles
+        // — a 1-sample buffer can let iOS snap the ctx back to
+        // suspended before resume's promise resolves.  Listener stays
+        // armed permanently because iOS can suspend the context again
+        // mid-session; re-attempting on every gesture is the only
+        // reliable behavior.
+        const sr  = this._ctx.sampleRate || 22050;
+        const buf = this._ctx.createBuffer(1, sr, sr);
+        const src = this._ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this._ctx.destination);
+        if (typeof src.start === 'function') src.start(0);
+        else if (typeof src.noteOn === 'function') src.noteOn(0);
+        this._ctx.resume().catch(() => {});
+      } catch (_) {}
+    };
+    // Listen on BOTH window and document, capture phase, so a tap on
+    // any element (Phaser canvas, HTML phone-menu, even the body) fires
+    // this before any other handler can preventDefault away the gesture.
+    for (const tgt of [window, document]) {
+      tgt.addEventListener('touchstart',  tryResume, { capture: true, passive: true });
+      tgt.addEventListener('pointerdown', tryResume, { capture: true, passive: true });
+      tgt.addEventListener('mousedown',   tryResume, { capture: true, passive: true });
+      tgt.addEventListener('keydown',     tryResume, { capture: true, passive: true });
+    }
+  }
+
   init() {
     if (this.ready) return;
     try {
       this._ctx    = new (window.AudioContext || window.webkitAudioContext)();
+      // Chrome / iOS gate: AudioContext is born suspended.  Even
+      // calling resume() from inside a Phaser-dispatched handler
+      // doesn't unlock it because Phaser queues input outside the
+      // user-gesture frame.  Install a native DOM capture-phase
+      // listener so the very next user tap resumes the context inside
+      // its true gesture frame.
+      this._armCtxUnlock();
       this._master = this._ctx.createGain();
       // Respect any mute toggled before init ran — tapping the mute
       // button on the title screen flips `this.muted` but the gain
       // assignment in toggleMute() is a no-op while _master is null,
       // so the silence has to be re-applied here.
-      this._master.gain.value = (this.muted || this.paused) ? 0 : this.volume;
+      this._applyMasterGain();
       this._master.connect(this._ctx.destination);
 
       // Compressor bus — glues the mix, adds punch
@@ -535,11 +586,14 @@ export class AudioSystem {
   _enablePlayback() {
     if (!this.ready) this.init();
     try { if (this._ctx?.state === 'suspended') this._ctx.resume(); } catch (_) {}
+    // Re-arm the gesture-frame unlock in case the context has gone
+    // back to suspended (e.g., backgrounded tab) since init.
+    if (this._ctx?.state !== 'running') this._armCtxUnlock?.();
     // Clear the in-game-pause flag, but PRESERVE the user's mute
     // preference — pressing play on a song or restarting the run
     // must never override the mute toggle.
     this.paused = false;
-    if (this._master) this._master.gain.value = this.muted ? 0 : this.volume;
+    this._applyMasterGain();
   }
   playSpecificTrack(url) {
     // Tapping a specific track is an explicit "play this now" — it
@@ -640,6 +694,10 @@ export class AudioSystem {
         src.connect(this._master);
         el.addEventListener('ended', () => this._onTrackEnded());
         el.addEventListener('error', () => this._onTrackEnded());
+        // Successful playback start clears the consecutive-failure
+        // safety brake in _onTrackEnded so a later natural 'ended' isn't
+        // mistaken for a cascade.
+        el.addEventListener('playing', () => { this._trackFailStreak = 0; });
         // iOS pauses the audio element when a system sound interrupts
         // (text-message ping, charger plug-in chime, Siri, etc.).
         // If our own paused/muted state says we WANT to be playing,
@@ -689,6 +747,28 @@ export class AudioSystem {
   }
 
   _onTrackEnded() {
+    // Safety brake against tight infinite recursion when every URL in
+    // a station / playlist fails (404, CORS, decode error).  Each fail
+    // synchronously triggers an `error` event → _onTrackEnded → new
+    // _startTrack → another error → ...  Count consecutive failures
+    // by tracking time-since-last; if N fires hit within FAIL_WINDOW
+    // ms, bail out instead of starting another track.  A successful
+    // play resets the counter (see _startTrack happy path below).
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const FAIL_WINDOW = 1500;   // ms — anything faster is a failure cascade
+    const FAIL_LIMIT  = 6;
+    if (now - (this._lastTrackEndAt ?? 0) < FAIL_WINDOW) {
+      this._trackFailStreak = (this._trackFailStreak ?? 0) + 1;
+    } else {
+      this._trackFailStreak = 1;
+    }
+    this._lastTrackEndAt = now;
+    if (this._trackFailStreak >= FAIL_LIMIT) {
+      console.warn('AudioSystem: consecutive track failures — stopping playback.');
+      this._trackFailStreak = 0;
+      this._stopTrack();
+      return;
+    }
     // Active custom playlist takes priority over station auto-advance.
     if (this._playlistQueue && this._playlistQueue.length) {
       this._playlistIdx = (this._playlistIdx + 1) % this._playlistQueue.length;
@@ -714,20 +794,73 @@ export class AudioSystem {
     if (this._trackEl) this._onTrackEnded();
   }
 
+  /** Pause-duck ceiling — on pause entry, volume is clamped DOWN to
+   *  this absolute level (not a fraction of current volume).  A player
+   *  who already had volume below this level keeps their quieter
+   *  setting; pause never makes things LOUDER.  Any slider drag while
+   *  paused overrides this with a direct WYSIWYG volume change. */
+  static get PAUSE_DUCK_CEILING() { return 0.15; }
+
+  /** Slider position (0..1, linear) → master gain (0..1).  Human
+   *  perception of loudness is roughly logarithmic, so a linear
+   *  amplitude slider feels like "loud at 50%, not much louder at
+   *  100%."  A quadratic curve closes the gap: 50% slider sounds like
+   *  ~half, 100% is the only true max. */
+  static volumeToGain(v) {
+    const t = Math.max(0, Math.min(1, v || 0));
+    return t * t;
+  }
+
+  /** Single source of truth for the master node's gain value.  Reads
+   *  this.muted + this.volume and writes the curved value.  All gain
+   *  set sites should call this instead of writing _master.gain.value
+   *  directly so the perceptual curve and mute logic stay aligned. */
+  _applyMasterGain() {
+    if (!this._master) return;
+    this._master.gain.value = this.muted ? 0 : AudioSystem.volumeToGain(this.volume);
+  }
+
   setPaused(paused) {
-    this.paused = !!paused;
-    if (this._master) this._master.gain.value = (this.muted || this.paused) ? 0 : this.volume;
-    // Pause/resume the real-track HTMLAudioElement too — gain alone
-    // would silence it but the file would keep advancing.
-    if (this._trackEl) {
-      if (this.paused) { try { this._trackEl.pause();  } catch (_) {} }
-      else             { try { this._trackEl.play().catch(() => {}); } catch (_) {} }
+    const wasPaused = !!this.paused;
+    this.paused     = !!paused;
+    const goingIn   = !wasPaused && this.paused;
+    const comingOut = wasPaused && !this.paused;
+
+    if (goingIn) {
+      // Snapshot the pre-pause volume so resume can restore it.  Then
+      // clamp `volume` DOWN to the duck ceiling — but never bump it
+      // up.  A player already at 5% stays at 5%; a player at 50%
+      // drops to 10%.  Slider (which reads audio.volume) shows the
+      // actual playing level — no hidden multiplier.  Dragging during
+      // pause overrides this freely (no further ducking applied).
+      this._volumeBeforePause = this.volume;
+      this._userTouchedVolumeWhilePaused = false;
+      if (this.volume > AudioSystem.PAUSE_DUCK_CEILING) {
+        this.volume = AudioSystem.PAUSE_DUCK_CEILING;
+      }
+    } else if (comingOut) {
+      // Restore the pre-pause level UNLESS the player intentionally
+      // moved the slider during pause — that pick wins.
+      if (!this._userTouchedVolumeWhilePaused && this._volumeBeforePause != null) {
+        this.volume = this._volumeBeforePause;
+      }
+      this._volumeBeforePause = null;
+      this._userTouchedVolumeWhilePaused = false;
+    }
+
+    this._applyMasterGain();
+
+    // Track element stays playing across pause toggles — gain handles
+    // the duck.  Only resume the element on exit if it somehow got
+    // paused via an external interruption.
+    if (this._trackEl && comingOut && this._trackEl.paused && !this.muted) {
+      try { this._trackEl.play().catch(() => {}); } catch (_) {}
     }
   }
 
   toggleMute() {
     this.muted = !this.muted;
-    if (this._master) this._master.gain.value = (this.muted || this.paused) ? 0 : this.volume;
+    this._applyMasterGain();
   }
 
   get currentName()  { return STATIONS[this.currentStation].name; }

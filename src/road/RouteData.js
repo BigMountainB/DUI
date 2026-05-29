@@ -113,6 +113,17 @@ const REGION_TRAITS = {
     buildingStyle: 'home',
     drugDensity: 0.005,
   },
+  late_palouse: {
+    // Same geography / road feel as the Palouse — only the palette
+    // changes (gold wheat → dried brown).  Traits mirror palouse so
+    // the road grammar (curves, hills, scenery density) doesn't jump
+    // at the visual boundary at mile 240.
+    curveMax: 0.009, hillMax: 130, roadScale: 1.05, lanes: 4,
+    scenery:  ['tree'],
+    sceneryDensity: 0.012, buildings: true, buildingDensity: 0.02,
+    buildingStyle: 'home',
+    drugDensity: 0.005,
+  },
 };
 
 // Realistic-but-readable building palettes per style.
@@ -174,11 +185,16 @@ const EASTERN_HERD_TEXTURES = [
 const EASTERN_HOME_TEXTURES = [
   'codex_east_wa_weathered_house',
   'codex_east_wa_abandoned_bungalow',
-  // (doublewide_tan / doublewide_white removed — source PNGs no longer ship.)
+  'codex_east_wa_doublewide_tan',
+  'codex_east_wa_doublewide_white',
+  'codex_east_wa_fenced_house_tan',
+  'codex_east_wa_fenced_house_white',
 ];
 const EASTERN_BUSINESS_TEXTURES = [
   'codex_cle_elum_general_store',
   'codex_ellensburg_main_street_shops',
+  'codex_east_wa_brick_storefront_1',
+  'codex_east_wa_brick_storefront_2',
   'codex_east_wa_main_street_storefront',
   'codex_east_wa_cafe_storefront',
   'codex_east_wa_auto_parts_store',
@@ -188,15 +204,21 @@ const EASTERN_BUSINESS_TEXTURES = [
 // Small, authored dry-side roadside clusters. They are deliberately short:
 // one local business followed by four to six homes before brush and farms.
 const EASTERN_TOWN_WINDOWS = [
-  { start: 78.0,  end: 80.0,  homes: 6 },
+  { start: 78.0,  end: 80.0,  homes: 6, landmark: 'codex_east_wa_brick_storefront_1' },
   { start: 95.1,  end: 96.4,  homes: 5 },
-  { start: 105.0, end: 107.2, homes: 6 },
+  { start: 105.0, end: 107.2, homes: 6, landmark: 'codex_east_wa_brick_storefront_2' },
   { start: 132.1, end: 133.2, homes: 4, landmark: 'codex_east_wa_ritzville_diner_motel' },
   { start: 150.0, end: 151.2, homes: 5 },
   { start: 180.0, end: 181.2, homes: 6 },
   { start: 225.0, end: 226.0, homes: 4, landmark: 'codex_east_wa_palouse_farm_store' },
   { start: 250.0, end: 251.0, homes: 5 },
-  { start: 271.0, end: 272.0, homes: 4, landmark: 'codex_east_wa_pullman_party_house' },
+  { start: 271.0, end: 272.0, homes: 4 },
+  // Pullman Party House sits at the finish so the parking cinematic
+  // glides up to its driveway.  `homes: 0` so the spawn loop places
+  // ONLY the landmark, no neighboring houses crowding the final
+  // approach.  Window is intentionally tight (288.4-289.0) so the
+  // landmark anchors near the mile-289 finish trigger.
+  { start: 288.4, end: 289.0, homes: 0, landmark: 'codex_east_wa_pullman_party_house' },
 ];
 // After Vantage, short pasture stretches recur every few miles. Cattle occur
 // only on alternating fenced stretches; the other runs stay open/brushy.
@@ -222,14 +244,20 @@ const EASTERN_PASTURE_RUNS = [
 // stretches. A segment cannot carry this and a pasture fence simultaneously.
 const EASTERN_UTILITY_RUNS = [
   { start: 77.2,  end: 80.6,  side:  1, nearHomes: true }, // Cle Elum frontage
+  { start: 94.6,  end: 96.8,  side: -1, nearHomes: true }, // small town at 95.1-96.4
   { start: 103.8, end: 108.0, side: -1, nearHomes: true }, // Ellensburg frontage
-  { start: 146.0, end: 151.0, side:  1 },
+  // 146-151 and 176-181 overlap eastern-pasture-adjacent town windows
+  // at 150-151.2 and 180-181.2 — flag nearHomes so the transformer
+  // cadence tightens around those frontages.
+  { start: 146.0, end: 151.4, side:  1, nearHomes: true },
   { start: 156.3, end: 160.5, side: -1 },
-  { start: 176.2, end: 181.0, side:  1 },
+  { start: 176.2, end: 181.4, side:  1, nearHomes: true },
   { start: 196.0, end: 200.5, side: -1 },
-  { start: 222.5, end: 225.5, side:  1 },
-  { start: 246.0, end: 249.5, side: -1 },
-  { start: 272.5, end: 277.0, side:  1 },
+  { start: 222.5, end: 226.2, side:  1, nearHomes: true }, // covers Palouse Farm Store town 225-226
+  { start: 246.0, end: 251.2, side: -1, nearHomes: true }, // covers town 250-251
+  // Pull start back to overlap Pullman Party House town 271-272 so
+  // those homes have visible service drops instead of dead air.
+  { start: 270.6, end: 277.0, side:  1, nearHomes: true },
 ];
 
 // ─────────────────────────────────────────────────────────────────────
@@ -427,6 +455,12 @@ const FOG_PROFILE_MULTS = {
   codex_east_wa_weathered_house:      3.00 * (512 / 314),
   codex_east_wa_barn:                 2.70 * (512 / 336),
   codex_east_wa_abandoned_bungalow:   2.80 * (512 / 329),
+  codex_east_wa_brick_storefront_1:   3.85 * (640 / 514),
+  codex_east_wa_brick_storefront_2:   3.35 * (640 / 398),
+  codex_east_wa_doublewide_tan:       2.35 * (640 / 232),
+  codex_east_wa_doublewide_white:     2.35 * (640 / 223),
+  codex_east_wa_fenced_house_tan:     2.80 * (640 / 297),
+  codex_east_wa_fenced_house_white:   2.85 * (640 / 343),
   codex_east_wa_two_story_brick_shop: 4.00 * (512 / 443),
   codex_east_wa_block_repair_shop:    2.35 * (576 / 270),
 };

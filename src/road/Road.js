@@ -165,10 +165,62 @@ export class Road {
     // until mile 180.
     const skyDark = Math.min(1, darknessAmt * 1.15);
     if (skyDark > 0.04) {
-      // Moon — slow arc across the sky over the night portion of the run.
-      const moonPhase = clamp((_mileNow - 150) / 143, 0, 1);
-      const moonX = MARGIN * -1 + moonPhase * W;
-      const moonArcY = H() * 0.18 + Math.abs(moonPhase - 0.5) * H() * 0.55;
+      // ── Astronomy helper ────────────────────────────────────────────
+      // Driver faces roughly East along I-90 through this stretch
+      // (Pacific NW night driving on I-90 / US-195 is mostly eastward
+      // until the final Spokane → Pullman segment).  Project a body
+      // at (azimuth°, altitude°) onto the windshield assuming an
+      // East-facing observer.  azimuth is degrees clockwise from
+      // North (so 90° = East = directly ahead).  Returns null when the
+      // body is behind the viewer.
+      const HORIZON_Y_FRAC = 0.80;
+      const SKY_TOP_FRAC   = 0.10;
+      const azAlt = (azDeg, altDeg) => {
+        let angleFromForward = azDeg - 90;
+        while (angleFromForward >  180) angleFromForward -= 360;
+        while (angleFromForward < -180) angleFromForward += 360;
+        if (Math.abs(angleFromForward) > 92) return null;   // behind viewer
+        const xt = Math.sin(angleFromForward * Math.PI / 180);
+        // Allow negative altitudes — used by the moon to RISE through
+        // the horizon line.  The disc center sits below horizon in
+        // screen space; the ground / mountain graphics drawn later
+        // naturally clip the bottom of the disc, so the player sees
+        // only the rising sliver above the horizon.
+        const yt = Math.sin(altDeg * Math.PI / 180);
+        return {
+          x: SCREEN_W * 0.5 + xt * SCREEN_W * 0.55,
+          y: H() * HORIZON_Y_FRAC - yt * H() * (HORIZON_Y_FRAC - SKY_TOP_FRAC),
+        };
+      };
+
+      // ── Full Moon — 3× real azimuth rate, rises through horizon ─────
+      // Real moon: ~15°/hour azimuth = ~1.25°/game-mile (at 1 Pullman
+      // trip ≈ 1 game day).  3× that gives ~3.75°/mile, so the full
+      // 180° rise → transit → set arc collapses from ~144 miles into
+      // 48 miles.  Rise at mile 160 (ESE crosses horizon) → transit
+      // Due South ~mile 184 (peak alt ≈55°) → set in the West at mile
+      // 208, 7 miles before the Milky Way comes out at mile 215.
+      //
+      // Rendering starts ~5 miles BEFORE the rise mile so the disc
+      // physically climbs through the horizon line — at phase=-0.10
+      // the moon's center is ~17° below horizon (well under the road
+      // graphics), and as the phase ramps from -0.10 to 0 the disc
+      // visibly rises into view.  Past phase=1 the moon has set.
+      const MOON_RISE = 160;
+      const MOON_SET  = 208;
+      const moonPhase = (_mileNow - MOON_RISE) / (MOON_SET - MOON_RISE);
+      let moonOnScreen = false;
+      let moonX = -9999, moonArcY = 0;
+      if (moonPhase >= -0.10 && moonPhase <= 1) {
+        const moonAzimuth  = 110 + moonPhase * 160;     // ESE (110°) → S (190°) → W (270°)
+        const moonAltitude = Math.sin(moonPhase * Math.PI) * 55;
+        const moonScreen   = azAlt(moonAzimuth, moonAltitude);
+        if (moonScreen) {
+          moonX = moonScreen.x;
+          moonArcY = moonScreen.y;
+          moonOnScreen = true;
+        }
+      }
 
       // Reusable integer-hash PRNG so star positions are deterministic
       // but look like actual scattered light (the previous golden-ratio
@@ -205,17 +257,43 @@ export class Road {
       //
       // Gating: the Milky Way is NOT visible while the sky is still
       // light (dusk / partial night) — per the real-life rule that you
-      // can't see it until full astronomical darkness.  Fades in from
-      // mile 200 → 210 (nightAmount is at 1.0 from mile 200 onward).
-      const mwReveal = Math.max(0, Math.min(1, (_mileNow - 200) / 10));
+      // can't see it until full astronomical darkness.  Comes out at
+      // mile 215 (7 miles after the moon sets at mile 208) so the
+      // night-sky focal point handoff is clean.  Fades in over 10
+      // miles to mile 225.
+      const mwReveal = Math.max(0, Math.min(1, (_mileNow - 215) / 10));
       const mwAlpha = mwReveal * 0.55;
       if (mwAlpha > 0.02) {
-        // Flatter MW arc to match the user's Stellarium reference — the
-        // band is mostly horizontal with a slight rise toward the middle
-        // (was a steep "smile" before, with the apex too high).
-        const mwP0 = { x: -MARGIN - 40,         y: H() * 0.78 };
-        const mwP1 = { x: SCREEN_W * 0.45,      y: H() * 0.55 };
-        const mwP2 = { x: SCREEN_W + MARGIN + 40, y: H() * 0.82 };
+        // Astronomical Milky Way placement.  At first visibility (mile
+        // ~200) the band lies as a LOW, FLAT arch from NNE (≈22°
+        // azimuth — fainter end, left of windshield centre) down to
+        // SE (≈135° azimuth — bright Sagittarius / galactic-core end,
+        // right of centre).  As the night progresses (Earth's
+        // rotation) the band tilts UPWARD and the core sweeps
+        // clockwise toward Due South — by mid-Pullman the core is
+        // close to the south (right window pane).
+        const mwSky = clamp((_mileNow - 215) / 75, 0, 1);
+        // NNE (fainter end of the band) — climbs slightly as night
+        // progresses but stays low-left.
+        const nneAz   = 22;
+        const nneAlt  = 4 + mwSky * 16;
+        // SE → S (bright galactic core end) — climbs from low SE to
+        // higher S, swinging right + up.
+        const coreAz  = 135 + mwSky * 45;     // 135° → 180°
+        const coreAlt =  5 + mwSky * 42;      //   5° →  47°
+        const nneScreen  = azAlt(nneAz,  nneAlt)
+                           ?? { x: -MARGIN - 40, y: H() * 0.84 };
+        const coreScreen = azAlt(coreAz, coreAlt)
+                           ?? { x: SCREEN_W + MARGIN + 40, y: H() * 0.40 };
+        const mwP0 = { x: nneScreen.x,  y: nneScreen.y };
+        const mwP2 = { x: coreScreen.x, y: coreScreen.y };
+        // Bezier control: bow upward.  Mid-arc sits ABOVE the line
+        // between P0 and P2 by an amount that GROWS with mwSky —
+        // early-night the band is a low flat arch; late-night it
+        // bulges higher (the band has effectively rotated up + over).
+        const midX = (mwP0.x + mwP2.x) * 0.5;
+        const midY = Math.min(mwP0.y, mwP2.y) - 18 - mwSky * 60;
+        const mwP1 = { x: midX, y: midY };
         // Bezier helper — returns the spine point at parameter t.
         const mwAt = (t) => {
           const oneT = 1 - t;
@@ -248,8 +326,10 @@ export class Road {
           const { x: cx, y: cy } = mwAt(t);
           const { nx, ny } = mwTangent(t);
           const taper     = Math.sin(t * Math.PI);             // 0..1..0
-          // Galactic-core gaussian — peak brightness/width near t=0.55.
-          const coreBoost = Math.exp(-Math.pow((t - 0.55) * 2.6, 2));
+          // Galactic-core gaussian — peak brightness clustered at the
+          // SE/S end of the band (t≈0.88), matching the user's spec
+          // that the bright Sagittarius core is at the SE / South side.
+          const coreBoost = Math.exp(-Math.pow((t - 0.88) * 3.0, 2));
           const noise     = 0.40 + starHash(i * 91 + 13) * 0.95;
           const wander    = (starHash(i * 137 + 29) - 0.5) * 36;
           const px = cx + nx * wander;
@@ -469,12 +549,15 @@ export class Road {
       }
 
       // Moon — painted last so it sits above the Milky Way + stars.
-      g.fillStyle(0xF6F2D8, 0.30 * skyDark);
-      g.fillCircle(moonX, moonArcY, 22);
-      g.fillStyle(0xFFF8E0, Math.min(1, 1.2 * skyDark));
-      g.fillCircle(moonX, moonArcY, 14);
-      g.fillStyle(0xFFFFFF, Math.min(1, skyDark));
-      g.fillCircle(moonX - 3, moonArcY - 3, 9);
+      // Skipped once the body crosses behind the windshield (set in W).
+      if (moonOnScreen) {
+        g.fillStyle(0xF6F2D8, 0.30 * skyDark);
+        g.fillCircle(moonX, moonArcY, 22);
+        g.fillStyle(0xFFF8E0, Math.min(1, 1.2 * skyDark));
+        g.fillCircle(moonX, moonArcY, 14);
+        g.fillStyle(0xFFFFFF, Math.min(1, skyDark));
+        g.fillCircle(moonX - 3, moonArcY - 3, 9);
+      }
     }
 
     // --- MOUNTAIN SILHOUETTES (parallax + Cascade-pass progression) ---
