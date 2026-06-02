@@ -250,10 +250,12 @@ Forward warps **drain gas** equal to trip distance. Hard mode disallows warping 
 - **DELETE THE DEV WARP** — digit-keys 1-9 mile-warp cheat in [src/scenes/GameScene.js](src/scenes/GameScene.js), bracketed by `// ── DEV WARP — REMOVE BEFORE RELEASE ──`. **Must be deleted before shipping.**
 
 ### Tier 1 — Active features the user has flagged
+- **Murrow skyline sinks into Lake Washington (proper fix, diagnosed)** — on the Murrow floating bridge onto Mercer Island the distant skyline silhouette (which exists to COVER a charcoal "junk" backdrop band) gets overpainted by the per-segment lake-water fills drawn AFTER it in the same `roadGfx` layer, so it looks like it sinks into the lake. The `SKYLINE_SHORE_LIFT` band-aid was reverted (it exposed the junk). Proper fix is a DRAW-ORDER / layer change: render the silhouette ABOVE the per-segment water fills but BEHIND the cranes (e.g. its own depth between road and scenery sprites), keeping it LOW so it still covers the junk. Awaiting user go-ahead (delicate layering change).
+- **Exit-32 / North Bend "feel" (needs user clarification)** — local user (lives off exit 32) said mile ~36 "didn't feel like my exit" and the pass felt too curvy. The curve-smoothing pass likely addressed the curviness; North Bend is correctly at mile 32 with an "Exit 32" sign. OPEN: confirm whether the exit SIGN appears at the wrong mile (real bug) or it just *felt* off (resolved by de-wiggle).
+- **Build the Hatton, WA rest stop (APPROVED — option A)** — full rest stop at ~mile 205, between Othello (184) and Washtucna (228), filling the route's biggest gap (44 mi). Proposed: `{ id: 'H', name: 'Hatton, WA', mileage: 205, exit: 'WA-26', hwy: 'hwy_wa26', amenities: ['camp','gas'] }` (real Hatton Coulee Rest Area). Wire into: `_REST_STOP_DEF` + `_CP_RAW` town window + `GEO_WAYPOINTS` map + `RestStopScene` vignettes. Terrain/turns already include Hatton's coordinate (mile-205 DEM/GPS sample).
 - **Phone-menu navigation buttons broken** — flagged during the 2026-05-29 session. The lock / trophies / L+R-hand-tap buttons in the portrait phone-menu work, but the music / garage / maps / start-over / checkpoint / main-menu buttons don't respond. Suspect a tap-handler binding issue specific to the modal-opening flow. Logic is in `index.html`; tested fixes in main.js audio/tilt didn't address it.
 - **Large trucks in Eastern Washington traffic** — user wants visibly larger truck NPCs (semis, hauler trailers) populating Vantage → Pullman stretches. The existing NPC vehicle pool uses `npc_car_*` textures sized via texture aspect; the same path could pull from a `truck_*` texture set with a wider lane footprint, slower base speed, and longer body. Requires new art OR reusing the existing player-vehicle truck PNGs at NPC scale.
 - **Finish cinematic — park in front of Pullman Party House** — when crossing the new mile-289 finish, lock player input, ramp speed to 0 over ~3 seconds, steer the car laterally toward the house, then trigger the Game Over panel. House sprite is already placed at mile 288.4-289.0 (`EASTERN_TOWN_WINDOWS` in `RouteData.js`). User wants this for both on-time and late finishes.
-- **Visible trees along the invisible outer wall** — the mile-14+ outer tree-wall barrier currently crashes the car at ±5.5 lanes from center with no visible feature there in sparse stretches. Spawn actual tall tree sprites at ±5.5 in stretches where no town/pasture/utility run is already filling that side, so the player can SEE why they're being blocked.
 - **NPC headlights/tail lights in the rear-view mirror** — the night-lighting pass painted lights on the main world view but the mirror reflection (rendered separately via `_mirrorCarPool` in GameScene.js) doesn't carry them. Needs the same dot/beam logic applied to the mirror render path so a car catching up from behind shows its headlights in the mirror glass and same-direction traffic ahead shows tail lights.
 - **Title-screen stoplight redesign (SPECCED, NOT BUILT)** — replace Easy/Normal/Hard buttons with 3 stacked stoplight buttons (same size as current difficulty buttons):
   - **Red — Thumbs: 2/1/0** (cycles, wraps). Subtitles: "Left and Right Thumb, basic" / "Just one thumb, like Flippy Burd" / "Look, Ma! No thumbs! (Tilt steering)". Maps to existing steering modes (classic L/R, flappy-tap, tilt).
@@ -281,6 +283,344 @@ Photo mode, in-game settings menu, accessibility toggles.
 ---
 
 ## 8. Major build-history (newest first)
+
+### 2026-05-31 — App icon / PWA manifest + mountain treeline removal + drug-icon fixes
+
+**PWA app icon + web manifest (home-screen install)** ([index.html](index.html) `<head>`, [public/manifest.webmanifest](public/manifest.webmanifest), [public/icons/](public/icons/))
+- The site previously had **no** favicon / `apple-touch-icon` / manifest, so "Add to Home Screen" gave a generic/screenshot icon. Now wired end-to-end.
+- Generated the icon set from `Archive/Images/Cars multipack_files/DUI App Icon.png` (1254², **opaque** synthwave art) via `sips`: `apple-touch-icon.png` (180), `icon-192/512.png`, `favicon-16/32.png` → `public/icons/`.
+- `manifest.webmanifest`: name "DUI", `display:standalone`, theme/background `#000000`, 192+512 icons (purpose `any`).
+- `<head>` adds favicon links, `apple-touch-icon`, `manifest`, `theme-color`, and `apple-mobile-web-app-title` "DUI".
+- Decision: **synthwave art used everywhere**; the 2nd candidate (`App Icon.png`, a pre-rounded squircle WITH alpha) left unused — an opaque square is the correct `apple-touch-icon` source since iOS rounds corners itself. Vite copies `public/` → dist root on build; verified icons + manifest land in `dist/` and the built `index.html` references them. Not yet deployed (push triggers Netlify).
+
+**Mountain treeline band removed (Snoqualmie Pass)** ([Road.js](src/road/Road.js) `drawPeak` ~864)
+- The green "vegetation" wedge painted over each near peak's lower 18% (mile 45–70, `vegAmt`) overlapped into a continuous **green band on the horizon** at the pass. Per user, removed the wedge so each peak's base color (snowy `nearColor`/`farColor`) extends straight to the horizon — "mountains extend down further." Also deleted the now-unused `vegAmt` unlock var. Snow caps / outcrops / shading / pass-gap parting all unchanged. Only the mile 45–70 window is affected.
+
+**Drug-icon load race — self-healing upgrade** ([GameScene.js](src/scenes/GameScene.js) `_drawDrugIcons`)
+- Icons were lazily created **once**; if a drug texture wasn't ready at first draw (slow/cold phone load, or the 20s [BootScene](src/scenes/BootScene.js#L47) safety-timer force-start), a text-dot `•` fallback was cached **permanently** and never became the real logo. Symptom: intermittent missing drug logos, a *different subset each load*.
+- Fix: per-frame **upgrade** — if a slot is still the dot fallback and `textures.exists(texKey)` is now true, destroy the dot and build the real image (extracted `buildDrugImage` helper; keeps `_hudObjects`/camera-ignore consistent).
+- **NOT covered:** a genuine `loaderror` (iOS dropping a request under load) → BootScene substitutes a placeholder circle and never retries. A boot-loader retry / timeout placeholder-fill was offered but **not applied** (sensitive boot path — awaiting user go-ahead).
+
+**Drug icons vanish after buying a car (custom mode)** ([GameScene.js](src/scenes/GameScene.js) init ~429)
+- Rest-stop "continue" (including after a car purchase) does `scene.start('Game', …)`; Phaser reuses the scene instance, destroys all GameObjects and resets `_hudObjects = []`, but **`_drugIcons` kept pointing at the dead icon objects**. The lazy-create guard (`if (!this._drugIcons[id])`) then treated them as "already created" and never rebuilt them → invisible icons (the trailing `setVisible(false)` on dead objects is why it failed silently, not with a crash).
+- Fix: reset `this._drugIcons = {}` on every (re)create, alongside `_hudObjects`. This matches the existing pattern for the other persistent keyed HUD caches — `_f12Texts` (reset to `null` @299) and `_drugGhostPool` (reset to `[]` @780); `_drugIcons` was the lone omission.
+- Scope note: this actually affected **all** rest-stop resumes in custom mode, not just car purchases — buying a car is just where the user caught it.
+
+### 2026-05-30 (latest+1) — Painted-edge invariant for buildings + ramp-clearance bypass
+
+Continuation of the "Long thrash on roadside building parallax" session below. After ruling out the far-perspective `proj.sx` re-anchor (A/B-tested with `_isStructureForPerspective = false`), the user prescribed a precise render-time invariant: **the painted road-facing edge of every building/house must remain a fixed projected gap outside the projected road edge every frame, regardless of approach, steering, PNG padding, or per-region `roadScale`**. Sprite center is no longer the authority — it's *back-solved* from the desired painted edge.
+
+- **`STRUCTURE_BBOX` lookup table** ([GameScene.js](src/scenes/GameScene.js):159 top-of-file) — `{ leftFrac, rightFrac }` per texture key, baked from PNG alpha-channel analysis (40 non-full-bleed entries from 75 textures scanned). Full-bleed PNGs (content ≥ 99.5 %) fall through to a `{ leftFrac: 0, rightFrac: 1 }` default. Generated by `/tmp/measure_bboxes.py`; regeneratable.
+
+- **Painted-edge invariant** ([GameScene.js](src/scenes/GameScene.js) `_renderSceneSprites` ~10125) — opt-in via `sp.roadEdgeGapCars` AND `!sp.rampClearance`:
+  ```
+  centerX           = proj.sx − proj.roadHalfW × visualOffset
+  roadEdgeX         = centerX + sign × proj.roadHalfW
+  gapPx             = proj.sw × sp.roadEdgeGapCars
+  desiredInnerEdgeX = roadEdgeX + sign × gapPx
+  innerEdgeFrac     = sign≥0 ? leftFrac : (flipped ? 1−leftFrac : rightFrac)
+  spriteCenterX     = desiredInnerEdgeX − (innerEdgeFrac − 0.5) × targetW
+  ```
+  The sprite is rendered at `spriteCenterX` (not `proj.sx`). Result: the painted edge is anchored to the projected road edge by a fixed gap measured in `proj.sw` units (i.e., car-widths at the building's depth). Per-frame motion of the painted edge tracks the road edge by construction; the per-PNG content fraction is baked into the spawn-time anchor; per-region `roadScale` divergences are absorbed because the gap is computed from the SAME projection that produces the road edge.
+
+- **Collision rect synced** ([GameScene.js](src/scenes/GameScene.js):~4435) — when the invariant is active, `spL`/`spR` derive from `desiredInnerEdgeX ± paintedWidth` (painted bbox × targetW). Authority is the projected road edge, not `proj.sx`. The hand-tuned `collisionWidthFraction` (0.22 for `house`, 0.70 for `west_seattle_*`, etc.) becomes the legacy fallback path for non-structures.
+
+- **`roadEdgeGapCars` set on every cycle-spawn building** ([RouteData.js](src/road/RouteData.js):1349) — was only set on `isResidentialFrontage` sprites; for Bellevue / downtown Seattle skyline buildings it was `undefined`, so the invariant's default of `1.0` was placing the painted edge ~3 car-widths closer to the road than the spawn intended. This was the **"building tracks toward the car HARD"** symptom in the earlier Bellevue screenshots. Fixed by always setting `roadEdgeGapCars: gapCars`.
+
+- **All `_left` / `_right` suffix exceptions stripped** ([GameScene.js](src/scenes/GameScene.js):10028, 10121, 12248) — per user convention, **every scenery PNG is authored as a right-side building**. The `_left` / `_right` suffix in filenames is purely cosmetic. The renderer now flips any building/house with `sp.offset < 0` unconditionally; the painted-edge invariant's `flipped` flag is exactly `autoFlipLeft` with no exception branch.
+
+- **Rest-stop ramp-clearance bypass** ([GameScene.js](src/scenes/GameScene.js):10133, 4514, 8938) — identified via the G-dump diagnostic (see below): inside the 1.3-mi ramp window around each rest stop (mile 9.5 Mercer, mile 12.5 Bellevue, etc.), the existing ramp-clearance block at `_renderSceneSprites` ~9957 mutates `visualOffset` from `~2.56 → ~5.42` to shove the building past the ramp gore. The painted-edge invariant uses this mutated `visualOffset` to compute `centerX = proj.sx − proj.roadHalfW × visualOffset`, which is mathematically consistent but anchors to a road edge that's far outside the viewport. The buildings end up off-screen (`renderX = 1257` on an 800-px screen) AND the invariant's frame of reference is wrong for the ramp gore geometry. Fix: skip the invariant when `sp.rampClearance` is true; the legacy ramp-push handles those sprites' positioning. Gated at all three sites — render, live collision, F3 overlay.
+
+- **F2 painted-edge overlay (independent of F3)** ([GameScene.js](src/scenes/GameScene.js):641 + `_renderSceneSprites` per-sprite block) — dedicated `_paintedEdgeGfx` layer at depth 19, cleared per-frame, drawn into directly from inside the painted-edge invariant block using the SAME values the renderer applies. Lines:
+  - **Yellow** — projected road edge at the building's depth
+  - **Cyan** — actual painted inner edge (drawn taller, pokes out top/bottom)
+  - **Magenta** — desired painted inner edge (drawn on top; if invariant holds, magenta sits dead-centre over cyan and you only see magenta in the middle)
+  - **Dim cyan** — outer painted edge (back of the building's painted footprint)
+  Toggles independently of F3 so the user can view only the lines, no blue frames / red boxes / labels. F2 was initially nested under F3; user pointed out this was wrong and the refactor split it out onto its own graphics layer.
+
+- **G — telemetry dump** ([GameScene.js](src/scenes/GameScene.js):994 + `_renderSceneSprites` end-of-loop) — one-shot console.table dump of every visible structure's painted-edge math when the user presses G. Each row: `tex, sp_off, vis_off, sign, flipped, proj_sx, roadHalfW, centerX, roadEdgeX, gapCars, gapPx, desiredInner, targetW, bboxL, bboxR, innerFrac, renderX, n`. This is what bridges the **"I wish you could play this and see what I see"** asymmetry — the user pauses, hits G, pastes the table into chat, and I have exactly the per-frame numeric state needed to diagnose. The Mercer ramp-clearance bug above was identified in ~10 seconds from a single dump (rows showed `sp_off=2.562, vis_off=5.423` — 2.86-lane mutation traced to the ramp-push block).
+
+- **B-key conflict** — initially bound as F2 fallback "in case some OS captures F2"; turned out the user had B mapped to game-go-back and it was clobbering. Removed; F2 is the only painted-edge toggle.
+
+- **Verified behaviors per the G-dump**: for normal (non-ramp) Mercer left-side homes at varying depths, `desiredInnerEdgeX` is always strictly LEFT of `roadEdgeX` by exactly `gapPx`, depth-independent in lane units. For right-side: always RIGHT by `gapPx`. The "magenta in the road" perception remaining for distant left-side buildings is the natural perspective compression — at far depths the left road edge projects near the screen vanishing point (inside the near-road area from the player's viewpoint), so the line geometrically belongs at the road edge *at that depth* even though it visually overlaps the near road.
+
+**Open**: the user reports the *near-distance* invariant holds well (residual motion is much reduced, no more crowding/encroachment, no ramp overlap), but perceives some remaining "movement" — likely the natural perspective effect of building scale growth on approach (outer edge expansion away from road) which the invariant intentionally does NOT lock. The horizon-backdrop approach remains the only path to a fully static row, with the tradeoffs of lost collision and lost approach depth.
+
+### 2026-05-31 — Long session: pass-through city signs, NPC freight + farm equipment, HUD/signage overhaul, scenery polish, launcher app
+
+**Signage pass.**
+- New `PASS_THROUGH_CITIES` table in [constants.js](src/constants.js) — Preston (Exit 22), Kittitas (Exit 115), George (Exit 149), Endicott Rd. Starter set with a comment block listing more candidates the user can append. Spawned in [RouteData.js](src/road/RouteData.js) right after the rest-stop loop using `exit_sign_green` with `passThrough: true` — no `stopId`, no ramp paint, no amenities placard.
+- Render diverged from rest-stop signs via `sp.passThrough`: yellow REST STOP plaque in Road.js gated off, "REST STOP" text in GameScene gated off, exit label switched to `MILE XX` (game mile) for pass-throughs / `Exit XX` (real WSDOT number or game mile) for rest stops.
+- Non-I-90 rest stops swapped from highway-name labels (WA-262, WA-17, Airport Rd, US-195 S, WA-271 E) to `Exit <mileage>` — the shield badge already shows the highway so the text was duplicating it.
+- `exit_sign_green` baseW/baseH bumped 4800×6600 → **6400×8800** with offset 2.0 → **2.4** to keep the wider face off the right travel lane. Font multipliers dropped ~20 % so PRESTON / EXIT 22 etc. fit inside the bigger frame.
+- Town text raised: single-word at `signH * 0.45`, multi-line at `0.37 / 0.53` (centered between EXIT row and bottom border instead of sagging at the bottom).
+- Highway shield nudged left (`padX 0.04 → 0.015`) to sit tight against the white border.
+- Sign text threshold dropped `signW < 3` → `< 0.25` so green-sign text populates the moment the frame becomes visible, not after a "blank green rectangle on horizon" stage.
+- Grade signs (TRUCKS USE LOWER GEAR / STEEP GRADE / etc.) bumped 2800×3400 → 4400×5400 for legibility at 120 mph.
+- "NEXT EXITS" placard spawn suppressed — render code retained for legacy save compatibility, no sprites of this type spawned.
+- Removed the per-segment EXIT chevron triangle and the right-shoulder delineator posts in Road.js — at game scale they stacked into white-hash-mark artifacts across consecutive segments instead of reading as discrete chevrons/posts.
+- Off-ramp width is now **constant** within the window — `t = 1` always inside `if (seg.rampStrength > 0)`. Removed the smoothstep narrow→wide pull-out animation. Ramp opens at full divergence (1.25 lanes × 2.05-lane gore wedge) the moment rampStrength > 0 and stays that size through the after-window taper.
+
+**Wind sign at Vantage (mile 137).**
+- New asset `freeway_sign_wind.png` (1263×864 cantilever composite — pole on right, sign body hangs left over the road). Profiled in SCENERY_IMAGE_PROFILES + FOG_PROFILE_MULTS with widthMult 4.20.
+- Spawned as a `building` sprite with `collidable: false` (the sign body over the road would otherwise crash the car); segment carries `windSignPoleSide: 1`.
+- Pole-base collision mirrors `utility_pole` exactly — −10 HP, 1.5 s cooldown, crash-recovery handshake — with a separate `WIND SIGN POLE` popup. Logic block added in [GameScene.js](src/scenes/GameScene.js) right under the utility-pole check.
+
+**Hatton multi-fix.**
+- Asset `sign_H.png` does NOT exist on disk; amenities placard was rendering as a blank white frame. Introduced `STOPS_WITHOUT_BAKED_SIGN = new Set(['H'])` — skips the amenities-sign spawn for stops in the set. Green exit sign + ramp still spawn normally.
+- Hatton exit label changed `WA-26` → `Exit 205` (the badge already shows WA-26).
+- Hatton added to `_CP_RAW` (CHECKPOINTS) — the custom-mode location picker filters CHECKPOINTS, not REST_STOPS, so Hatton was visible on the in-game map but not in the start menu.
+- Hatton added to `GEO_WAYPOINTS` at real lat/lon (46.759, -118.825) — previously it was being interpolated on the straight Othello→Washtucna line.
+
+**HUD city label — last sign passed.**
+- New `getLastSignTown(currentMile)` in [constants.js](src/constants.js) — scans REST_STOPS + PASS_THROUGH_CITIES for the latest sign whose `mileage − 1` is ≤ currentMile, returns that town name.
+- GameScene's bottom-center label switched from `getLocationName(progress)` → `getLastSignTown(mileNow) || getLocationName(progress)`. Pass-through city signs now drive the HUD too — pass Preston's sign at mile 21 and the label reads "Preston" until Snoqualmie's sign at mile 24.
+
+**Custom-mode location picker tail fix.** Denominator was `CHECKPOINTS.length - 1` but the picker filters out the `isFinish` entry, leaving a dangling line tail past the last dot suggesting more stops. Switched to `customStartCities.length - 1` so the last dot (Pullman) lands exactly at `mapRight` under the PULLMAN label.
+
+**Issaquah / Snoqualmie scenery cleanup.**
+- `RESIDENTIAL_FRONTAGE_GAP_CARS` bumped 1.25 → **2.75** — eastside homes were crowding the sidewalk and the tall codex_issaquah_highlands silhouette read as "floating" at far perspective because its near-edge sat almost on the fog line. (For reference: Mercer 3.00, West Seattle 3.50.)
+- `addExitScenery` strip restricted to Seattle rest stop only. The Issaquah strip texture was spawning at every rest stop past Bellevue — at Snoqualmie (mile 25) it appeared as the apartment building "still blocking the exit". Per the prior `project_dui_bellevue_issaquah_swap` memory ("Issaquah fully bare"), it shouldn't have been there at all.
+- **`rampClearance` push de-gated.** Was `if (rs > 0.30)` at three sites (renderer, live collision, F3 overlay). A home spawned at mile 24.14 sits in a segment whose own rampStrength is 0.14 — below threshold — so the push never fired and the home stayed at spawn offset all the way through the approach. Now always pushes to the FULL ramp extent (`1 + 3.30 = 4.30`) the moment a rampClearance sprite is rendered.
+
+**E. WA Silos — hand-placed Vantage→Pullman.** 5 deterministic spots: mile 165 (Royal slope) R, 195 (Hatton coulee) L, 232 (Washtucna) R, 260 (Endicott) L, 280 (Colfax) R. Texture `codex_east_wa_silos` (1388×779) registered with widthMult 3.20.
+
+**Doublewide tripled.** `widthMult 2.85 → 8.55`, `maxW 320 → 960`, `maxH multiplier 1.85 → 5.55` for both tan and white variants. Matched in FOG_PROFILE_MULTS so spawn placement uses the same effective width.
+
+**NPC traffic — Eastern WA freight + farm equipment.** New assets in [AssetManifest.js](src/systems/AssetManifest.js): `car_back_codex_semi`, `car_front_codex_semi_red/green` (shared back, two front colors), `car_back_codex_tractor` (back-only, same-direction only), `car_back/front_codex_white_truck`, `car_back/front_codex_work_truck`. Full rewrite of vehicle-class selection in `_spawnTraffic`:
+
+| Mile | car / white_truck / work_truck / semi / tractor |
+|---|---|
+| < 17 | car 100 |
+| 17–52 | 90 / 6 / 3 / 1 |
+| 53–69 | 82 / 8 / 6 / 4 |
+| 70–136 | 70 / 10 / 8 / 12 |
+| 137+ | 50 / 10 / 9 / 22 / 9 |
+
+- **Semi**: 70 ± 10 mph same-dir, 60 ± 8 oncoming, `visualScale 1.35` (renders ~lane-wide). 50/50 red/green front. **Pair-spawn**: when a same-dir semi spawns east of Vantage, 35 % chance an oncoming semi also spawns within ±1500 units of the same Z — the "almost impossible to drive between" scenario.
+- **White truck** / **Work truck**: highway speed vs 45 ± 5 mph slow contractor pace.
+- **Tractor**: same-direction only (we only have a Back PNG — player always overtakes), 30 ± 3 mph, spawns at fog line (`laneOffset 0.95`), drifts sinusoidally between 0.95 and 0.75 every ~16 s. **Throttled by 10-mile cooldown** via `this._lastTractorMile` — a tractor roll inside the window downgrades to a semi. **2x damage multiplier** on all crash types (`classDmgMul = car.vClass === 'tractor' ? 2 : 1`) — hitting one is like slamming a small bulldozer.
+
+**70 ft NPC follow distance.** `FOLLOW_DIST` bumped 1800 → **4250** units (≈ 70 ft at 60.76 units/ft). Spawn-conflict gate matched to 4250 so freshly-spawned cars can't appear closer than the in-traffic gap rule allows.
+
+**Bush stick-and-roll-off.** Replaces the old "car blows through with light damage" shrub behavior. `_sceneryGlance` now sets `this._bushStuckUntil = now + 3000` and pops `🌿 BUSH STUCK!`. New cap in `_updatePlayer` (same shape as flat-tire cap) clamps `targetSpeed` to 40 mph while the timer is live. Lateral nudge + sprite kick stay the same.
+
+**Snow windshield accumulation.** Two-layer model in [EffectsSystem.js](src/systems/EffectsSystem.js):
+- `_wsSnowCoverage` (0–1) — opaque white pack covering the windshield rect, grows `0.20 × weatherInt × (0.6 + 0.4 × sevSnT)` per mile. Full intensity + peak severity → 5 mi to opaque (user spec).
+- Wiper sweep removes 0.40 additive (3 sweeps clear a fully-covered windshield).
+- Decorative `_wsSnow` flake particle layer kept for visual texture, scaled by `flakeFade = 1 − coverage` so flakes fade out as the pack thickens.
+- Drains 6 %/frame outside snow zones; mile-tracker reset on exit so the next snow band restarts the 5-mi clock at 0.
+
+**Power poles + wire treated like fog/fence line.**
+- Pole offset 2.42 → **2.0** — close enough to read as shoulder, far enough that the closest visible pole doesn't appear to drop into the road as it nears the bottom edge.
+- Per-pole scale `[0.93, 1.04, 0.97, 1.08]` + rotation `[0.010, -0.012, 0.007, -0.009]` variation mirroring the fence-post render, so poles read as natural wooden posts.
+- Wire rendering split into two passes: **continuous ribbon at WIRE_STEP=14** (same cadence as fence rail) sampling the surface densely so the wire follows the road's curve exactly, plus pole sprites at the real-world **SPACING=61** (~200 ft) pitch. Resolved the "wire drops down at screen exit" — the single-pass 61-spacing draw cut straight-line shortcuts across road curves.
+- Edge continuation: hold Y constant past the closest visible wire sample (matches fence rail continuation) so the wire still doesn't dive into the road at the screen edge.
+
+**Phone-menu fixes ([index.html](index.html)).**
+- Root cause for the "music / garage / maps / start-over / checkpoint / menu buttons do nothing" bug: `public/assets/ui/iphone_menu_bg.png` had been compressed from the original **1408×2641** to **819×1536**, but every `data-px` hit-zone coordinate was still authored against the 1408×2641 image. Bottom-row Y=2317 projected to off-screen dead space. Restored the original from `Archive/runtime-image-originals/`.
+- The `data-action="menu"` button had no handler at all (separate latent bug). Added `window.__mainMenu` in [main.js](src/main.js) (uses `scene.start('Game', {})` the same way GameOverScene's "MAIN MENU" does); wired the hit zone with a confirmation prompt.
+- Stale 819×1536 comment in index.html updated to 1408×2641 with a warning so a future image-compression pass doesn't clobber the alignment again.
+
+**Amenities sign decal fade removed.** Threshold dropped `signW < 2` → `< 0.5`, decalAlpha forced to 1. Shield/brand logos now appear at the same instant the white frame does, eliminating the "white sign → blue sign with logos" pop on approach.
+
+**Mac launcher app.** `~/Desktop/DUI Dev.app` bundle + `~/Desktop/DUI Dev.command` shell script. Double-click → opens Terminal, runs `npm run dev`, polls `https://localhost:3000/` every 0.5 s, opens the browser the moment Vite responds, leaves logs visible. Custom icon: melted pink steering wheel dripping into a cyan-bordered "DUI:LOCAL" server rack. Source SVG + iconset live under [scripts/](scripts/) — `dui-icon.svg`, `DUI.iconset/`, `DUI.icns`.
+
+**Tunable hot-spots left in the working tree (callouts for future iteration):**
+- Wind sign sprite offset `-0.30` — adjust if the pole base isn't landing exactly on the right shoulder.
+- Semi `visualScale: 1.35` — bump if "almost a lane wide" reads too narrow.
+- Spawn-class % tables — first big-volume drive will tell whether Eastern WA feels too truck-heavy.
+- Silo offsets `±3.20` per placement.
+
+### 2026-05-30 (latest) — Water-sink decoupled from guardrails (the working model)
+
+**Design rule (locked):** the guardrails and the water-sink are TWO SEPARATE SYSTEMS and must stay decoupled. Never modify a barrier to make sinking work. The intended behavior: **bridges have guardrails (you cannot drive or get knocked off the bridge deck), but you CAN drive into the water on the open approaches BEFORE the rails, and the car sinks.**
+
+**Guardrail = gap-less hard wall via `_preMoveX`** ([GameScene.js](src/scenes/GameScene.js) lateral-physics block, ~3490 capture + ~3560 rail block)
+- Capture `const _preMoveX = p.x` at the END of last frame, before this frame's steering/impulse integration.
+- The rail snap gates on `_preMoveX`, NOT the current landed `p.x`: `railsRightSide && p.x > BRIDGE_RAIL && _preMoveX <= SINK_EDGE` → snap to +0.95 (mirror left with `_preMoveX >= -SINK_EDGE`). If the car was ON the road last frame and tries to cross, it is BLOCKED no matter how fast it steered or how hard it was hit. There is no gap to slip through — you can't drive or get knocked off a railed bridge.
+- If `|_preMoveX| > SINK_EDGE`, the car was ALREADY deep in the lake last frame (only possible by arriving off a NON-railed land approach, e.g. driving off Mercer Island onto the lake apron). The snap is skipped → scrape-damage → the dunk below sinks it. The rail never rescues a car that is already in the water.
+
+**Dunk / sink** ([GameScene.js](src/scenes/GameScene.js) ~3730) — unchanged trigger: sink when on water past `DUNK_THRESH = 1.15`. `_bothSidedWater = seg.water || seg.bridgeWaterChannel`; plus `waterLeft` / `waterRight`. `SINK_EDGE` in the rail block must stay equal to `DUNK_THRESH` so the hand-off is seamless. A `!this._sinkState` guard skips the rail while the sink animation plays so it can't yank the sinking car.
+
+**Geometry** ([Colors.js](src/utils/Colors.js) `REGION_ORDER`, [RouteData.js](src/road/RouteData.js)) — only the floating-bridge stretches are `lake_washington` (water:true → railed): Murrow 5.7–7.2, East Channel 9.8–10.2. Between them 7.2–9.8 is `mercer_island` LAND (no rail). A 0.10 mi `seg.water` apron is flagged before/after each bridge (~2318) — that apron is the unrailed water the player can drive into off the Mercer land approach and sink.
+
+**Approaches that were tried and REVERTED (do not re-add):**
+- Hard-rail every water segment → car couldn't sink (rail "replaced it on the bridge").
+- Latched crash "punch-through" the rail (`p.punchThrough`, `PUNCH_IMPULSE`) — coupled the systems; removed.
+- Band-gated snap `[0.95, 1.15]` keyed on current `p.x` — left a GAP: a fast steer/crash jumps past 1.15 in one frame, skips the snap, drives off the bridge. Replaced by the `_preMoveX` gate.
+- `seg.shoreWall` — a both-sided hard wall on the land approaches behind the houses. Blocked ALL off-road exit on the approach; the approach is meant to stay drivable-into-water. Fully removed. If a barrier is ever wanted there it must be water-side ONLY and set out past the shoulder, never both-sided at the lane edge.
+
+### 2026-05-30 (later session) — Long thrash on roadside building parallax, collision fidelity, headlight clamp, water dunk
+
+Single very long session. Mostly successful, but the roadside-building work hit a dead-end and the root cause was only identified at the end — the proper fix is teed up but **not yet applied**.
+
+**Milky Way visuals** ([Road.js](src/road/Road.js) `render`)
+- Reshaped the band: galactic core via Gaussian at `CORE_T = 0.78` with `mwBright(t)` and `mwGirth(t)` curves so the band fattens 3–5× through the core and tapers to thin star-rich tails. Added a 150-blob low-alpha "cohesion wash" *underneath* the granular 1000-blob layer for the old continuous-cloud feel, plus 380-puff core plume with mild swirl, dust rivers as 3 meandering Bezier streams, and brighter cluster knots.
+- **Real bug**: `azAlt()` had a leftover `H() * HORIZON_Y_FRAC (0.80)` from when `H()` meant SCREEN HEIGHT — now `H()` is the horizon-Y itself, so altitude=0° was projecting 20 % of horizon-Y ABOVE the horizon, putting the band mid-sky instead of rising from the ground. Fixed `azAlt` so altitude=0° lands on `H()` exactly. Moon path benefits too.
+- **Rotation anchored to reveal**: Milky-Way-only rotation now zeros at mile 215 (first reveal) and the rate is scaled to `MW_ROT_SCALE = 0.20` so it doesn't lap multiple times over the visible window. Field stars use the original `skyRot`.
+
+**Custom-start menu** ([GameScene.js](src/scenes/GameScene.js) `_buildSliderModal`)
+- "PICK A CITY. SET YOUR CHAOS. THEN DRIVE." prompt replaced with a small `Location:` label sitting just left of the dynamic city readout (`cityReadout`) so they read together as one line.
+
+**Bellevue building audit** (multi-agent workflow `bellevue-building-audit`)
+- 26 agents (4 mappers, 12 diagnostics, 9 adversarial verifiers, 1 synthesizer). 4 of 12 candidate failure modes survived adversarial review.
+- Applied 4 of 5 punch-list fixes in [RouteData.js](src/road/RouteData.js):
+  - **De-duped right pool** (was 8 entries with `residential_cluster` listed twice; now 7) so pool lengths are coprime with the 8-entry left pool — combined L+R cycle stretches from 0.8 mi to ~5.6 mi.
+  - **Hash-mixed picker + recent-key window** — replaced the modulo walk with an xorshift index + per-side rolling window of last `floor(len/2)` picks, so the same building can't reappear within a few slots.
+  - **Halved skyline slot density** (20/mi → 10/mi) and bumped vacant-slot skip 0.20 → 0.35 — old pitch produced overlapping projected widths.
+  - **Reduced eastside_urban heightBoost** 3.0 → 2.2 so projected widths fit inside the new slot pitch. Seattle downtown unchanged.
+- Skipped Fix 5 (per-distance sprite fog blend) as out-of-scope for the Bellevue complaint.
+
+**Shrubs no longer stop the car** ([GameScene.js](src/scenes/GameScene.js) `_sceneryGlance`)
+- **Long-standing bug, finally fixed.** Sage bushes used to scrub speed to 40 mph and reapply every 200 ms while inside the bush volume — read as "the car won't go through this bush." Now: 1 HP damage, light lateral nudge, **`sp.collidable = false`** marks the specific shrub flattened so it can't damage twice, **no speed cap**. Hit a bush at 90 mph, you take 1 HP, hear the thump, keep going at 90.
+
+**Space Needle moved to the opening mile** ([RouteData.js](src/road/RouteData.js), [GameScene.js](src/scenes/GameScene.js))
+- From mile 3.5 → **mile 1.85** (just past the crane stretch, 1.05–1.75), offset −1.6 → **−3.0** (far left horizon landmark). Visibility lookahead bumped to `DRAW_DIST * 9` (~2.1 mi) so the Needle pops in at game start when the cranes do.
+
+**Drunk double-vision suppressed during debug overlay** ([GameScene.js](src/scenes/GameScene.js))
+- F3 debug mode now zeros `doubleVision` and `shroomMelt` at the render call (3 sites: road, cars/cops, drug pickups). Underlying effect values untouched — only the rendering pass sees zeros. User was rightly annoyed that "beer shouldn't affect debugger tools." Single ghost copy removed when debug is on.
+
+**Collision tunneling at high closing speeds** ([GameScene.js](src/scenes/GameScene.js) `_checkCollisions`)
+- `aabbHit` gained a motion-aware swept window: `sweep = |p.speed − entitySpeed| × frameDt × 0.60`, so the `|Δz| < CAR_LEN_Z` threshold expands proportionally to closing speed. Without this, Rx-boosted player + oncoming traffic could step from `Δz = +600` to `Δz = −500` in a single frame and pass through each other.
+- **Dual gate for vehicle collisions**: a hit fires if EITHER `aabbHit` (world-space lane proximity) OR `classifyHit` (screen-space rectangle overlap of the rendered sprites) passes. Both traffic and cop loops now use this. Catches NPCs that visually overlap but were outside the lane-offset gate.
+
+**Tunnel lane clamp removed** ([GameScene.js](src/scenes/GameScene.js) `_renderVehicles`)
+- The line `const tunnelLaneOffset = inTunnel ? clamp(laneOffset, -0.48, 0.48) : laneOffset` was pulling the **sprite** for outer-lane cars to ±0.48 visually while the **collision** stayed at the real ±0.75. Cars rendered on the hash marks between oncoming lanes, collision rects off to the side. Removed the clamp; tunnel walls sit outside the road shoulder so cars at ±0.75 are still on the pavement.
+
+**Building fade-in clock bug — `gameTime` → `this.time.now`** ([GameScene.js](src/scenes/GameScene.js:9806](src/scenes/GameScene.js#L9806))
+- **Long-standing "buildings only appear after I press L/R" bug.** Fade-in used `this.gameTime` as its clock, but gameTime is gated on first L/R/tap input (the ready-state freeze). Every building's `_fadeInStart` got stamped to 0, `elapsed = 0`, `fadeAlpha = 0` → **buildings were rendered but invisible until the first input**. Pressing L/R or pause/unpause (SPACE) cleared the ready state, gameTime started ticking, fade resolved to 1, and the user perceived "buildings appearing." Switched to `this.time.now` (Phaser's monotonic clock).
+
+**Tunnel cull: see homes through the exit** ([Road.js](src/road/Road.js):1329, [GameScene.js](src/scenes/GameScene.js):9468)
+- `_cameraInTunnel` + `_tunnelExitN` now published from `Road.render()`. Scenery renderer uses `tunnelExitN` as the cull boundary while inside (or `-1` = no cull) so homes past the exit render through the bright mouth opening, exactly the way trees already did. The old past-tunnel cull only fired on `type === 'building' || 'house'`, so trees showed and buildings didn't — that asymmetry is gone.
+
+**Headlight beam vertical-clamp** ([GameScene.js](src/scenes/GameScene.js):8198 `_renderHeadlights`)
+- On steep grades the original `roadTipY = HORIZON_Y + max(40, …)` formula was free to drag the beam tip up to the horizon line (or above when the camera pitched), giving the "cones shooting straight up into the sky" look. Threw out the formula entirely: **`roadTipY = beamBaseY − 55`** (hard-anchored 55 px above the base, period). Cones now stay a stubby forward pool just ahead of the bumper regardless of road tilt. Tunable — the `55` is the single dial.
+
+**Water dunk now actually fires** ([GameScene.js](src/scenes/GameScene.js):3445, 3614)
+- Comment block said "Plain `water` segments have no clamp" but the code condition `onWaterAnySide = !!(seg?.bridge || seg?.water)` included plain water — so the car was pinned at ±0.95 on lake-adjacent segments and could never reach the ±1.5 dunk threshold. **Drove off the bridge → respawned without sinking.**
+- Fix: clamp only on `seg.bridge`. Plain water + `waterLeft`/`waterRight` get *damage* on shoulder scrape but no positional snap. Dunk threshold dropped 1.5 → **1.15** so even moderate drift fires the sink.
+
+**Roadside building parallax — long dead-end with the real cause finally identified**
+- Spent the session attempting several fixes for "houses crowd the roadway when far, back off when close" perception. All rejected:
+  - Bumped/uniform `widthMultOverride = 9.0` in `fogLineOffset` (reverted; pushed narrow variants further back, made things worse).
+  - 40 % parallax dampening on building sprite positions (reverted; broke road↔building alignment).
+  - 100 % anti-parallax (`+ playerX × roadHalfW`) — locked sprites to fixed screen positions but caused the "fly outward" effect as you approach (`screenW × L` grows with depth).
+  - Massive setback bumps (gap 3.5 → 7.0, skyline 4.0 → 8.0) — user rejected, "no way to crash into a house."
+  - All reverted to baseline parallax.
+- **Per user's analytical prompt, did the actual math:** sprite half-width in lane units is `(825 × mult × aspect) / 7200` — a **constant in lane units regardless of depth**. Gap from sprite inner edge to road edge is invariant in lane units, linear in pixels with depth. Projection math does NOT cause sprite width to outpace setback. Concluded the cause is elsewhere.
+- **Applied (correctly identified user-suggested fixes, kept):**
+  - `usesFarPerspective` in `_renderSceneSprites` extended to include `sp.type === 'building' || 'house'` so every structure gets the `1/n` perspective falloff + vanishing-point pull.
+  - **Unified scaling** for all structures: forced through the height-led path (`targetH = proj.sw × unifiedMult`, `targetW = targetH × baseW/baseH`), converting `widthMult` to an equivalent on the fly. Removes the height-led vs width-led split that made adjacent variants expand at different rates.
+  - **Skipped the `shrink` cap** for all structures (was only skipped for `roadEdgeGapCars` sprites). Different assets hitting `maxW` vs `maxH` first was producing mismatched effective scales per depth.
+  - **Bypassed the dynamic clearance push** (`proj = shifted` reassignment) for `sp.type === 'building' || 'house'` in BOTH the render path ([line 9753](src/scenes/GameScene.js#L9753)) AND the matching collision-side mirror ([line 4306](src/scenes/GameScene.js#L4306)). Buildings now honor their spawn-time `fogLineOffset` lateral position end-to-end.
+
+- **Root cause found at end of session, fix not yet applied:** PNG transparent-padding ratio varies dramatically across the West Seattle home pool:
+
+  | PNG | Frame | Content | Content / Frame |
+  |---|---|---|---|
+  | ws_3 / ws_4 | full-bleed RGBA | — | **~99.9 %** |
+  | ws_2 | 768×576 palette | 720 | **93.8 %** |
+  | ws_5 | 768×512 palette | 703 | **91.5 %** |
+  | ws_1 | 768×512 palette | 680 | **88.5 %** |
+  | ws_6 | 768×512 palette | 653 | **85.0 %** |
+
+  `fogLineOffset()` computes the half-width in lane units from the **frame** dimensions (`heightMult × baseW/baseH`), not the **content** dimensions. So when the slot cycler picks different variants at adjacent slots, the **visible building edge** lands at different lane offsets even though every sprite center is correctly anchored. The visible inner edge for ws_3/ws_4 (full-bleed) sits at lane ~1.69; for ws_6 (15 % padding) it sits at lane ~1.97 — a swing of ~0.30 lane units variant-to-variant. THIS is the "the closer I get, the further they move" / "houses wobble" perception.
+
+  **TODO — proposed fix is teed up:** in `fogLineOffset()`, multiply `halfW` by a per-PNG **content fraction** (new `FOG_CONTENT_FRAC` lookup) so the *visible* building edge — not the frame edge — lands at the designed gap. ws_6 spawns ~0.155 lane units closer to road; ws_3 spawns at the current position; every variant's visible facade ends up at the same fog-line offset. No renderer changes, no asset re-export, no spawn-loop changes. Awaiting user direction to implement.
+
+- **Lessons:** stop reaching for math-level rewrites when the cause is asset-level inconsistency. The user's analytical framing ("does sprite width growth outpace setback growth?") forced the precise dimensional check that ruled out projection and pointed at the PNGs.
+
+### 2026-05-30 — Wildlife overpass TWIN-ARCH rebuild (mile 65)
+
+Rebuilt the Snoqualmie Pass wildlife crossing from real reference photos (I-90 overcrossing) after the bundled workflow reshape below broke. Built **one verified step at a time** (each gated to wildlife so Mt Baker / Mercer lid are untouched). It is a short, low cement **hill over a divided road** — two arches, a solid center pier on the median, a low earthen mound sloping to the forest on each side.
+
+- **Twin-arch facade** ([Road.js](src/road/Road.js) `_drawTunnelFacade`, dedicated `isWildlifeFacade` early-return branch) — two segmental arches (one per carriageway) flanking a SOLID central pier, under a low flat-ish mound that slopes down on the outer flanks so sky/forest shows to the sides. Drawn as two solid concave pieces split at the centerline (each carves one arch + half the pier). **Geometry numerically pre-validated** for non-self-intersection across the perspective range (`/tmp/twin_arch_proto.py`) before writing — no more blind breakage. Knobs: pier half-width `mouthW*0.05`, arch rise `archHalf*0.92`, deck band, flank `mouthW*0.32`.
+- **Two-opening mask** ([Road.js](src/road/Road.js) publishes `_tunnelMouthShapes`; [GameScene.js](src/scenes/GameScene.js) `_updateTunnelMask`) — the interior stencil is now the TWO arch polygons (not a single rect), so the interior shows through both arches while the solid center pier stays opaque. The geometry mask (a Graphics shape, not a hard rect) made this feasible. Non-wildlife facades set `_tunnelMouthShapes = null` → fall back to the rect.
+- **Road split** — RouteData tags a **median zone** (mile 64.93–65.07, `seg.medianZone` + `seg.medianW` 0→1→0 taper). [GameScene.js](src/scenes/GameScene.js) barrier block adds a **soft pier collision** (nudges the player off the median to whichever side they lean — can't drive through the pillar, but still free to pick left OR right; never a crash). [Road.js](src/road/Road.js) `_drawSegment` draws a **visible raised concrete median curb** down the centerline (scales with `medianW`).
+- **Bore** — lengthened to **~100 ft** (`WILDLIFE_OVERPASS_RANGE [65.00, 65.0189]`) and the interior **shaded dark** in `_drawTunnelShell` (a `0.62`-alpha overlay, sodium ceiling lights skipped for wildlife) so the openings read as a shaded recess you drive UNDER, not a bright see-through hole.
+- User confirmed the facade shape + median read right; shade/length/proportions are single-number dials for further tuning. Generators/protos in `/tmp` (`twin_arch_proto.py`).
+
+### 2026-05-29 (latest+3) — Wildlife overpass reshape (mile 65, multi-agent workflow) — ⛔ REVERTED
+
+**This whole reshape was REVERTED** (superseded by the 2026-05-30 twin-arch rebuild above). In play it broke: cutting `W_FLANK` to 1800 left the facade too thin → holes → see-through to the sky ("abstract art installment"), and the 16-strip `sin` vault read as "fishbone" striped walls instead of solid. Lesson logged: big bundled blind facade changes break; the rebuild was done one verified step at a time. Original (now-reverted) approach for reference:
+
+Designed + adversarially verified via the `wildlife-overpass-redesign` workflow (4 agents), then applied (12 patches, all gated on `isWildlifeFacade`/`seg.wildlife` so Mt Baker + Mercer lid render byte-for-byte unchanged).
+- **Facade: wall → land-bridge** ([Road.js](src/road/Road.js) `_drawTunnelFacade`) — the old wildlife branch built one screen-filling sine half-dome (`W_FLANK=160000`) that read as the Great Wall. Replaced with a low FLAT-TOPPED earthen deck: `W_FLANK` cut to 1800 (modest abutment embankments, sky to the sides further back), arch springer lowered (`WL_H_OPEN=2300` vs the 4500 highway ceiling) and made SEGMENTAL (`WL_RISE_FRC=0.45` — keeps the liked arch shape but shorter), with a thin earthen deck band (`WL_DECK_THK=1100`) above the crown. crestY/dropY re-pointed to the deck top (only inside the wildlife branch). Ring/shadow/jamb edits follow the new segmental arch.
+- **Bore: rectangular → arched vault** ([Road.js](src/road/Road.js) `_drawTunnelShell`) — wildlife ceiling raised (`H_CEIL` 4500→9000) and a `sin(π·t)` arched vault underside drawn as 16 trapezoid strips springing from the inside wall tops. Gated on `seg.wildlife`.
+- **Verify caught a blocker:** the facade mask patch referenced `mouthRadius` before its `const` declaration (temporal-dead-zone ReferenceError, would crash every frame the overpass was visible) — applied the corrected inlined version.
+- **Known eyeball caveats** (flagged by verify, for iteration): at the nearest render distance (n=30) the deck still spans full width — side sky only opens at n≥40; the facade deck silhouette is bare concrete + rim band (the grass/dirt/trees live in the BORE renderer, not the facade, so the deck has no painted greenery yet); the arched bore crown coincides with the raised flat ceiling (reads as a curved ceiling, not a deep cathedral vault).
+
+### 2026-05-29 (latest+2) — Mercer/Seattle scenery fixes (multi-agent workflow)
+
+Diagnosed + adversarially verified via a 6-agent workflow (`mercer-scenery-fixes`), then applied.
+- **Mercer homes pop-in past the lid tunnel** ([GameScene.js](src/scenes/GameScene.js) `_renderSceneSprites`) — buildings/houses now fade in 0→1 over 450ms via a per-sprite `sp._fadeInStart` stamp instead of snapping to full opacity. The past-tunnel cull stamps `-1` while a structure is occluded so it re-fades the instant it's uncovered at the mouth. Generalizes to all structures entering draw range (smooths route-wide pop-in). Tunnel stays opaque (facade at depth 9.82 draws over sprites regardless of alpha); mirror pool + night-tint unaffected.
+- **Mercer homes crowding the road** ([RouteData.js](src/road/RouteData.js)) — root cause: the `mercer_island` region had no case in the cycle-spawn `carWidthsPastFog` switch, so it fell through to `default: 0.90` car-widths (~0.21 normalized gap). Added explicit `case 'mercer_island': return MERCER_FRONTAGE_GAP_CARS` (=3.00, ~0.69 gap). Scoped exactly — Mercer was the only CYCLE_POOLS region hitting the default; West Seattle homes (separate path, 3.50) and eastern scenery untouched.
+- **Bellevue/Seattle skyline sinking into Lake Washington** — first attempt (`SKYLINE_SHORE_LIFT=4`, lifting the silhouette base above the waterline) was **REVERTED**: the user clarified the skyline silhouette exists specifically to COVER a charcoal "junk" backdrop band on the bridge crossings, so lifting it just exposed that junk (visible as a dark band on the West Seattle bridge). Correct understanding: the silhouette must stay LOW (covering the charcoal), and the real bug on the Murrow floating bridge is a DRAW-ORDER problem — the per-segment lake-water fills are painted into the same roadGfx layer AFTER the silhouette, so they overpaint its lower edge ("sinks into the lake"). Proper fix (TODO) is a layer/draw-order change (silhouette above the water fills, behind the cranes), NOT a vertical lift.
+- **Process note:** a diagnosis subagent overstepped and applied the tunnel-popin edit to GameScene.js directly during the workflow; the change was independently verified correct and kept.
+
+### 2026-05-29 (latest+1) — Weather storm-build + seamless rain→snow, curve de-wiggle
+
+**Weather** ([Weather.js](src/world/Weather.js), [EffectsSystem.js](src/systems/EffectsSystem.js))
+- **Seamless rain→snow** (was a clear-weather gap): rain `intensity` no longer fades out over mile 38-40 and snow no longer fades in over 40-42 — both hold full at the mile-40 boundary, so rain hands directly to snow with no "it cleared up then snow started" gap.
+- **Rain strong by mile 35**: rain `severity` ramp steepened (`(mile-30)/7`) → ~2.0 by mile 35, peak 2.4 by 37. Falling-streak `COUNT` and opacity now scale with `sevT` (`110·int·(1+1.4·sevT)`), so it builds into a wipers-needed downpour.
+- **Windshield build-up** (was instant whole-glass fill): removed the 60-drops/sec bulk pre-fill; drops now accrue at a gentle severity-scaled rate (`5+34·sevT`/sec) and spawn in the lower 45% of the glass, so the windshield fills bottom-to-top over a few seconds and rebuilds after each wipe.
+
+**Curves de-wiggled** ([routeGeo.json](src/road/routeGeo.json))
+- Local feedback: Snoqualmie Pass "felt a lot curvier than I recall" — the GPS regen had rapid mile-to-mile S-curves. Regenerated with a wider curvature window (DELTA 0.30→0.50 mi) + 2 moving-average smoothing passes (calibration re-normalizes peak magnitude). North Bend→Pass direction-flips dropped from many to 2; reads as long sweeps now. Side benefit: the Mercer Island crowding-bend softened +0.0106→+0.0064. Bridges still verify straight. Generator: `/tmp/gen_curves_gps.py`.
+
+### 2026-05-29 (latest) — Real GPS+DEM elevation (route no longer flat)
+
+**Root cause of the flatness** ([routeGeo.json](src/road/routeGeo.json), [RouteData.js](src/road/RouteData.js))
+- `routeGeo.json` had real `curves[]` (350 samples) but an **empty `hills[]`**, so `HAS_REAL_HILLS` was false and ALL elevation fell back to ~48 hand-typed keyframes in `I90_ELEV_FT`. In the east those keyframes are 15–25 mi apart, Catmull-Rom smoothed into featureless ramps — the Palouse rolling hills rendered as a flat tilt.
+
+**Fix: populate hills[] from real road geometry + USGS DEM**
+- Pulled the actual road polyline (4,286 vertices, 296.6 mi) for the Seattle→Pullman corridor from OSRM (OpenStreetMap routing), forced onto I-90 → WA-26 → US-195 → WA-270 via Vantage/La Crosse waypoints.
+- Sampled 350 points along the **true roadbed** (not straight chords — earlier hand-waypoint attempts cut over Cascade peaks, producing a fake 4,600-ft summit flanking a valley) and queried elevation from OpenTopoData `ned10m` (USGS 10m DEM), converted m→ft, stored as feet-above-start in `hills[]`.
+- **Rubber-sheet alignment**: pinned each town's real road-location to its game checkpoint mile (piecewise-linear game_mile→real_distance map) so terrain features land on their signs despite the 296.6→293 mi compression.
+- Result verified against reality: summit peak 3030 ft @ mile 51, Vantage gorge drop to 589 ft, Ryegrass 2430, Cle Elum 1916, Washtucna coulee 1042, Pullman 2362 — all within ~30–80 ft of real. Generator script at `/tmp/gen_hills_gps.py` (reads `/tmp/osrm.json`).
+- `I90_ELEV_FT` keyframes are now a **fallback only** (used if `hills[]` is ever cleared). Also corrected the Hyak/Keechelus ordering in that fallback array (summit before the lake; Hyak named once).
+**Curves regenerated from the same GPS too (accurate turns)**
+- The existing `curves[]` was "hand-keyframed I-90 data" — a sign cross-check showed it correlated ~−0.09 with reality (i.e. not geographically real). Regenerated from the OSRM polyline as signed curvature (bearing-change per arc length), using the **same rubber-sheet alignment** so turns and hills agree.
+- Sign convention from Road.js (`screenDX += seg.curve` → positive = bends right). **Scale-calibrated to the existing curves' 90th-percentile magnitude** so turn *intensity/feel* matches today's tuning while turns land in real places/directions. Only ~2% of samples hit the ±0.022 clamp (isolated at the start + post-finish Pullman approach).
+- Turns now fall on the genuinely curvy stretches: Yakima River Canyon (mile ~96, sharpest), the Cascade climb (~36), the Palouse / US-195 Colfax jog (~240–276); the Columbia Basin stays straight. Bridge/tunnel curve-flattening in `buildRoute` still overrides on those segments. Generator: `/tmp/gen_curves_gps.py`.
+
+**Alignment fix (start point + curved-bridge bug)**
+- First pass anchored game-mile 0 to the *Seattle* coordinate and pulled an OSRM route that started at Seattle — so the whole mile 0–13 urban corridor (WS Bridge, Mt Baker, Murrow, East Channel) was shifted ~5 mi relative to the hand-placed bridges/tunnels. Re-pulled OSRM **starting at West Seattle** (301.9 mi) and added correct dense anchors (West Seattle=0, Seattle=5, Mercer=9.5, Bellevue=12.5). Curve sign cross-check went −0.09 → **+0.92**; hills start now reads the real 324-ft West Seattle hilltop descending to the floating bridge.
+- **Curved-bridge bug**: `smooth(rawCurves, 0.04)` ran AFTER the bridge-zeroing, so a real GPS curve adjacent to a straight bridge bled onto it (visible as a curved East Channel bridge leaving Mercer). Refactored to `applyStructureCurves(arr, pad)` called **twice** — pre-smooth with a 0.10-mi pad (approaches ramp cleanly to 0) and post-smooth with pad 0 (exact straight cores). Verified: WS/Mt Baker/Murrow/East Channel/Vantage bridges all `max|curve|=0.00000`; Mercer Lid keeps its intentional 0.012 right bend.
+
+**Hybrid hills — urban keyframes + open-road DEM**
+- DEM returns *terrain*, but the mile 0-13 urban corridor is packed with engineered structures whose roadbed is off the terrain: the WS high bridge decks OVER the Duwamish, the Mt Baker + Mercer-lid tunnels run UNDER ridges, and the Murrow + East Channel FLOATING bridges sit on the lake surface. Raw DEM floated the Murrow bridge at 135 ft. Fixed in the generator: hand roadbed keyframes (RouteData `I90_ELEV_FT`) through mile 12, crossfade to DEM over mile 12-16, DEM beyond. Verified roadbed: Murrow 21 ft / East Channel 28 ft (lake), Mercer lid 70 ft (ridge), WS bridge 236 ft (deck); open route unchanged (summit 3030, Vantage 572). Curves don't need this — bridge curve-flattening already forces them straight.
+
+### 2026-05-29 (later) — Left-side off-road dead-zone closed (asymmetric clamp)
+
+**Asymmetric lateral clamp** ([GameScene.js](src/scenes/GameScene.js) ~3699)
+- The lateral clamp `_maxX = 2.8 + rampStrength * 3.7` opened the drivable corridor **symmetrically** to ±6.5 on exit-ramp segments. Since all off-ramps are right-side only, this exposed an empty off-road dead-zone on the LEFT near every exit — the player could drift far left into a space with no scenery, NPCs, or cops (the old "±5.5 tree wall in a space nobody should drive" problem).
+- Split into `_maxXRight = 2.8 + rampStrength * 3.7` (unchanged — exits still work) and `_maxXLeft = 2.3` (hard wall, never opens). The ±5.5 tree-wall crash is left intact as a backstop (the left clamp now prevents the car from ever reaching it).
+- Left-side off-road deterrent: past `x = -1.5` (half a lane beyond the ±1.0 fog line) the car bleeds **1 HP/sec** until it returns toward the road, up to the 2.3 wall. No crash/recovery-warp; the i-frame absorbs it so it won't stack onto a crash recovery. Right side gets no penalty (exit territory).
+- Decision: chose a soft clamp + graduated bleed over decorating the dead space with visible trees — the player shouldn't be out there at all, so walling it off beats signposting it.
+
+### 2026-05-29 (late) — Mirror lights, oncoming-car headlights, beam cleanup, Vite 6
+
+**Rearview mirror lighting** ([GameScene.js](src/scenes/GameScene.js))
+- Same-direction NPCs behind the player (facing the player in the mirror) get the full forward-view oncoming treatment: yellow lamp halos at headlight housings (cars `0.50`, trucks/SUVs `0.65` of sprite height), two cones meeting at the centerline at the bottom, bottom-half yellow splash whose flat top kisses the cone bottoms. Brightened ~1.5× in the mirror only (`MIRROR_HL_BOOST = 1.5`) so the tiny sprites still read at night.
+- Oncoming-then-passed NPCs (going AWAY from the player in the mirror) now show their `car_back_*` texture and get simple red brake-light halos at the tail-light housings (cars `0.50`, trucks `0.55`), outer edge of the halo aligned with the outer edge of the sprite. No cones/splash — brake lights are emissive only, they don't project beams onto the road.
+- Mirror near-cull bumped to `vz > PLAYER_VIRTUAL_Z` for both `carsBehind` and `copsBehind` — cars only appear in the rearview once they've truly slipped past the player's physical position, so big sprites on the main screen no longer "double-show" enormous in the mirror.
+
+**Oncoming-car headlights, forward view** ([GameScene.js](src/scenes/GameScene.js))
+- The OG `drawHeadlights` helper at line ~8995 was painting bright yellow halos at `ly = sy - w * 0.10` (inside the wheel base) for every oncoming car since before this work — those have been disabled. The OG same-direction tail-light pair at the wheel base is also disabled; proper mid-height tail lights come from `_renderHeadlights` instead (cars `0.50`, trucks `0.55`, halo outer edge at `targetW * 0.50 - haloR` so it touches the sprite outer edge).
+- New oncoming-car lighting in `_renderHeadlights`: yellow lamp halos at the headlight housings (cars `0.50`, trucks `0.65`), two cones meeting at the centerline at the bottom (outer corners reach the splash equator tips), bottom-half yellow splash whose flat top sits at `coneEndY` (= the widest line of a would-be full ellipse). No upper half = no ADD-blend overlap brightening at the seam.
+
+**Player car beam cleanup** ([GameScene.js](src/scenes/GameScene.js))
+- `drawBeamQuad` now clamps each beam's inner toe-in to at most `hubOffset` so left and right halos can't cross the car centerline and create an ADD-blend brighter triangular stripe at the tip.
+- Outer halo tip width is sized so each beam's outer-tip edge lands exactly on the road-patch oval's outer edge: `outerOvalHalf = max(outerTipHalf * 0.5, outerTipHalf * 1.2 * patchBoost - hubOffset)`.
+- Inner cores now stop at the oval's bottom edge instead of running through it — `drawBeamQuad` takes an optional `tipYOverride`, inner-core calls pass `coreTipY = roadTipY + 4 + 11 * patchBoost`.
+- Inner cores thinned: `innerTipHalf = 24 * profile.width` (was `30`).
+- Beater's mismatched left bulb gets a cool tint: `asymInner = 0xC0D0DC` (was warm pale yellow `0xE8E2A0`, then briefly the colder `0xB8D0E8`).
+- Road shoulder reflectors moved from `±1.25` lane units (outboard in the gravel) onto the fog line itself at `±1.0`.
+
+**Vite 6 upgrade** ([package.json](package.json))
+- `vite` `^5.0.0` → `^6.0.0` (resolves to 6.4.2); `@vitejs/plugin-basic-ssl` `^1.2.0` → `^2.0.0` (resolves to 2.3.0) since the 1.x branch only supports Vite 5. Build verified, no behavioral changes — bundle sizes ~480 kB app, ~1.48 MB Phaser.
 
 ### 2026-05-29 — Night lighting pass, astronomy model, audio polish, audit cleanup, roadside barriers, finish-line move
 

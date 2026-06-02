@@ -281,6 +281,10 @@ export class RestStopScene extends Phaser.Scene {
     this._stars    = data?.stars    ?? 0;
     this._position = data?.position ?? 0;
     this._odometer = data?.odometer ?? 0;
+    // Career stats — count this visit on entry; dwell time + spends are
+    // recorded on exit (see the continue handler).
+    this._stats = this.registry?.get?.('stats');
+    this._stats?.restStopEnter(this._stop.id);
     // Drug-bar snapshot — drug status pauses at the rest stop and resumes
     // from these levels.  COFFEE / SNOOZE multiply, drug top-ups stack on
     // top.  Just stopping doesn't change anything anymore.
@@ -961,7 +965,11 @@ export class RestStopScene extends Phaser.Scene {
         this._setStatus(`Need $${effectiveCost - this._score} more!`, '#FF6666');
         return;
       }
-      if (effectiveCost > 0) this._score -= effectiveCost;
+      if (effectiveCost > 0) {
+        this._score -= effectiveCost;
+        const _si = this._statsSpendInfo(item);
+        this._stats?.recordSpend(effectiveCost, _si.category, _si.subId);
+      }
       this._refreshScore();
       this._applyPurchase(item);
       this._setStatus(this._purchaseConfirmation(item), '#88FF88');
@@ -984,6 +992,8 @@ export class RestStopScene extends Phaser.Scene {
    *  GameScene applies them on resume.  Mix of generous and shady riders. */
   _rollHitchhiker() {
     const r = Math.random();
+    // Stats: good < 0.55, bad (robbery) < 0.90, else neutral ("bailed").
+    this._stats?.recordHitchhiker(r < 0.55 ? 'good' : (r < 0.90 ? 'bad' : 'neutral'));
     if (r < 0.18) {
       this._purchases.f12.push('rocket');
       return { message: '🤝 Friendly biker — gave you a ROCKET!' };
@@ -1000,17 +1010,32 @@ export class RestStopScene extends Phaser.Scene {
     if (r < 0.75) {
       const loss = Math.min(this._score, 600);
       this._score -= loss;
+      this._stats?.recordRobbery(loss);
       this._refreshScore();
       return { message: `💀 Sketchy stranger ROBBED you of $${loss}!` };
     }
     if (r < 0.90) {
       const loss = Math.min(this._score, 1200);
       this._score -= loss;
+      this._stats?.recordRobbery(loss);
       this._refreshScore();
       this._purchases.f12 = [];           // wipe any tokens we'd been giving
       return { message: `💀 Armed robbery — lost $${loss} + pending weapons!` };
     }
     return { message: '😐 Hitchhiker bailed at the next exit. Nothing happened.' };
+  }
+
+  /** Map a shop item to its stats spend bucket.  Drug top-ups and weapon
+   *  (f12) buys carry a sub-id for the per-item breakdown; vehicles and
+   *  accessories roll up to their category total; everything else (repair,
+   *  refuel, coffee, sleep, sex worker, clear-stars, …) is a service. */
+  _statsSpendInfo(item) {
+    const p = item?.payload ?? {};
+    if (p.drugTopUp)        return { category: 'drugs',       subId: p.drugTopUp };
+    if (p.f12)              return { category: 'weapons',     subId: p.f12 };
+    if (p.buyVehicle)       return { category: 'vehicles',    subId: p.buyVehicle };
+    if (p.vehicleAccessory) return { category: 'accessories', subId: p.vehicleAccessory };
+    return { category: 'services', subId: null };
   }
 
   _applyPurchase(item) {
@@ -1031,6 +1056,7 @@ export class RestStopScene extends Phaser.Scene {
       if (Math.random() < GAS_ROBBERY_CHANCE) {
         const loss = Math.floor(this._score * GAS_ROBBERY_FRAC);
         this._score = Math.max(0, this._score - loss);
+        this._stats?.recordRobbery(loss);
         this._refreshScore();
         this._setStatus?.(`💀 ROBBED at the pump! −$${loss}`, '#FF4444');
       }
@@ -1114,13 +1140,15 @@ export class RestStopScene extends Phaser.Scene {
       // star-cap buff for 100 mi.
       this._purchases.sexworker = true;
       this._purchases.bonusHp   = (this._purchases.bonusHp ?? 0) + (p.bonusHp ?? 10);
-      if (Math.random() < 0.10) {
+      const _bribed = Math.random() < 0.10;
+      if (_bribed) {
         this._purchases.starCapMiles = (this._purchases.starCapMiles ?? 0) + 100;
         this._purchases.starCapMax   = 2;
         this._setStatus?.(`🗞  SHE HAD DIRT! Cops capped at 2★ for 100 mi. +${p.bonusHp ?? 10} bonus HP.`, '#88FFCC');
       } else {
         this._setStatus?.(`+${p.bonusHp ?? 10} bonus HP. She had a nice time.`, '#FFFFFF');
       }
+      this._stats?.recordSexWorker(_bribed);
     }
     if (p.restock)    this._purchases.restock = true;
     if (p.clearStars) this._purchases.clearStars = true;
@@ -1187,6 +1215,12 @@ export class RestStopScene extends Phaser.Scene {
     this.cameras.main.fadeOut(280, 0, 0, 0);
     this.cameras.main.once('camerafadeoutcomplete', () => {
       const finalScore = this._score + (this._purchases.scoreBonus ?? 0);
+      // Career stats: rest-stop cash bonuses (trucker tip / hitchhiker) are
+      // earnings; log them, then record dwell time + flush on exit.
+      if ((this._purchases.scoreBonus ?? 0) > 0) {
+        this._stats?.recordEarn(this._purchases.scoreBonus, 'restStopBonus');
+      }
+      this._stats?.restStopExit(this._stop.id, visitSec);
       this.scene.start('Game', {
         resumeFromStop: this._stop.id,
         resumeScore:    finalScore,

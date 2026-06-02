@@ -9,7 +9,11 @@ const SCHEMA_VERSION = 2;
 // tier colors) are also global so the map shows lifetime progress.
 // Everything else (money, restStopSaves, lastRestStop, missionProgress,
 // drug inventory, owned cars) lives in the per-mode profile.
-const GLOBAL_KEYS = new Set(['achievements', 'settings', 'checkpointTiers']);
+// stats + leaderboard are lifetime/cross-mode, so they live in GLOBAL too:
+// a per-mode "start over" must NOT wipe career totals or the high-score
+// board.  StatsTracker owns the canonical `stats` shape and deep-merges
+// its defaults on load, so the bucket here can start empty.
+const GLOBAL_KEYS = new Set(['achievements', 'settings', 'checkpointTiers', 'stats', 'leaderboard']);
 
 // Storage-key names for each profile bucket.  Kept as-is for backward
 // compatibility with on-disk saves.  The GameScene UI uses 'flappy' and
@@ -46,6 +50,13 @@ const DEFAULT_GLOBAL = {
   achievements:    {},
   checkpointTiers: {},          // { [stopId]: 'bronze' | 'silver' | 'gold' }
   settings:        { muted: false, radio: 0 },
+  // Career stats — full canonical shape is owned by StatsTracker, which
+  // deep-merges its defaults over whatever is here on boot.  Empty is fine.
+  stats:           {},
+  // Leaderboard run-record history.  Local-only for now; a future remote
+  // provider posts the same record shape, so flipping the backend flag
+  // doesn't touch this bucket.  Capped by the Leaderboard layer.
+  leaderboard:     { runs: [] },
 };
 
 function emptyData() {

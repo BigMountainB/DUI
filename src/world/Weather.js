@@ -21,19 +21,22 @@ export const Weather = {
     return 'clear';
   },
 
-  /** 0..1 intensity envelope — ramps in/out over the first / last 2 mi
-   *  of each window so weather doesn't slam on or off abruptly. */
+  /** 0..1 intensity envelope.  Rain eases IN over the first 2 mi (30-32)
+   *  then holds full RIGHT UP TO the snow handoff at mile 40 — it does NOT
+   *  fade out beforehand.  Snow holds full FROM mile 40 (no fade-in) and
+   *  eases out over the last 2 mi (86-88).  The shared full-intensity
+   *  boundary at mile 40 means rain hands directly off to snow with no
+   *  clear-weather gap in between (per user spec — it should never "clear
+   *  up" between the storms). */
   intensity(mile) {
     if (!Difficulty.weather()) return 0;
     if (mile >= 30 && mile < 40) {
-      if (mile < 32) return (mile - 30) / 2;
-      if (mile > 38) return (40 - mile) / 2;
-      return 1;
+      if (mile < 32) return (mile - 30) / 2;   // ease in over the first 2 mi
+      return 1;                                 // hold full to the snow handoff
     }
     if (mile >= 40 && mile < 88) {
-      if (mile < 42) return (mile - 40) / 2;
-      if (mile > 86) return (88 - mile) / 2;
-      return 1;
+      if (mile > 86) return (88 - mile) / 2;    // ease out over the last 2 mi
+      return 1;                                 // full from the rain handoff — no gap
     }
     return 0;
   },
@@ -55,7 +58,10 @@ export const Weather = {
    *  weather window so callers can safely multiply unconditionally. */
   severity(mile) {
     if (!Difficulty.weather()) return 1;
-    if (mile >= 30 && mile < 40) return 1 + 1.4 * ((mile - 30) / 10);
+    // Rain ramps HARD: ~2.0 by mile 35, peaking 2.4 by mile 37 and holding
+    // — so it's a heavy, wipers-needed downpour through the back half of
+    // the rain window (per user: "very strong after mile 35").
+    if (mile >= 30 && mile < 40) return 1 + 1.4 * Math.min(1, (mile - 30) / 7);
     if (mile >= 40 && mile < 88) return 1 + 1.4 * ((mile - 40) / 48);
     return 1;
   },

@@ -257,6 +257,9 @@ const _CP_RAW = [
   { name: 'Vantage',           mileage: 132, end: 138 },
   { name: 'Royal City',        mileage: 150, end: 165 },
   { name: 'Othello',           mileage: 180, end: 195 },
+  // Hatton was REST_STOPS-only — added to CHECKPOINTS so it appears
+  // in the custom-mode location picker (which filters CHECKPOINTS).
+  { name: 'Hatton',            mileage: 200, end: 210 },
   { name: 'Washtucna',         mileage: 225, end: 235 },
   { name: 'La Crosse',         mileage: 250, end: 260 },
   { name: 'Colfax',            mileage: 272, end: 278 },
@@ -286,6 +289,33 @@ export function getLocationName(progress) {
     if (progress > cp.tEnd) last = cp.name;
   }
   return last;
+}
+
+/** Town name carried by the last sign the player has passed — rest stops
+ *  AND pass-through cities (Preston, Kittitas, etc.).  Each sign is
+ *  posted ~1 mile before its target mileage (see RouteData.js spawn
+ *  loops), so the HUD updates a mile early as the sign comes into view.
+ *  Returns null if no sign has been passed yet; HUD falls back to
+ *  getLocationName() in that case. */
+export function getLastSignTown(currentMile) {
+  // Both arrays carry mileage in miles; their signs spawn at mileage−1.
+  let bestMile = -Infinity;
+  let bestName = null;
+  for (const rs of REST_STOPS) {
+    const signMi = rs.mileage - 1;
+    if (signMi <= currentMile && signMi > bestMile) {
+      bestMile = signMi;
+      bestName = rs.name.split(',')[0];   // strip ", WA"
+    }
+  }
+  for (const c of PASS_THROUGH_CITIES) {
+    const signMi = c.mileage - 1;
+    if (signMi <= currentMile && signMi > bestMile) {
+      bestMile = signMi;
+      bestName = String(c.name).split(',')[0];
+    }
+  }
+  return bestName;
 }
 
 // Rest stops — placed at the towns the player flagged with an asterisk in
@@ -333,15 +363,59 @@ const _REST_STOP_DEF = [
   { id: 'TH', name: 'Thorp, WA',           mileage:  101, exit: 'Exit 101',   hwy: 'hwy_i90',   amenities: ['camp'] },
   { id: 'E',  name: 'Ellensburg, WA',      mileage:  109, exit: 'Exit 109',   hwy: 'hwy_i90',   amenities: ['dealer', 'gas'] },
   { id: 'V',  name: 'Vantage, WA',         mileage:  137, exit: 'Exit 137',   hwy: 'hwy_i90',   amenities: ['gas'] },
-  { id: 'Y',  name: 'Royal City, WA',      mileage:  158, exit: 'WA-262',     hwy: 'hwy_wa26',  amenities: ['hunting'] },
-  { id: 'O',  name: 'Othello, WA',         mileage:  184, exit: 'WA-17',      hwy: 'hwy_wa26',  amenities: ['drugs', 'gas'] },
-  { id: 'W',  name: 'Washtucna, WA',       mileage:  228, exit: 'WA-261',     hwy: 'hwy_wa26',  amenities: ['gas'] },
-  { id: 'L',  name: 'La Crosse, WA',       mileage:  253, exit: 'Airport Rd', hwy: 'hwy_us195', amenities: ['camp'] },
-  { id: 'CO', name: 'Colfax, WA',          mileage:  274, exit: 'US-195 S',   hwy: 'hwy_us195', amenities: ['dealer', 'gas'] },
-  { id: 'P',  name: 'Pullman, WA',         mileage:  289, exit: 'WA-271 E',   hwy: 'hwy_wa270', amenities: ['gas', 'hunting', 'camp', 'dealer', 'drugs'] },
+  // 2026-05-31: non-I-90 rest stops switched from highway-name labels
+  // ("WA-262", "WA-17", "Airport Rd", etc.) to "Exit <mileage>".  The
+  // sign already carries the highway as a shield-badge image, so the
+  // text was duplicating what the badge says.  I-90 stops keep their
+  // real WSDOT exit numbers ("Exit 4", "Exit 7B", etc.) since those
+  // ARE numeric and don't echo the I-90 shield.
+  { id: 'Y',  name: 'Royal City, WA',      mileage:  158, exit: 'Exit 158',   hwy: 'hwy_wa26',  amenities: ['hunting'] },
+  { id: 'O',  name: 'Othello, WA',         mileage:  184, exit: 'Exit 184',   hwy: 'hwy_wa26',  amenities: ['drugs', 'gas'] },
+  { id: 'H',  name: 'Hatton, WA',          mileage:  205, exit: 'Exit 205',   hwy: 'hwy_wa26',  amenities: ['camp', 'gas'] },
+  { id: 'W',  name: 'Washtucna, WA',       mileage:  228, exit: 'Exit 228',   hwy: 'hwy_wa26',  amenities: ['gas'] },
+  { id: 'L',  name: 'La Crosse, WA',       mileage:  253, exit: 'Exit 253',   hwy: 'hwy_us195', amenities: ['camp'] },
+  { id: 'CO', name: 'Colfax, WA',          mileage:  274, exit: 'Exit 274',   hwy: 'hwy_us195', amenities: ['dealer', 'gas'] },
+  { id: 'P',  name: 'Pullman, WA',         mileage:  289, exit: 'Exit 289',   hwy: 'hwy_wa270', amenities: ['gas', 'hunting', 'camp', 'dealer', 'drugs'] },
 ];
 export const REST_STOPS = _REST_STOP_DEF.map(rs => ({
   ...rs, t: rs.mileage / TOTAL_ROUTE_MILES,
+}));
+
+// ── Pass-through city signs ──────────────────────────────────────────
+// Towns the player drives past but cannot pull off at — no rest stop,
+// no save code, no ramp.  Each entry spawns a single I-90-style green
+// overhead sign 1 mile before the city's game mileage, identical to
+// the rest-stop exit sign EXCEPT it omits the yellow "REST STOP"
+// plaque (since you're not pulling off).
+//
+//   name     — town label painted on the sign (no ", WA" suffix needed,
+//              but harmless if included — render code strips it).
+//   mileage  — game mile where the sign points; sign spawns at mile-1.
+//              Pick a value that doesn't overlap any REST_STOP within
+//              ~2 mi (the rest-stop's own signage would clash).
+//   exit     — DISPLAY LABEL: real-world exit number or road name shown
+//              on the sign ("Exit 22", "WA-262", etc.).  For I-90
+//              towns use the WSDOT exit number; for WA-26/US-195 use
+//              the cross-street/highway label since those routes don't
+//              have interstate-style exit numbers.
+//   hwy      — shield badge texture key: hwy_i90, hwy_us195, hwy_wa26,
+//              or hwy_wa270.  Must match an asset in
+//              public/assets/businesses/.
+//
+// To add more cities, drop another entry below.  Suggested I-90
+// candidates not yet placed: Hyak (Exit 54 — overlaps Snoq Pass at
+// mile 53, skip), South Cle Elum (Exit 84 — overlaps Cle Elum, skip),
+// Indian John Hill (Exit 89), Bristol (Exit 93), Ryegrass Summit
+// (Exit 126).  WA-26 candidates: Royal Slope, Schrag.  US-195: Steptoe
+// (no exit numbers, use highway label).
+const _PASS_THROUGH_CITY_DEF = [
+  { name: 'Preston',   mileage:  22, exit: 'Exit 22',  hwy: 'hwy_i90'   },
+  { name: 'Kittitas',  mileage: 117, exit: 'Exit 115', hwy: 'hwy_i90'   },
+  { name: 'George',    mileage: 149, exit: 'Exit 149', hwy: 'hwy_i90'   },
+  { name: 'Endicott',  mileage: 263, exit: 'Endicott Rd', hwy: 'hwy_us195' },
+];
+export const PASS_THROUGH_CITIES = _PASS_THROUGH_CITY_DEF.map(c => ({
+  ...c, t: c.mileage / TOTAL_ROUTE_MILES,
 }));
 
 // ── Vehicle catalog ──────────────────────────────────────────────────

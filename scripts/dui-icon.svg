@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- DUI Dev launcher icon — melted steering wheel + server rack.
+       Game palette: pink #FF39AF, cyan #39A8FF, deep navy #0A0F1F. -->
+
+  <!-- Background: rounded square with subtle gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E1530"/>
+      <stop offset="1" stop-color="#050812"/>
+    </linearGradient>
+    <linearGradient id="drip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF39AF"/>
+      <stop offset="1" stop-color="#7A0E47"/>
+    </linearGradient>
+    <linearGradient id="server" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B2643"/>
+      <stop offset="1" stop-color="#0E1530"/>
+    </linearGradient>
+    <radialGradient id="led" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7CFFB0"/>
+      <stop offset="1" stop-color="#1A6A38"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="180" ry="180" fill="url(#bg)"/>
+
+  <!-- ── Server rack (back layer) ─────────────────────────────────────── -->
+  <g transform="translate(512 632)">
+    <!-- chassis -->
+    <rect x="-300" y="-130" width="600" height="260" rx="18" ry="18"
+          fill="url(#server)" stroke="#39A8FF" stroke-width="6"/>
+    <!-- rack unit divider lines -->
+    <line x1="-280" y1="-70"  x2="280" y2="-70"  stroke="#39A8FF" stroke-width="3" opacity="0.55"/>
+    <line x1="-280" y1="-10"  x2="280" y2="-10"  stroke="#39A8FF" stroke-width="3" opacity="0.55"/>
+    <line x1="-280" y1="50"   x2="280" y2="50"   stroke="#39A8FF" stroke-width="3" opacity="0.55"/>
+    <!-- vents on left -->
+    <g fill="#0A0F1F">
+      <rect x="-285" y="-110" width="80" height="6"/>
+      <rect x="-285" y="-98"  width="80" height="6"/>
+      <rect x="-285" y="-86"  width="80" height="6"/>
+    </g>
+    <!-- power + activity LEDs on the right -->
+    <circle cx="230" cy="-95" r="12" fill="url(#led)"/>
+    <circle cx="230" cy="-55" r="12" fill="#FFD34D"/>
+    <circle cx="230" cy="-15" r="12" fill="#FF6B6B"/>
+    <circle cx="230" cy="25"  r="12" fill="#39A8FF"/>
+    <!-- LCD strip -->
+    <rect x="-110" y="80" width="220" height="36" rx="6" ry="6"
+          fill="#021016" stroke="#39A8FF" stroke-width="2"/>
+    <text x="0" y="105" font-family="Helvetica, Arial, sans-serif"
+          font-size="22" font-weight="700" fill="#7CFFB0"
+          text-anchor="middle" letter-spacing="2">DUI:LOCAL</text>
+  </g>
+
+  <!-- ── Melted steering wheel (front layer) ──────────────────────────── -->
+  <!-- The wheel sits in the top half; the bottom of the rim sags and
+       drips into the server rack below. -->
+  <g transform="translate(512 380)">
+    <!-- The melted "puddle" drip that connects wheel → server top -->
+    <path d="
+      M -220 80
+      C -240 160, -180 220, -120 240
+      C  -60 260, 60 260, 120 240
+      C  180 220, 240 160, 220 80
+      L  170 70
+      C  180 150, 60 200, 0 200
+      C -60 200, -180 150, -170 70
+      Z" fill="url(#drip)" opacity="0.92"/>
+
+    <!-- Drips falling off -->
+    <ellipse cx="-150" cy="270" rx="14" ry="22" fill="#FF39AF" opacity="0.85"/>
+    <ellipse cx="40"   cy="290" rx="18" ry="28" fill="#FF39AF" opacity="0.85"/>
+    <ellipse cx="170"  cy="265" rx="12" ry="20" fill="#FF39AF" opacity="0.85"/>
+
+    <!-- Outer rim — perfect ring on top, distorted on the bottom -->
+    <path d="
+      M 0 -250
+      A 250 250 0 1 1 -0.1 -250
+      M 0 -180
+      A 180 180 0 1 0  0.1 -180
+      Z"
+      fill="#FF39AF" fill-rule="evenodd" opacity="0.95"/>
+
+    <!-- Bottom-rim sag overlay — pulls the ring downward asymmetrically -->
+    <path d="
+      M -250 30
+      Q -200 180, 0 160
+      Q  200 180, 250 30
+      L  180 50
+      Q  150 130, 0 110
+      Q -150 130, -180 50
+      Z" fill="#FF39AF" opacity="0.95"/>
+
+    <!-- Inner highlight ring -->
+    <circle cx="0" cy="0" r="215" fill="none" stroke="#FFFFFF" stroke-width="3" opacity="0.18"/>
+
+    <!-- Three spokes — bent / drooping -->
+    <path d="M 0 -180 C -8 -90, 8 -40, 0 0 L 0 0
+             M -156 90 C -100 60, -40 30, 0 0
+             M  156 90 C  100 60,  40 30, 0 0"
+          fill="none" stroke="#FF39AF" stroke-width="42"
+          stroke-linecap="round" opacity="0.95"/>
+
+    <!-- Horn button -->
+    <circle cx="0" cy="0" r="58" fill="#1B2643" stroke="#39A8FF" stroke-width="6"/>
+    <text x="0" y="14" font-family="Helvetica, Arial, sans-serif"
+          font-size="44" font-weight="900" fill="#FF39AF"
+          text-anchor="middle">DUI</text>
+  </g>
+
+  <!-- Outer hairline (subtle inner border) -->
+  <rect x="6" y="6" width="1012" height="1012" rx="174" ry="174"
+        fill="none" stroke="#39A8FF" stroke-width="3" opacity="0.35"/>
+</svg>

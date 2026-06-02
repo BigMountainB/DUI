@@ -7,6 +7,12 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>DUI</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-title" content="DUI" />
   <script>
     // ── INLINE AUDIO UNLOCK ───────────────────────────────────────────
     // Runs before any module imports.  iOS Chrome / Safari keep
@@ -747,9 +753,11 @@
     <!-- White-box overlays: trophy (top-left blank box), lock (top-right
          blank box).  Positioned via data-px (PNG-pixel coords) so they
          track the artwork like the other hit zones.  Coords match the
-         current 819×1536 iphone_menu_bg.png — the 2×2 white tile grid
-         sits ~y=505 (top row) / ~y=680 (bottom row), with left column
-         at x≈108 and right column at x≈275; each tile is ~120×120. -->
+         current 1408×2641 iphone_menu_bg.png.  IMPORTANT: every data-px
+         below — including the bottom-row music/startover/checkpoint/menu
+         hit zones at y=2317 — is authored against this 1408×2641 PNG.
+         If the PNG is ever swapped for a smaller copy (e.g. 819×1536
+         compressed) the bottom-row taps fall off the visible artwork. -->
     <div id="phone-trophy" role="button" data-action="trophy" aria-label="Trophies"  data-px="108 505 120 120">🏆</div>
     <div id="phone-lock"   role="button" data-action="lock"   aria-label="Lock pause" data-px="275 505 120 120">🔓</div>
     <!-- Bottom-left empty white tile → right/left hand toggle.  Tap
@@ -1343,6 +1351,14 @@
         const ok = await showConfirm('Are you sure you want to start over?  Your current run will be lost.');
         if (!ok) return;
         window.__startOver?.();
+      });
+
+      // ── Main Menu hit zone — return to the title screen.  Persistent
+      //    saves / unlocks survive; the active run is ended.
+      addTap(document.querySelector('.phone-hit[data-action="menu"]'), async () => {
+        const ok = await showConfirm('Return to the main menu?  Your current run will be lost.');
+        if (!ok) return;
+        window.__mainMenu?.();
       });
 
       // ── Music app modal ───────────────────────────────────────────────

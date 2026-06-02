@@ -4,6 +4,7 @@ import { AudioSystem } from '../systems/AudioSystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
 import { flattenManifest } from '../systems/AssetManifest.js';
 import { Wallet } from '../economy/Wallet.js';
+import { StatsTracker } from '../systems/StatsTracker.js';
 
 export class BootScene extends Phaser.Scene {
   constructor() { super({ key: 'Boot' }); }
@@ -98,6 +99,9 @@ export class BootScene extends Phaser.Scene {
               ?? (this.registry?.get?.('tiltSteerEnabled') ? 'tilt' : 'tap');
     save.setMode(mode);
     const wallet = new Wallet(save);
+    // Career stats — lifetime counters that feed the stats menu + leaderboards.
+    // Reads/writes the GLOBAL save bucket, so it's mode-agnostic.
+    const stats = new StatsTracker(save);
 
     // AudioSystem is registered in main.js before the game even
     // boots so the iPhone-menu music app sees stations instantly.
@@ -107,6 +111,7 @@ export class BootScene extends Phaser.Scene {
     }
     this.registry.set('save',         save);
     this.registry.set('wallet',       wallet);
+    this.registry.set('stats',        stats);
 
     // Boot straight into GameScene — its own title overlay handles the
     // pre-start intro, so the road style is identical to gameplay (same

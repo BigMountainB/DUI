@@ -440,11 +440,18 @@ export class EffectsSystem {
       const weatherState = Weather.state(mile);
       const weatherInt   = Weather.intensity(mile);
       if (weatherState === 'rain' && weatherInt > 0.05) {
+        // Severity ramps 1.0 (storm leading edge) → 2.4 (deep in it); sevT
+        // is the normalized 0..1 form.  Drives BOTH the falling-streak
+        // density/opacity and the windshield-drop load so the rain visibly
+        // builds into a hard-to-see-through downpour past mile ~35.
+        const sev  = Weather.severity?.(mile) ?? 1;
+        const sevT = Math.max(0, Math.min(1, (sev - 1) / 1.4));
         // Slanted white streaks falling top → bottom-right.  Spawn area
         // extended into the 150-px margin so a rotated camera still sees
-        // rain instead of a sharp boundary at x=0 / 800.
-        const COUNT = Math.floor(110 * weatherInt);
-        this.overlay.lineStyle(1, 0xC8DAE8, 0.55);
+        // rain instead of a sharp boundary at x=0 / 800.  Count + opacity
+        // scale with severity: a light sprinkle early, a heavy sheet later.
+        const COUNT = Math.floor(110 * weatherInt * (1 + 1.4 * sevT));
+        this.overlay.lineStyle(1, 0xC8DAE8, 0.45 + 0.30 * sevT);
         const SLANT  = 18;
         const HEIGHT = 22;
         for (let i = 0; i < COUNT; i++) {
@@ -473,32 +480,30 @@ export class EffectsSystem {
         // New drops keep spawning while it's raining, so leaving the
         // wipers off lets the storm build back up.
         if (!this._wsDrops) { this._wsDrops = []; this._wsSpawnT = 0; }
-        const sev = Weather.severity?.(mile) ?? 1;       // 1.0 .. 2.4
-        const sevT = Math.max(0, Math.min(1, (sev - 1) / 1.4));
-        // Target drop count for current intensity / severity.  When the
-        // pool is below target (rain just started, post-wipe, etc.)
-        // spawn fast to fill the windshield; when at/above target,
-        // spawn slowly (just to maintain).  Drops spawn across the
-        // ENTIRE windshield Y range so the screen covers immediately
-        // rather than crawling up from the bottom.
-        const TARGET_DROPS = Math.floor(120 * weatherInt * (1 + 1.5 * sevT));
-        const MAX_DROPS    = 240;
-        const below        = TARGET_DROPS - this._wsDrops.length;
-        // Bulk fill when way below target: spawn 60 drops/sec until
-        // close to target.  Maintenance rate after that: 20/sec to
-        // replace drops drifting off the top.
-        const SPAWN_PER_SEC = below > 30 ? 60 : 20 * weatherInt * (1 + sevT);
+        // Target drop load ramps with the storm (sevT from above): a light
+        // scatter at the leading edge → a heavy sheet deep in.  NO bulk
+        // pre-fill (the old code snapped 60 drops/sec across the whole glass
+        // so rain "appeared instantly").  Drops now accrue at a gentle,
+        // severity-scaled rate and spawn in the LOWER band of the glass, so
+        // the windshield fills bottom-to-top as the storm builds up over a
+        // few seconds instead of covering in one frame.  Post-wipe refill
+        // uses the same gentle rate, so it visibly builds back after a sweep.
+        const TARGET_DROPS = Math.floor((24 + 220 * sevT) * weatherInt);
+        const MAX_DROPS    = 260;
+        const SPAWN_PER_SEC = (5 + 34 * sevT) * Math.max(0.2, weatherInt);
         this._wsSpawnT += dt;
         const spawnInterval = 1 / Math.max(0.1, SPAWN_PER_SEC);
-        const WS_TOP    = 110;
-        const WS_BOTTOM = 420;
-        while (this._wsSpawnT >= spawnInterval && this._wsDrops.length < MAX_DROPS) {
+        // Full-screen coverage (was 110–420, which left a bare strip at
+        // the top + bottom edges per user).  Slight overscan past 0/450
+        // absorbs camera shake / rotation so no gap shows.
+        const WS_TOP    = -40;
+        const WS_BOTTOM = 490;
+        const spawnCap  = Math.min(TARGET_DROPS, MAX_DROPS);
+        while (this._wsSpawnT >= spawnInterval && this._wsDrops.length < spawnCap) {
           this._wsSpawnT -= spawnInterval;
-          // Spawn across the WHOLE windshield height so the glass
-          // covers in one beat, not from the bottom up.
           this._wsDrops.push({
             x:     Math.random() * 800,
-            y:     WS_TOP + Math.random() * (WS_BOTTOM - WS_TOP),
+            y:     WS_BOTTOM - Math.random() * (WS_BOTTOM - WS_TOP) * 0.45,
             r:     (1.8 + Math.random() * 2.6) * (1 + 0.5 * sevT),
             alpha: 0.55 + Math.random() * 0.30,
             vy:    -6 - Math.random() * 4 - 4 * sevT,    // up-drift speed
@@ -515,8 +520,9 @@ export class EffectsSystem {
           }
           this._wsDrops = survivors;
         }
-        // Update + render.
-        const TOP_Y = 110;
+        // Update + render.  Drops drift up and off the top edge (matches
+        // WS_TOP) so they populate the full glass instead of vanishing at 110.
+        const TOP_Y = -40;
         for (let i = this._wsDrops.length - 1; i >= 0; i--) {
           const d = this._wsDrops[i];
           d.y += d.vy * dt;
@@ -584,60 +590,73 @@ export class EffectsSystem {
           }
         }
 
-        // ── Snow ACCUMULATION on windshield ──────────────────────────
-        // Unlike rain droplets, snowflakes that land on the glass
-        // DON'T drift up — they stick.  The pool grows until wipers
-        // remove them.  Each wiper sweep pulse removes ~60 % of stuck
-        // snow + fades the survivors; after 2-3 sweeps the windshield
-        // is clear, and accumulation starts over.
-        if (!this._wsSnow) { this._wsSnow = []; this._wsSnowSpawnT = 0; }
-        const sevSn = Weather.severity?.(mile) ?? 1;
+        // ── Snow ACCUMULATION on windshield (real-snow 2026-06-01) ──────
+        // Flakes LAND and STICK, and the pile keeps building the longer you
+        // drive — growing in count + size — until the glass is FULLY white,
+        // unless you run the wipers.  `_wsSnowCoverage` (0→1) tracks how
+        // buried the glass is: it grows with miles in snow and is only
+        // knocked back by wiper sweeps.  Coverage scales the flake count +
+        // size.  NO uniform white fill — the whiteout is built ENTIRELY from
+        // stacked opaque flakes (a flat white sheet reads as fake; per user).
+        // At a full pile only thin cracks of glass show through.
+        if (this._wsSnowCoverage == null) { this._wsSnowCoverage = 0; this._wsSnowMile = mile; }
+        if (!this._wsStuck) { this._wsStuck = []; this._wsStuckT = 0; }
+        const sevSn  = Weather.severity?.(mile) ?? 1;
         const sevSnT = Math.max(0, Math.min(1, (sevSn - 1) / 1.4));
-        const TARGET_SNOW = Math.floor(160 * weatherInt * (1 + 1.2 * sevSnT));
-        const MAX_SNOW    = 300;
-        const belowS = TARGET_SNOW - this._wsSnow.length;
-        // Bulk-fill when below target (e.g., right after a wipe), then
-        // a slower maintenance rate while at target.  Snow accumulates
-        // faster than rain because there's nothing pulling it off the
-        // glass (no up-drift), so even maintenance feels "stuck on".
-        const SPAWN_SNOW_PER_SEC = belowS > 30 ? 70 : 18 * weatherInt * (1 + sevSnT);
-        this._wsSnowSpawnT += dt;
-        const sIvl = 1 / Math.max(0.1, SPAWN_SNOW_PER_SEC);
-        const SN_TOP    = 90;
-        const SN_BOTTOM = 420;
-        while (this._wsSnowSpawnT >= sIvl && this._wsSnow.length < MAX_SNOW) {
-          this._wsSnowSpawnT -= sIvl;
-          this._wsSnow.push({
-            x:     Math.random() * 800,
-            y:     SN_TOP + Math.random() * (SN_BOTTOM - SN_TOP),
-            r:     1.6 + Math.random() * 2.4,
-            alpha: 0.70 + Math.random() * 0.25,
-          });
+        const mileDeltaSn = Math.max(0, mile - (this._wsSnowMile ?? mile));
+        this._wsSnowMile = mile;
+        // Full whiteout in ~6 mi at peak (faster in heavier snow); a light
+        // flurry (low weatherInt) takes proportionally longer.
+        const COVER_PER_MILE = 0.17 * weatherInt * (0.7 + 0.3 * sevSnT);
+        this._wsSnowCoverage = Math.min(1, this._wsSnowCoverage + mileDeltaSn * COVER_PER_MILE);
+        if (ctx.wiperSweepPulse) this._wsSnowCoverage = Math.max(0, this._wsSnowCoverage - 0.34);
+        const cov = this._wsSnowCoverage;
+        // Flake population grows with coverage (40 → 560); persistent so they
+        // stack rather than recycle.  Topped up a few per tick toward target.
+        const flakeTarget = Math.floor(40 + 860 * cov);
+        this._wsStuckT += dt;
+        if (this._wsStuckT >= 0.03) {
+          this._wsStuckT = 0;
+          const need = flakeTarget - this._wsStuck.length;
+          for (let n = 0; n < need && n < 40; n++) {
+            this._wsStuck.push({
+              x: -40 + Math.random() * 880,   // overscan past 0..800 / 0..450
+              y: -40 + Math.random() * 530,
+              r: 1.6 + Math.random() * 2.6,
+              a: 0.82 + Math.random() * 0.18,  // opaque specks — no haze
+            });
+          }
         }
-        // Wipe pulse — heavier removal than rain (snow is more easily
-        // pushed off), ~60 % gone per sweep + fade survivors.
+        // Wiper sweep clears ~60% of the pile so a few sweeps reset the glass.
         if (ctx.wiperSweepPulse) {
           const survivors = [];
-          for (const f of this._wsSnow) {
+          for (const f of this._wsStuck) {
             if (Math.random() < 0.60) continue;
-            f.alpha *= 0.72;
-            if (f.alpha > 0.10) survivors.push(f);
+            f.a *= 0.8;
+            if (f.a > 0.08) survivors.push(f);
           }
-          this._wsSnow = survivors;
+          this._wsStuck = survivors;
         }
-        // Render stuck-snow flakes — soft outer halo + bright center.
-        for (const f of this._wsSnow) {
-          this.overlay.fillStyle(0xDDE8F2, f.alpha * 0.40);
-          this.overlay.fillCircle(f.x, f.y, f.r * 1.6);
-          this.overlay.fillStyle(0xFFFFFF, f.alpha);
-          this.overlay.fillCircle(f.x, f.y, f.r);
+        // Flakes clump LARGER as coverage builds (cov² curve) so by a full
+        // pile they overlap into a near-solid snow cake — only thin cracks of
+        // glass show through.  This IS the whole whiteout: no white rect fill.
+        const grow = 1 + cov * cov * 6;
+        for (const f of this._wsStuck) {
+          const rr = f.r * grow;
+          this.overlay.fillStyle(0xDDE8F2, f.a * 0.5);
+          this.overlay.fillCircle(f.x, f.y, rr * 1.5);
+          this.overlay.fillStyle(0xFFFFFF, f.a);
+          this.overlay.fillCircle(f.x, f.y, rr);
         }
       } else {
-        // Not snowing — drain any leftover stuck snow over time so the
-        // glass clears naturally when you exit the snow zone.
-        if (this._wsSnow?.length) {
-          for (const f of this._wsSnow) f.alpha *= 0.94;
-          this._wsSnow = this._wsSnow.filter(f => f.alpha > 0.10);
+        // Not snowing — the pile melts / blows off the glass over a few
+        // seconds once you leave the zone.  Reset trackers for re-entry.
+        this._wsSnowMile = mile;
+        if (this._wsSnowCoverage > 0) this._wsSnowCoverage *= 0.95;
+        if (this._wsSnowCoverage < 0.01) this._wsSnowCoverage = 0;
+        if (this._wsStuck?.length) {
+          for (const f of this._wsStuck) f.a *= 0.95;
+          this._wsStuck = this._wsStuck.filter(f => f.a > 0.08);
         }
       }
 

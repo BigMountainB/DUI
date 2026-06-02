@@ -297,6 +297,17 @@ const _boot = () => {
     } catch (_) {}
   };
 
+  // Main Menu — exit the active run and return to the title screen.
+  // Mirrors GameOverScene._returnToTitle: starting Game with no resume
+  // data presents the normal title overlay (difficulty picker etc.).
+  // Persistent saves / unlocks stay intact.
+  window.__mainMenu = () => {
+    try {
+      game?.scene?.start?.('Game', {});
+      reapplyAfterRestart();
+    } catch (_) {}
+  };
+
   window.__checkpoint = {
     warpToLast: () => {
       const scene = game.scene.getScene('Game');

@@ -87,6 +87,23 @@ export const ASSET_MANIFEST = {
     { key: 'car_front_npc_minivan',   path: 'assets/cars/codex/car_npc_minivan_front.png' },
     { key: 'car_back_npc_wagon',      path: 'assets/cars/codex/car_npc_wagon_back.png' },
     { key: 'car_front_npc_wagon',     path: 'assets/cars/codex/car_npc_wagon_front.png' },
+    // Eastern WA freight + farm equipment.  Semis share one back image but
+    // use two front variants (red / green) for visual variety.  Tractor
+    // is BACK-only — only spawns same-direction (player always overtakes,
+    // never head-on).  Work truck is slower than white truck.
+    { key: 'car_back_codex_semi',          path: 'assets/cars/codex/codex_semi_back.png' },
+    { key: 'car_front_codex_semi_red',     path: 'assets/cars/codex/codex_semi_red_front.png' },
+    { key: 'car_front_codex_semi_green',   path: 'assets/cars/codex/codex_semi_green_front.png' },
+    // Semi colorSet aliases — the NPC traffic loader picks ONE colorSet
+    // per car, so register both red and green semis as their own sets
+    // pointing at the shared back image.
+    { key: 'car_back_codex_semi_red',      path: 'assets/cars/codex/codex_semi_back.png' },
+    { key: 'car_back_codex_semi_green',    path: 'assets/cars/codex/codex_semi_back.png' },
+    { key: 'car_back_codex_tractor',       path: 'assets/cars/codex/codex_tractor_back.png' },
+    { key: 'car_back_codex_white_truck',   path: 'assets/cars/codex/codex_white_truck_back.png' },
+    { key: 'car_front_codex_white_truck',  path: 'assets/cars/codex/codex_white_truck_front.png' },
+    { key: 'car_back_codex_work_truck',    path: 'assets/cars/codex/codex_work_truck_back.png' },
+    { key: 'car_front_codex_work_truck',   path: 'assets/cars/codex/codex_work_truck_front.png' },
     // Side-view police images for cars parked on the shoulder.  Random
     // roadside cop encounters use these — left-shoulder cops face right
     // (toward the road) and vice versa.
@@ -148,6 +165,7 @@ export const ASSET_MANIFEST = {
     { key: 'codex_east_wa_weathered_house',     path: 'assets/buildings/codex/east_wa_weathered_house.webp' },
     { key: 'codex_east_wa_barn',                path: 'assets/buildings/codex/east_wa_barn.webp' },
     { key: 'codex_east_wa_abandoned_bungalow',  path: 'assets/buildings/codex/east_wa_abandoned_bungalow.webp' },
+    { key: 'codex_east_wa_silos',               path: 'assets/buildings/codex/east_wa_silos.png' },
     { key: 'codex_east_wa_brick_storefront_1',  path: 'assets/buildings/codex/east_wa_brick_storefront_1.webp' },
     { key: 'codex_east_wa_brick_storefront_2',  path: 'assets/buildings/codex/east_wa_brick_storefront_2.webp' },
     { key: 'codex_east_wa_doublewide_tan',      path: 'assets/buildings/codex/east_wa_doublewide_tan.webp' },
@@ -211,6 +229,10 @@ export const ASSET_MANIFEST = {
     { key: 'hwy_us195', path: 'assets/businesses/hwy_us195.png' },
     { key: 'hwy_wa26',  path: 'assets/businesses/hwy_wa26.png' },
     { key: 'hwy_wa270', path: 'assets/businesses/hwy_wa270.svg' },
+    // Wind warning sign — cantilever overhead.  Sign face hangs over the
+    // right travel lane; only the pole base on the shoulder is collidable.
+    // Placed once near Vantage (mile ~137).
+    { key: 'freeway_sign_wind', path: 'assets/businesses/freeway_sign_wind.png' },
     // Per-stop "SHOPPING - NEXT RIGHT" signs — pre-baked by
     // scripts/buildShoppingSigns.js from the user's blank template +
     // brand logos.  One PNG per REST_STOP id; rerun `npm run build:signs`

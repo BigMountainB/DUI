@@ -173,23 +173,27 @@ export class Road {
       // East-facing observer.  azimuth is degrees clockwise from
       // North (so 90° = East = directly ahead).  Returns null when the
       // body is behind the viewer.
-      const HORIZON_Y_FRAC = 0.80;
-      const SKY_TOP_FRAC   = 0.10;
+      // Vertical projection anchored to the ACTUAL drawn horizon line
+      // (= H()).  altDeg=0° lands on the horizon, +90° at SKY_TOP_Y
+      // near the top of the screen, negative altitudes project below
+      // the horizon and are naturally clipped by the ground graphics
+      // painted after the sky pass.  Previously this routine had a
+      // leftover `* HORIZON_Y_FRAC (0.80)` multiplier from when H()
+      // meant SCREEN HEIGHT, which placed altitude=0 about 20% of
+      // horizon_Y ABOVE the actual horizon line — the Milky Way (and
+      // the moon at phase ~0) appeared floating mid-sky instead of
+      // rising over the horizon.
+      const SKY_TOP_Y = SCREEN_H * 0.05;
       const azAlt = (azDeg, altDeg) => {
         let angleFromForward = azDeg - 90;
         while (angleFromForward >  180) angleFromForward -= 360;
         while (angleFromForward < -180) angleFromForward += 360;
         if (Math.abs(angleFromForward) > 92) return null;   // behind viewer
         const xt = Math.sin(angleFromForward * Math.PI / 180);
-        // Allow negative altitudes — used by the moon to RISE through
-        // the horizon line.  The disc center sits below horizon in
-        // screen space; the ground / mountain graphics drawn later
-        // naturally clip the bottom of the disc, so the player sees
-        // only the rising sliver above the horizon.
         const yt = Math.sin(altDeg * Math.PI / 180);
         return {
           x: SCREEN_W * 0.5 + xt * SCREEN_W * 0.55,
-          y: H() * HORIZON_Y_FRAC - yt * H() * (HORIZON_Y_FRAC - SKY_TOP_FRAC),
+          y: H() - yt * (H() - SKY_TOP_Y),
         };
       };
 
@@ -262,7 +266,9 @@ export class Road {
       // night-sky focal point handoff is clean.  Fades in over 10
       // miles to mile 225.
       const mwReveal = Math.max(0, Math.min(1, (_mileNow - 215) / 10));
-      const mwAlpha = mwReveal * 0.55;
+      // Bumped from 0.55 → 0.68 to restore the old band's vibrancy
+      // after the new shape work flattened the overall brightness.
+      const mwAlpha = mwReveal * 0.68;
       if (mwAlpha > 0.02) {
         // Astronomical Milky Way placement.  At first visibility (mile
         // ~200) the band lies as a LOW, FLAT arch from NNE (≈22°
@@ -273,14 +279,22 @@ export class Road {
         // clockwise toward Due South — by mid-Pullman the core is
         // close to the south (right window pane).
         const mwSky = clamp((_mileNow - 215) / 75, 0, 1);
-        // NNE (fainter end of the band) — climbs slightly as night
-        // progresses but stays low-left.
+        // mwRise drives the literal "rising over the horizon"
+        // motion — separate from mwSky's azimuth sweep so the band
+        // physically climbs out of the ground in the first ~25 miles
+        // after first reveal, then keeps drifting up more gradually.
+        const mwRise = clamp((_mileNow - 215) / 25, 0, 1);
+        // Both endpoints start CLEARLY below horizon at mile 215 so
+        // the entire arch is buried under the ground graphics at
+        // first reveal.  Over the next ~25 miles (mwRise) the band
+        // physically rises through the horizon; mwSky then keeps it
+        // drifting up more gradually for the rest of the trip.
         const nneAz   = 22;
-        const nneAlt  = 4 + mwSky * 16;
-        // SE → S (bright galactic core end) — climbs from low SE to
-        // higher S, swinging right + up.
+        const nneAlt  = -15 + mwRise * 25 + mwSky * 10;
+        // SE → S (bright galactic core end) — climbs higher and
+        // swings south as night progresses.
         const coreAz  = 135 + mwSky * 45;     // 135° → 180°
-        const coreAlt =  5 + mwSky * 42;      //   5° →  47°
+        const coreAlt = -12 + mwRise * 22 + mwSky * 28;
         const nneScreen  = azAlt(nneAz,  nneAlt)
                            ?? { x: -MARGIN - 40, y: H() * 0.84 };
         const coreScreen = azAlt(coreAz, coreAlt)
@@ -292,7 +306,11 @@ export class Road {
         // early-night the band is a low flat arch; late-night it
         // bulges higher (the band has effectively rotated up + over).
         const midX = (mwP0.x + mwP2.x) * 0.5;
-        const midY = Math.min(mwP0.y, mwP2.y) - 18 - mwSky * 60;
+        // Bezier arch bow — small at first reveal so the entire arch
+        // sits below the horizon (buried in ground) at mile 215, then
+        // grows along with the endpoint rise so the apex breaks above
+        // horizon a few miles in, then the rest of the band follows.
+        const midY = Math.min(mwP0.y, mwP2.y) - 50 - mwRise * 30 - mwSky * 40;
         const mwP1 = { x: midX, y: midY };
         // Bezier helper — returns the spine point at parameter t.
         const mwAt = (t) => {
@@ -312,100 +330,302 @@ export class Road {
           return { tx: dx/len, ty: dy/len, nx: -dy/len, ny: dx/len };
         };
 
+        // ── Milky-Way-only sky rotation, anchored to first reveal ────
+        // skyRot has been accumulating since mile 0, but the band only
+        // first appears at mile 215.  Applying the full skyRot at
+        // reveal placed the band already-rotated up into the top of
+        // the sky.  Subtract the rotation that accrued before mile 215
+        // so the band starts at the horizon at first sight, then
+        // rises as the player drives further (i.e. only the elapsed
+        // rotation since reveal applies).
+        // Slow the band's celestial rotation to ~1/5 of the field-star
+        // rate so it doesn't spin a full lap (or two) across the
+        // visible mile window.  At ~26 mi/revolution the unscaled rate
+        // would give ~3 revolutions over the 78 visible miles —
+        // unrealistic; 0.20× drops that to ~0.6 of a revolution and
+        // keeps the band's slow drift in line with real celestial
+        // motion at a several-hour timescale.
+        const MW_ROT_SCALE = 0.20;
+        const mwRotRate  = _mileNow > 1 ? (skyRot / _mileNow) * MW_ROT_SCALE : 0;
+        const mwRotAngle = Math.max(0, _mileNow - 215) * mwRotRate;
+        const mwCosR    = Math.cos(mwRotAngle);
+        const mwSinR    = Math.sin(mwRotAngle);
+        const mwRotX = (x, y) => rotCx + (x - rotCx) * mwCosR - (y - rotCy) * mwSinR;
+        const mwRotY = (x, y) => rotCy + (x - rotCx) * mwSinR + (y - rotCy) * mwCosR;
+
+        // ── Band silhouette curves ────────────────────────────────
+        // CORE_T fixes where the galactic centre sits along the spine
+        // — offset from mid (0.5) so the band reads asymmetric.
+        // mwBright(t): brightness curve, peaks at CORE_T and tails off
+        //   slowly toward t=0 (NNE) and quickly past CORE_T toward t=1.
+        // mwGirth(t):  perpendicular thickness; 3-5× wider at the core
+        //   than at the horizon ends.
+        const CORE_T     = 0.78;
+        const CORE_SIGMA = 0.16;
+        const mwBright = (tt) => {
+          const peak = Math.exp(-Math.pow((tt - CORE_T) / CORE_SIGMA, 2));
+          const tail = tt < CORE_T
+            ? Math.pow(tt / CORE_T, 0.70)
+            : Math.pow(Math.max(0, 1 - tt) / (1 - CORE_T), 1.40);
+          return 0.18 * tail + 0.85 * peak;
+        };
+        const mwGirth = (tt) => {
+          const peak = Math.exp(-Math.pow((tt - CORE_T) / (CORE_SIGMA * 1.25), 2));
+          const tail = tt < CORE_T
+            ? Math.pow(tt / CORE_T, 0.60)
+            : Math.pow(Math.max(0, 1 - tt) / (1 - CORE_T), 1.20);
+          return 0.22 * tail + 1.00 * peak;
+        };
+
+        // ── Cohesion wash ──────────────────────────────────────────
+        // Large soft blobs along the spine that fill the band into a
+        // continuous glow underneath the granular puff layer.  Without
+        // this the dotted blobs read as disconnected speckles; the
+        // wash gives the old version's "connected cloud" feel while
+        // the tapered shape on top still flares at the core.  Drawn
+        // FIRST so the granular layer sits on top of it.
+        const MW_WASH = 150;
+        for (let i = 0; i < MW_WASH; i++) {
+          const t = (i + 0.5) / MW_WASH;
+          const { x: cx, y: cy } = mwAt(t);
+          const { nx, ny } = mwTangent(t);
+          const bright = mwBright(t);
+          const girth  = mwGirth(t);
+          const noise  = 0.70 + starHash(i * 79 + 41) * 0.55;
+          // Tighter perpendicular spread than the grain so the wash
+          // stays inside the band silhouette and reinforces its centre.
+          const wander = (starHash(i * 53 + 17) - 0.5) * 22
+                       * (0.32 + girth * 1.30);
+          const px = cx + nx * wander;
+          const py = cy + ny * wander;
+          const rx = mwRotX(px, py);
+          const ry = mwRotY(px, py);
+          if (rx < -60 || rx > SCREEN_W + 60) continue;
+          if (ry < -60 || ry > H() + 30) continue;
+          // Large soft puff, low alpha — radius scales with brightness
+          // so the wash is fattest where the core flares.
+          const radius = (9 + 17 * bright) * noise;
+          const a = mwAlpha * (0.08 + 0.18 * bright);
+          // Same warm/cool palette as the granular puffs so they blend.
+          const color = bright > 0.55 ? 0xD8C8A0 : 0x7A92B5;
+          g.fillStyle(color, a);
+          g.fillCircle(rx, ry, radius);
+        }
+
         // ── Soft puffy band ────────────────────────────────────────
-        // 1000 small overlapping blobs along the spine give the band
-        // an irregular, granular shape (vs the prior 110 large blobs
-        // that read as a smooth band).  Single-pass per blob (was 3) so
-        // 1000 fillCircle calls instead of 3000 — about the same total
-        // cost as the prior pass.  Galactic-core brightening adds a
-        // brighter, wider zone at t≈0.55 to suggest the Sgr A* region
-        // visible in the user's Stellarium reference.
+        // 1000 small overlapping blobs along the spine, painted on
+        // top of the wash.  Perpendicular spread, radius, and alpha
+        // all scale with mwGirth/mwBright so the band fattens
+        // dramatically through the core and tapers to a thin star-
+        // rich ribbon at the horizons.
         const MW_PUFFS = 1000;
         for (let i = 0; i < MW_PUFFS; i++) {
           const t = i / (MW_PUFFS - 1);
           const { x: cx, y: cy } = mwAt(t);
           const { nx, ny } = mwTangent(t);
-          const taper     = Math.sin(t * Math.PI);             // 0..1..0
-          // Galactic-core gaussian — peak brightness clustered at the
-          // SE/S end of the band (t≈0.88), matching the user's spec
-          // that the bright Sagittarius core is at the SE / South side.
-          const coreBoost = Math.exp(-Math.pow((t - 0.88) * 3.0, 2));
-          const noise     = 0.40 + starHash(i * 91 + 13) * 0.95;
-          const wander    = (starHash(i * 137 + 29) - 0.5) * 36;
+          const bright = mwBright(t);
+          const girth  = mwGirth(t);
+          const noise  = 0.40 + starHash(i * 91 + 13) * 0.95;
+          // Perpendicular wander — tightened from `0.30 + girth*2.30`
+          // so the same number of puffs cluster closer together at
+          // the core (user feedback: bulge was too wide).
+          const wander = (starHash(i * 137 + 29) - 0.5) * 30
+                       * (0.28 + girth * 1.50);
           const px = cx + nx * wander;
           const py = cy + ny * wander;
-          const rx = rotX(px, py);
-          const ry = rotY(px, py);
+          const rx = mwRotX(px, py);
+          const ry = mwRotY(px, py);
           if (rx < -40 || rx > SCREEN_W + 40) continue;
           if (ry < -40 || ry > H() + 20)   continue;
-          const radius = (3 + 5 * taper) * noise * (1 + coreBoost * 0.6);
+          const radius = (2.4 + 6.5 * bright) * noise;
+          // Brightness lifted so the tails read as a vivid star band
+          // (was 0.35 + 1.05*bright → faded outers).  0.65 baseline
+          // keeps the tail bands punchy while the core stays brighter.
           const brightMod = (0.40 + starHash(i * 113 + 7) * 0.65)
-                          * (0.75 + 0.55 * coreBoost);
+                          * (0.65 + 0.85 * bright);
           const baseA = mwAlpha * brightMod;
-          // Warm (cream) puffs in the core region, cool (blue-grey)
-          // puffs elsewhere — matches the spectrum gradient in the
-          // reference image.
-          const color = coreBoost > 0.45 ? 0xC8BFA0 : 0x6E84A4;
-          g.fillStyle(color, baseA * 0.45);
+          // Warm cream tone at the core, vivid cool blue in the tails
+          // — old palette restored for the "vibrant" look the user
+          // wanted on top of the new tapered shape.
+          const color = bright > 0.55 ? 0xD8C8A0 : 0x7A92B5;
+          g.fillStyle(color, baseA * 0.55);
           g.fillCircle(rx, ry, radius);
         }
 
-        // ── Dust lanes — dark patches eating into the band ──────────
-        const MW_DUST = 140;
+        // ── Galactic-core plume ────────────────────────────────────
+        // Extra warm puffs clustered around CORE_T, distributed in an
+        // ellipse stretched along the band axis with a mild swirl
+        // twist, so the core reads as a swirling plume of stars rather
+        // than a tidy disc.  Asymmetric: cloud leans toward the
+        // trailing side (t < CORE_T) where the band is wider.
+        const CORE_PUFFS = 380;
+        for (let i = 0; i < CORE_PUFFS; i++) {
+          // Triangular distribution biased slightly toward the
+          // trailing (NNE) side of the core.
+          const u1 = starHash(i * 11 + 3);
+          const u2 = starHash(i * 13 + 7);
+          const tBias = CORE_T - 0.04 + (u1 - u2) * 0.36;
+          if (tBias < 0.02 || tBias > 0.98) continue;
+          const { x: cx, y: cy } = mwAt(tBias);
+          const { tx, ty, nx, ny } = mwTangent(tBias);
+          const ang = starHash(i * 19 + 9) * Math.PI * 2;
+          const ru  = Math.sqrt(starHash(i * 23 + 13));
+          // Elongated ellipse — 1.7× along band, 0.75× across.
+          // Plume radius tightened (110 → 78) so the core glow
+          // doesn't read as a fat blob.
+          const lx0 = Math.cos(ang) * ru * 78 * 1.70;
+          const ly0 = Math.sin(ang) * ru * 78 * 0.75;
+          // Swirl twist — outer cells lag, giving a plume silhouette.
+          const tw  = ru * 0.85;
+          const cT  = Math.cos(tw), sT = Math.sin(tw);
+          const lx  = lx0 * cT - ly0 * sT;
+          const ly  = lx0 * sT + ly0 * cT;
+          const px = cx + tx * lx + nx * ly;
+          const py = cy + ty * lx + ny * ly;
+          const rx = mwRotX(px, py);
+          const ry = mwRotY(px, py);
+          if (rx < -40 || rx > SCREEN_W + 40) continue;
+          if (ry < -40 || ry > H() + 20) continue;
+          const falloff = Math.exp(-ru * ru * 1.6);
+          const radius  = (2.6 + 7.0 * (1 - ru))
+                        * (0.7 + starHash(i * 113 + 11) * 0.7);
+          const a = mwAlpha * 0.52 * (0.40 + 0.85 * falloff);
+          // Two-tone: warm cream at the plume centre, soft pale blue
+          // at the edges — old vivid palette so the core glows rather
+          // than reading grey.
+          const color = falloff > 0.45 ? 0xEDD9A8 : 0xB4C2D8;
+          g.fillStyle(color, a);
+          g.fillCircle(rx, ry, radius);
+        }
+
+        // ── Dust lanes — scattered dark patches ────────────────────
+        // Concentrated near the core (where the band is widest and
+        // dust contrast reads best); patch size + count scale with
+        // local girth so the horizons stay clean.
+        const MW_DUST = 220;
         for (let i = 0; i < MW_DUST; i++) {
-          const t = starHash(i * 173 + 5);
+          // Bias toward CORE_T via two hashes (triangular distribution).
+          const h1 = starHash(i * 173 + 5);
+          const h2 = starHash(i * 197 + 11);
+          const t = Math.max(0.02, Math.min(0.98,
+                       CORE_T + (h1 - h2) * 0.55));
           const { x: cx, y: cy } = mwAt(t);
           const { nx, ny } = mwTangent(t);
-          const off = (starHash(i * 211 + 3) - 0.5) * 28;
+          const girth = mwGirth(t);
+          const off = (starHash(i * 211 + 3) - 0.5) * 28
+                    * (0.36 + girth * 1.40);
           const dx = cx + nx * off;
           const dy = cy + ny * off;
-          const rx = rotX(dx, dy);
-          const ry = rotY(dx, dy);
+          const rx = mwRotX(dx, dy);
+          const ry = mwRotY(dx, dy);
           if (rx < -40 || rx > SCREEN_W + 40) continue;
           if (ry < -40 || ry > H() + 20)   continue;
-          // Smaller dust patches now that we have more of them.
-          const radius = 4 + starHash(i * 251 + 11) * 14;
-          g.fillStyle(0x050B18, 0.40 * mwAlpha);
+          const radius = (3 + starHash(i * 251 + 11) * 13)
+                       * (0.55 + girth * 0.90);
+          g.fillStyle(0x040810, 0.48 * mwAlpha);
           g.fillCircle(rx, ry, radius);
+        }
+
+        // ── Dust rivers — long branching dark veins through the core
+        // Three meandering streams that flow roughly parallel to the
+        // band axis at slight perpendicular offsets, cutting cracks
+        // and rivers into the bright star field.  Random skips create
+        // branching voids; per-river sin wobble keeps the streams
+        // visibly distinct rather than parallel rails.
+        const DUST_RIVERS = 3;
+        for (let r = 0; r < DUST_RIVERS; r++) {
+          const tStart = Math.max(0.05, CORE_T - 0.36 - r * 0.03);
+          const tEnd   = Math.min(0.97, CORE_T + 0.22 + r * 0.02);
+          const trackOffset = (r - 1) * 12
+                            + (starHash(r * 311 + 17) - 0.5) * 10;
+          const RIVER_SEGS = 120;
+          for (let j = 0; j < RIVER_SEGS; j++) {
+            const u = j / (RIVER_SEGS - 1);
+            const tt = tStart + u * (tEnd - tStart);
+            const { x: cx, y: cy } = mwAt(tt);
+            const { nx, ny } = mwTangent(tt);
+            // Smooth meander + small per-segment jitter.
+            const wobble = Math.sin(u * Math.PI * (2.3 + r * 0.7) + r * 1.3) * 15
+                         + (starHash(r * 173 + j * 11) - 0.5) * 6;
+            // Branching gaps — skip ~12% of segments so the river
+            // breaks into discontinuous cracks rather than a solid line.
+            if (starHash(r * 401 + j * 7) < 0.12) continue;
+            const dx = cx + nx * (trackOffset + wobble);
+            const dy = cy + ny * (trackOffset + wobble);
+            const px = mwRotX(dx, dy);
+            const py = mwRotY(dx, dy);
+            if (px < -40 || px > SCREEN_W + 40) continue;
+            if (py < -40 || py > H() + 20)   continue;
+            const coreW = Math.exp(-Math.pow((tt - CORE_T) / 0.22, 2));
+            const radius = (5 + starHash(r * 547 + j * 23) * 10)
+                         * (0.50 + coreW * 1.00);
+            g.fillStyle(0x030610, 0.55 * mwAlpha * (0.45 + coreW * 0.85));
+            g.fillCircle(px, py, radius);
+          }
         }
 
         // ── Bright cluster knots ───────────────────────────────────
-        const MW_KNOTS = 50;
+        // Biased toward the core so the brightest knots appear in the
+        // plume, with a few scattered along the tail bands.
+        const MW_KNOTS = 60;
         for (let i = 0; i < MW_KNOTS; i++) {
-          const t = 0.10 + starHash(i * 311 + 9) * 0.80;
+          const h1 = starHash(i * 311 + 9);
+          const h2 = starHash(i * 337 + 13);
+          const t = Math.max(0.05, Math.min(0.95,
+                       CORE_T + (h1 - h2) * 0.55));
           const { x: cx, y: cy } = mwAt(t);
           const { nx, ny } = mwTangent(t);
-          const off = (starHash(i * 379 + 13) - 0.5) * 22;
+          const girth = mwGirth(t);
+          const off = (starHash(i * 379 + 13) - 0.5) * 22
+                    * (0.36 + girth * 1.30);
           const kx = cx + nx * off;
           const ky = cy + ny * off;
-          const rx = rotX(kx, ky);
-          const ry = rotY(kx, ky);
+          const rx = mwRotX(kx, ky);
+          const ry = mwRotY(kx, ky);
           if (rx < -40 || rx > SCREEN_W + 40) continue;
           if (ry < -40 || ry > H() + 20)   continue;
-          const radius = 3 + starHash(i * 421 + 17) * 8;
-          g.fillStyle(0xE0DFC0, 0.16 * mwAlpha);
+          const bright = mwBright(t);
+          const radius = (2 + starHash(i * 421 + 17) * 8) * (0.6 + bright * 0.9);
+          // Warm halo + bright core knot — old vivid yellow tones.
+          g.fillStyle(0xF0E6BC, 0.22 * mwAlpha);
           g.fillCircle(rx, ry, radius * 1.5);
-          g.fillStyle(0xFFF6D8, 0.32 * mwAlpha);
+          g.fillStyle(0xFFF3CE, 0.42 * mwAlpha);
           g.fillCircle(rx, ry, radius);
         }
 
         // ── Sprinkled stars along the band (denser than the field) ─
-        const MW_STARS = 1100;
+        // Spread scales with local girth — narrow at the horizons,
+        // wide through the core — so the granular star field follows
+        // the same silhouette as the puffy band.
+        const MW_STARS = 1400;
         for (let i = 0; i < MW_STARS; i++) {
           const t = (i + 0.5) / MW_STARS;
           const { x: cx, y: cy } = mwAt(t);
-          // Perpendicular spread of ~30px so the sprinkle has thickness.
+          const { nx, ny } = mwTangent(t);
+          const girth = mwGirth(t);
           const ang = starHash(i * 41 + 13) * Math.PI * 2;
-          const r   = (starHash(i * 53 + 17) ** 0.5) * 30;
-          const baseSx = cx + Math.cos(ang) * r;
-          const baseSy = cy + Math.sin(ang) * r;
-          const sx = rotX(baseSx, baseSy);
-          const sy = rotY(baseSx, baseSy);
+          const r   = Math.sqrt(starHash(i * 53 + 17))
+                    * (10 + girth * 45);
+          // Elliptical scatter — 1.5× along the band tangent, 1.0×
+          // perpendicular — so the grain reads as flowing with the
+          // stream rather than as a circular cloud.
+          const { tx, ty } = mwTangent(t);
+          const along  = Math.cos(ang) * r * 1.5;
+          const across = Math.sin(ang) * r * 1.0;
+          const baseSx = cx + tx * along + nx * across;
+          const baseSy = cy + ty * along + ny * across;
+          const sx = mwRotX(baseSx, baseSy);
+          const sy = mwRotY(baseSx, baseSy);
           if (sx < -8 || sx > SCREEN_W + 8) continue;
           if (sy < -8 || sy > H() + 12)  continue;
           if (Math.abs(sx - moonX) < 28 && Math.abs(sy - moonArcY) < 28) continue;
-          const a = (0.35 + starHash(i * 67 + 23) * 0.45) * mwAlpha;
-          g.fillStyle(0xE0E8FF, a);
+          const bright = mwBright(t);
+          // Sprinkle stars: hold a bright tail baseline so the band
+          // glitters all the way out to the horizons (was 0.45 baseline,
+          // dropped tail stars to near-invisible).
+          const a = (0.30 + starHash(i * 67 + 23) * 0.55)
+                  * (0.70 + bright * 0.55) * mwAlpha;
+          g.fillStyle(0xE8EEFF, a);
           g.fillRect(Math.floor(sx), Math.floor(sy), 1, 1);
         }
       }
@@ -587,7 +807,6 @@ export class Road {
     const snowAmt   = lerpClamp(0, 1, (mileProgress - 30) / 5);   // 30 → 35
     const shadeAmt  = lerpClamp(0, 1, (mileProgress - 35) / 5);   // 35 → 40
     const outcropAmt= lerpClamp(0, 1, (mileProgress - 40) / 5);   // 40 → 45
-    const vegAmt    = lerpClamp(0, 1, (mileProgress - 45) / 5);   // 45 → 50
 
     const mBaseY = H() + 2;
     // Helper: should this peak's screen X land in the road-pass gap?
@@ -641,16 +860,9 @@ export class Road {
         g.fillTriangle(mx, top + capH * 0.4, mx + capW * 0.85, top + capH, mx + capW * 0.15, top + capH);
       }
 
-      // Vegetation — thin green stipple band along the lower 18%, gives
-      // the mountain a treeline at its base instead of bare rock.
-      if (vegAmt > 0.02 && isNear) {
-        const treeY = mBaseY - mh * 0.18;
-        const treeCol = lerpColor(baseColor, 0x1F4A24, 0.65 * vegAmt);
-        g.fillStyle(treeCol, 1);
-        // Wedge from base up to the tree-line, narrower than the peak.
-        const tw = mw * 0.92;
-        g.fillTriangle(mx - tw, mBaseY, mx + tw, mBaseY, mx, treeY);
-      }
+      // Vegetation treeline removed per design — the mountain's base color
+      // now extends straight down to the horizon, so there's no green band
+      // sitting at the foot of the peaks.
     };
 
     // Far range: lighter, shorter
@@ -1109,6 +1321,25 @@ export class Road {
     this._firstTunnelN = _firstTunnelIdx >= 0
       ? _firstTunnelIdx
       : (_embTunnelProj?.n ?? -1);
+    // If the camera itself is inside a tunnel (drawn[0] is tunnel),
+    // also publish the index of the FIRST non-tunnel segment ahead —
+    // i.e., where the tunnel ends.  Buildings past the exit are
+    // visible through the mouth and must NOT be culled by the
+    // past-tunnel rule in the scenery renderer.
+    let _lastTunnelN = -1;
+    if (drawn.length > 0 && drawn[0]?.seg?.tunnel) {
+      for (let i = 0; i < drawn.length; i++) {
+        if (!drawn[i]?.seg?.tunnel) {
+          _lastTunnelN = drawn[i].n;
+          break;
+        }
+      }
+      // Camera fully inside the tunnel for the entire visible range —
+      // every drawn segment is tunnel; far buildings stay culled.
+      if (_lastTunnelN < 0) _lastTunnelN = drawn[drawn.length - 1]?.n ?? -1;
+    }
+    this._cameraInTunnel = drawn.length > 0 && !!drawn[0]?.seg?.tunnel;
+    this._tunnelExitN    = _lastTunnelN;
 
     // Render sprites FAR → NEAR so close-up buildings paint over distant ones
     // (drawn[] is built near→far, so iterate backwards). Without this,
@@ -1399,6 +1630,10 @@ export class Road {
   _drawTunnelFacade(g) {
     const e = this._embTunnelProj;
     if (!e) return;
+    // Wildlife twin-arch publishes TWO arch openings here (the interior shows
+    // only through these, so the solid center pier stays opaque).  null on
+    // every other facade → GameScene falls back to the _tunnelMouthRect.
+    this._tunnelMouthShapes = null;
 
     const w2 = e.screenW;
     const x2 = e.screenX;
@@ -1456,6 +1691,135 @@ export class Road {
     const rimAlpha  = clamp(1 - Math.pow(peekFog * 0.45, 1.4), 0.30, 1);
 
     const cutMouth = (groundY - lintelY) > 4 && (outerR - outerL) > 6;
+
+    // ════ Wildlife overpass — TWIN-ARCH (two carriageways + center pier) ════
+    // A short, LOW cement overpass — a hill over the road so animals cross
+    // safely — NOT a mountain or a wall.  Two segmental arches (one per
+    // direction of travel) flank a SOLID central pier on the median, with a
+    // low earthen mound on top sloping down to the forest on each side.
+    // Solid cement everywhere except the two arch openings (you can't see
+    // through the walls), narrow enough that sky/forest shows to the sides.
+    // Drawn entirely here, then returns — the normal-tunnel code below is
+    // UNTOUCHED (Mt Baker / Mercer lid render exactly as before).  Geometry
+    // validated non-self-intersecting across the perspective range.
+    if (isWildlifeFacade) {
+      const mouthW = outerR - outerL;
+      if (!cutMouth || mouthW < 8) {
+        // Too far / too small to cut openings — a plain solid mound that
+        // still occludes whatever is behind the crossing.
+        const fX = mouthW * 0.32;
+        const topY = e.screenY - 9000 * sH;
+        g.fillStyle(0xB7B0A0, 1);
+        g.fillPoints([
+          { x: outerL - fX, y: groundY }, { x: outerL, y: topY },
+          { x: outerR, y: topY }, { x: outerR + fX, y: groundY },
+        ], true);
+        this._tunnelMouthRect = null;
+        return;
+      }
+      const pierHalf  = Math.max(2, mouthW * 0.05);   // center pier on the median
+      const pierL     = centerX - pierHalf;
+      const pierR     = centerX + pierHalf;
+      const archHalfL = (pierL - outerL) * 0.5;
+      const archHalfR = (outerR - pierR) * 0.5;
+      const jambH     = Math.max(2, Math.min(archHalfL, archHalfR) * 0.30);
+      const wSpringY  = groundY - jambH;              // arch springer line
+      const riseL     = Math.max(2, archHalfL * 0.92);
+      const riseR     = Math.max(2, archHalfR * 0.92);
+      const crownYL   = wSpringY - riseL;
+      const crownYR   = wSpringY - riseR;
+      const deckBand  = Math.max(3, Math.min(archHalfL, archHalfR) * 0.45);
+      const wCrestY   = Math.min(crownYL, crownYR) - deckBand;   // low mound top
+      const wFlankX   = mouthW * 0.32;
+      const wBaseL    = outerL - wFlankX;
+      const wBaseR    = outerR + wFlankX;
+      const wSlopeY   = groundY - (groundY - wCrestY) * 0.78;
+      const A_N = 14;
+      const archCurve = (x0, x1, rise) => {
+        const pts = [];
+        for (let s = 0; s <= A_N; s++) {
+          const t = s / A_N;
+          pts.push({ x: x0 + (x1 - x0) * t, y: wSpringY - rise * Math.sin(Math.PI * t) });
+        }
+        return pts;
+      };
+      const leftArch  = archCurve(outerL, pierL, riseL);   // outerL → pierL springers
+      const rightArch = archCurve(pierR, outerR, riseR);   // pierR → outerR springers
+
+      // SOLID cement — two pieces split at the centerline, each carving one
+      // arch on its outer half and meeting at the solid pier in the middle.
+      const leftPiece = [
+        { x: wBaseL,                  y: groundY },
+        { x: (wBaseL + outerL) * 0.5, y: wSlopeY },
+        { x: outerL,                  y: wCrestY },
+        { x: centerX,                 y: wCrestY },
+        { x: centerX,                 y: groundY },
+        { x: pierL,                   y: groundY },
+        ...leftArch.slice().reverse(),
+        { x: outerL,                  y: groundY },
+      ];
+      const rightPiece = [
+        { x: wBaseR,                  y: groundY },
+        { x: (wBaseR + outerR) * 0.5, y: wSlopeY },
+        { x: outerR,                  y: wCrestY },
+        { x: centerX,                 y: wCrestY },
+        { x: centerX,                 y: groundY },
+        { x: pierR,                   y: groundY },
+        ...rightArch,
+        { x: outerR,                  y: groundY },
+      ];
+      g.fillStyle(0xB7B0A0, 1);
+      g.fillPoints(leftPiece, true);
+      g.fillPoints(rightPiece, true);
+
+      // Rim highlight tracing the mound silhouette.
+      if (sH > 0.02) {
+        const rimDrop = Math.max(2, (groundY - wCrestY) * 0.03);
+        const top = [
+          { x: wBaseL,                  y: groundY },
+          { x: (wBaseL + outerL) * 0.5, y: wSlopeY },
+          { x: outerL,                  y: wCrestY },
+          { x: outerR,                  y: wCrestY },
+          { x: (wBaseR + outerR) * 0.5, y: wSlopeY },
+          { x: wBaseR,                  y: groundY },
+        ];
+        g.fillStyle(0xCFC9B6, rimAlpha);
+        g.fillPoints([...top, ...top.slice().reverse().map(p => ({ x: p.x, y: p.y + rimDrop }))], true);
+      }
+
+      // Subtle vertical shading on the SOLID center pier so it reads as a
+      // distinct column between the two arches.
+      if (pierR - pierL > 1.5) {
+        const pierTop = Math.min(crownYL, crownYR);
+        g.fillStyle(0x9F988A, 0.30);
+        g.fillRect(pierL, pierTop, pierR - pierL, groundY - pierTop);
+      }
+
+      // Arch ring + inner-recess shadow for each opening.
+      if (sH > 0.03) {
+        const ring = (arch, rise) => {
+          const rw = Math.max(1.5, rise * 0.10);
+          g.fillStyle(0xC4BFA8, 1);
+          g.fillPoints([...arch.map(p => ({ x: p.x, y: p.y - rw })), ...arch.slice().reverse()], true);
+          g.fillStyle(0x2A2620, 0.5);
+          g.fillPoints([...arch, ...arch.slice().reverse().map(p => ({ x: p.x, y: p.y + Math.max(1, rise * 0.06) }))], true);
+        };
+        ring(leftArch, riseL);
+        ring(rightArch, riseR);
+      }
+
+      // Publish the two arch OPENINGS (interior shows ONLY through these) +
+      // a bounding rect for sprite culling.
+      const opening = (arch) => ([
+        ...arch,
+        { x: arch[arch.length - 1].x, y: groundY },
+        { x: arch[0].x,               y: groundY },
+      ]);
+      this._tunnelMouthShapes = [opening(leftArch), opening(rightArch)];
+      const mTop = Math.min(crownYL, crownYR);
+      this._tunnelMouthRect = { x: outerL, y: mTop, w: mouthW, h: groundY - mTop };
+      return;
+    }
 
     // Publish the tunnel-mouth screen rectangle so GameScene can:
     //   (a) mask the tunnel interior (tunnelGfx) to ONLY render
@@ -1926,7 +2290,7 @@ export class Road {
       inNear_R + curbW1, ny,
       inNear_R, ny);
 
-    if ((seg.index % 3) === 0) {
+    if (!seg.wildlife && (seg.index % 3) === 0) {
       const lightLenFar  = Math.max(2, wallW2 * 0.55);
       const lightLenNear = Math.max(2, wallW1 * 0.55);
       const lightThk     = Math.max(2, segH * 0.5);
@@ -1940,6 +2304,16 @@ export class Road {
         inFar_R + lightLenFar,   ceilFy,
         inNear_R + lightLenNear, ceilNy + lightThk,
         inNear_R,                ceilNy + lightThk);
+    }
+
+    // Wildlife crossing — a short, LOW overpass sitting in its OWN shadow,
+    // not a long lit highway tunnel.  Shade the interior dark so the arch
+    // openings read as a shaded recess you drive UNDER rather than a bright
+    // see-through hole (and the sodium ceiling lights are skipped above).
+    if (seg.wildlife) {
+      fillTrap(g, 0x0E1118,
+        outFar_L,  ceilFy, outFar_R,  ceilFy,
+        outNear_R, ny,     outNear_L, ny, 0.62);
     }
   }
 
@@ -2331,46 +2705,48 @@ export class Road {
 
     g.fillStyle(0xFFFFFF, 1);
 
-    // ── LEFT ribbon ──────────────────────────────────────────────
-    g.beginPath();
-    let first = true;
-    // Outer edge: far → near along x = screenX - screenW
-    for (let n = DRAW_DIST; n >= 0; n--) {
-      const s = samples[n];
-      if (!s.valid || s.visible === false) continue;
-      if (first) { g.moveTo(s.screenX - s.screenW, s.screenY); first = false; }
-      else       { g.lineTo(s.screenX - s.screenW, s.screenY); }
-    }
-    // Inner edge: near → far along x = screenX - screenW + sw
-    for (let n = 0; n <= DRAW_DIST; n++) {
-      const s = samples[n];
-      if (!s.valid || s.visible === false) continue;
-      const sw = Math.max(0.8, s.screenW * SHOULDER_RATIO);
-      g.lineTo(s.screenX - s.screenW + sw, s.screenY);
-    }
-    g.closePath();
-    g.fillPath();
-
-    // ── RIGHT ribbon ─────────────────────────────────────────────
-    g.beginPath();
-    first = true;
-    // Outer edge: far → near along x = screenX + screenW (going DOWN
-    // the right side, mirrored from the left)
-    for (let n = DRAW_DIST; n >= 0; n--) {
-      const s = samples[n];
-      if (!s.valid || s.visible === false) continue;
-      if (first) { g.moveTo(s.screenX + s.screenW, s.screenY); first = false; }
-      else       { g.lineTo(s.screenX + s.screenW, s.screenY); }
-    }
-    // Inner edge: near → far along x = screenX + screenW - sw
-    for (let n = 0; n <= DRAW_DIST; n++) {
-      const s = samples[n];
-      if (!s.valid || s.visible === false) continue;
-      const sw = Math.max(0.8, s.screenW * SHOULDER_RATIO);
-      g.lineTo(s.screenX + s.screenW - sw, s.screenY);
-    }
-    g.closePath();
-    g.fillPath();
+    // Draw one filled polygon per CONTIGUOUS run of visible boundaries.
+    // Previously the whole side was a single beginPath…closePath that just
+    // `continue`d past hidden samples — so at a hill crest, where a run of
+    // segments is clipped, the ribbon drew a straight white edge ACROSS the
+    // gap (a wedge/triangle over the grass).  Breaking the path at every gap
+    // makes the white stripe stop and restart exactly where the road does.
+    const drawSide = (sideSign) => {
+      let a = -1;   // run start index
+      const flush = (lo, hi) => {
+        if (hi - lo < 1) return;               // need ≥ 2 points for an area
+        g.beginPath();
+        // Outer edge far → near (x = screenX + sign*screenW)
+        let first = true;
+        for (let n = hi; n >= lo; n--) {
+          const s = samples[n];
+          const x = s.screenX + sideSign * s.screenW;
+          if (first) { g.moveTo(x, s.screenY); first = false; }
+          else       { g.lineTo(x, s.screenY); }
+        }
+        // Inner edge near → far (x = screenX + sign*(screenW - stripeW))
+        for (let n = lo; n <= hi; n++) {
+          const s = samples[n];
+          const sw = Math.max(0.8, s.screenW * SHOULDER_RATIO);
+          g.lineTo(s.screenX + sideSign * (s.screenW - sw), s.screenY);
+        }
+        g.closePath();
+        g.fillPath();
+      };
+      for (let n = 0; n <= DRAW_DIST; n++) {
+        const s = samples[n];
+        const ok = s.valid && s.visible !== false;
+        if (ok) {
+          if (a < 0) a = n;
+        } else if (a >= 0) {
+          flush(a, n - 1);
+          a = -1;
+        }
+      }
+      if (a >= 0) flush(a, DRAW_DIST);
+    };
+    drawSide(-1);   // left shoulder
+    drawSide(+1);   // right shoulder
   }
 
   _drawSegment(g, curr, next, palette, effects, xOffset = 0, isGhost = false) {
@@ -2410,12 +2786,23 @@ export class Road {
     // smooth instead of a hard color flip.
     const segMile = (seg.index / this.segments.length) * TOTAL_ROUTE_MILES;
     if (Weather.isSnow(segMile)) {
-      const snowI = Weather.intensity(segMile);
-      grass    = lerpColor(grass,    0xE6E8EC, snowI * 0.85);
-      road     = lerpColor(road,     0xE0E2E0, snowI * 0.80);
-      rumble   = lerpColor(rumble,   0xC8CACC, snowI * 0.80);
-      laneCol  = lerpColor(laneCol,  road,     snowI);   // lanes vanish into road
-      if (snowI > 0.7) dashOn = false;                   // no lane paint visible
+      // Ground snow accumulates GRADUALLY, decoupled from the falling-snow
+      // intensity (which is full from mile 40 with no fade-in, so the sky
+      // hands off rain→snow with no clear gap).  Using intensity directly
+      // snapped the road to full white right at mile 40 — a hard "line" on
+      // the pavement.  Instead ramp the ground blanket in over ~6 mi
+      // (40→46) and out over the last 2 mi (86→88) so the road whitens
+      // smoothly.  (The sky precip is unchanged — per user.)
+      const easeIn  = Math.min(1, Math.max(0, (segMile - 40) / 6));
+      const easeOut = segMile > 86 ? Math.max(0, (88 - segMile) / 2) : 1;
+      const snowI   = easeIn * easeOut;
+      if (snowI > 0.001) {
+        grass    = lerpColor(grass,    0xE6E8EC, snowI * 0.85);
+        road     = lerpColor(road,     0xE0E2E0, snowI * 0.80);
+        rumble   = lerpColor(rumble,   0xC8CACC, snowI * 0.80);
+        laneCol  = lerpColor(laneCol,  road,     snowI);   // lanes vanish into road
+        if (snowI > 0.7) dashOn = false;                   // no lane paint visible
+      }
     }
     const segLanes = seg.lanes ?? LANES;
 
@@ -2885,15 +3272,21 @@ export class Road {
       // The grass between the road's right edge and the ramp's inner
       // edge IS the visible gore — no special draw, the underlying
       // grass shows through because we leave that band unpainted.
-      const t = rs * rs * (3 - 2 * rs);   // smoothstep — gentle apex, sharp peel
-      const rampW1 = w1 * 1.25 * t;
-      const rampW2 = w2 * 1.25 * t;
-      // Wider gore wedge — at peak (t=1), the ramp's inner edge sits
+      // Per 2026-05-30 user direction: off-ramps stay the SAME size all
+      // the way through — big enough for a car to drive on without
+      // tapering down at the start of the window.  Previously a
+      // smoothstep t = rs²(3-2rs) grew the ramp from 0 → full over the
+      // 1 mi approach (visible "narrow → wide" pull-out); now t = 1 the
+      // whole time so the ramp opens at full divergence the moment
+      // rampStrength > 0.
+      const t = 1;
+      const rampW1 = w1 * 1.25;
+      const rampW2 = w2 * 1.25;
+      // Gore wedge stays at peak width too — ramp's inner edge sits
       // ~2 road half-widths away from the road's outer edge, with a
-      // 1.25-lane ramp beyond it.  This makes the exit lane pull well
-      // away from traffic instead of reading as a shoulder bulge.
-      const gap1   = w1 * 2.05 * t;
-      const gap2   = w2 * 2.05 * t;
+      // 1.25-lane ramp beyond it.
+      const gap1   = w1 * 2.05;
+      const gap2   = w2 * 2.05;
       // Asphalt fill — same color as the active road stripe so the ramp
       // doesn't read as a different road type, just a continuation.
       fillTrap(g, road,
@@ -2912,18 +3305,10 @@ export class Road {
       // stripe + yellow RPM dots are enough to communicate the split.)
       // (Yellow RPM dots in the gore removed — they read as "lane
       // markings painted on grass" without the underlying pavement.)
-      // ── Right-shoulder delineators — small black bars along the
-      // outside edge of the ramp, classic delineator post pattern from
-      // the reference image.  Drawn every 3rd segment (about every
-      // ~30 ft of road) so they're visually recognizable.
-      if (rs > 0.20 && (seg.index % 3) === 0) {
-        const delX1 = x1 + w1 + gap1 + rampW1 + edgeW1 + 4;
-        const delX2 = x2 + w2 + gap2 + rampW2 + edgeW2 + 4;
-        const delW  = Math.max(1, edgeW1 * 1.6);
-        g.fillStyle(0x222222, 0.95);
-        g.fillRect(delX2 - delW / 2, fy + segH * 0.30, delW, Math.max(1, segH * 0.40));
-        g.fillRect(delX1 - delW / 2, ny - segH * 0.70, delW, Math.max(1, segH * 0.40));
-      }
+      // (Right-shoulder delineator posts removed 2026-05-30 — at the
+      // game's perspective they stack into hash-mark-looking artifacts
+      // across consecutive segments rather than reading as discrete
+      // posts.)
       // ── White edge stripe along INSIDE of the ramp (next to the gore).
       // Pairs with the OUTSIDE edge stripe drawn earlier so the ramp has
       // a real lane boundary on both sides.
@@ -2932,18 +3317,9 @@ export class Road {
       fillTrap(g, 0xFFFFFF,
         x2 + w2 + gap2,         fy, x2 + w2 + gap2 + innerW2, fy,
         x1 + w1 + gap1 + innerW1, ny, x1 + w1 + gap1,         ny);
-      // ── Bright "EXIT" arrow chevron painted on the ramp pavement near
-      // peak strength — gives the player something obvious to aim at.
-      if (rs > 0.55) {
-        const cx2 = x2 + w2 + gap2 + rampW2 * 0.55;
-        const chevW = (rampW1 + rampW2) * 0.18;
-        g.fillStyle(0xFFFFFF, 0.85);
-        g.fillTriangle(
-          cx2 - chevW * 0.3, fy + segH * 0.3,
-          cx2 + chevW * 0.3, fy + segH * 0.5,
-          cx2 - chevW * 0.3, fy + segH * 0.7,
-        );
-      }
+      // (EXIT chevron triangle removed 2026-05-30 — across consecutive
+      // segments the per-segment triangles stacked into a row of white
+      // hash marks on the ramp surface that didn't read as a chevron.)
     }
 
     // Left rumble
@@ -2989,6 +3365,36 @@ export class Road {
       fillTrap(surfaceG, 0xFFEE00,
         x2 + gap2,        fy, x2 + gap2 + clw2, fy,
         x1 + gap1 + clw1, ny, x1 + gap1,        ny);
+    }
+
+    // ── Raised median (divided highway through the wildlife crossing) ──
+    // A low concrete divider down the centerline that carries the overpass
+    // center pier, so the road visibly SPLITS into two carriageways.  Width
+    // + height scale with seg.medianW (0→1→0 taper) so it eases up out of
+    // the road and back down — no abrupt wall.  Drawn on surfaceG AFTER the
+    // lane lines so it sits on top of the asphalt (and over the now-covered
+    // center line).  The soft side-barrier in GameScene keeps the player off
+    // it / out from under the pier (you still pick left or right).
+    if (seg.medianZone && !isGhost && segLanes >= 2) {
+      const mw = seg.medianW ?? 0;
+      if (mw > 0.02) {
+        const mWf = Math.max(1, w2 * 0.16 * mw);
+        const mWn = Math.max(1, w1 * 0.16 * mw);
+        const mHf = Math.max(1, w2 * 0.07 * mw);   // raised height, far
+        const mHn = Math.max(2, w1 * 0.12 * mw);   // raised height, near
+        const cf = x2, cn = x1;
+        // Left side face (shadowed) and right side face (lit) of the curb.
+        fillTrap(surfaceG, 0x5E5A52,
+          cf - mWf, fy,        cf - mWf, fy - mHf,
+          cn - mWn, ny - mHn,  cn - mWn, ny);
+        fillTrap(surfaceG, 0x6E6A62,
+          cf + mWf, fy - mHf,  cf + mWf, fy,
+          cn + mWn, ny,        cn + mWn, ny - mHn);
+        // Top surface (lighter concrete).
+        fillTrap(surfaceG, 0xAEAAA0,
+          cf - mWf, fy - mHf,  cf + mWf, fy - mHf,
+          cn + mWn, ny - mHn,  cn - mWn, ny - mHn);
+      }
     }
 
     // Fog overlay — same treatment for tunnel and non-tunnel segments
@@ -3223,11 +3629,16 @@ export class Road {
         g.fillRect(x - w * 0.62, y + h * 0.02, w * 1.24, h * 0.64);
         g.fillStyle(FACE_HI, 1);
         g.fillRect(x - w * 0.62, y + h * 0.02, w * 1.24, h * 0.06);
-        // Yellow plaque on top — header reads "REST STOP".
-        g.fillStyle(0xFFEE00, 1);
-        g.fillRect(x - w * 0.42, y - h * 0.18, w * 0.84, h * 0.18);
-        g.fillStyle(0x000000, 1);
-        g.fillRect(x - w * 0.40, y - h * 0.16, w * 0.80, h * 0.02);
+        // Yellow plaque on top — header reads "REST STOP".  Pass-through
+        // city signs (no rest stop at this exit) skip the plaque entirely
+        // so the green face shows just EXIT + town, matching real WSDOT
+        // freeway signs at non-rest-area interchanges.
+        if (!sp?.passThrough) {
+          g.fillStyle(0xFFEE00, 1);
+          g.fillRect(x - w * 0.42, y - h * 0.18, w * 0.84, h * 0.18);
+          g.fillStyle(0x000000, 1);
+          g.fillRect(x - w * 0.40, y - h * 0.16, w * 0.80, h * 0.02);
+        }
         // Down-arrow indicator (right-side exit)
         g.fillStyle(BORDER, 0.95);
         g.fillTriangle(
