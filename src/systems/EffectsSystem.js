@@ -976,7 +976,11 @@ export class EffectsSystem {
         // blobs alone are translucent and would never fully cover).
         if (this._fullCloseThisCycle && nod > 0.55) {
           const closeAlpha = (nod - 0.55) / 0.45;     // 0..1
-          this.vignetteGfx.fillStyle(0x000000, closeAlpha * 0.92);
+          // Reach FULL opacity at the peak of the nod (was 0.92, which let
+          // high-contrast world objects — e.g. a passing tumbleweed — bleed
+          // through during the blackout).  ×1.25 + clamp ⇒ pure black across
+          // the top of the nod, still ramping in / out smoothly either side.
+          this.vignetteGfx.fillStyle(0x000000, Math.min(1, closeAlpha * 1.25));
           this.vignetteGfx.fillRect(-150, -150, 1100, 750);
         }
       }

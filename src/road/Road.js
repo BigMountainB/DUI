@@ -2026,104 +2026,6 @@ export class Road {
     g.fillPoints(leftPiece, true);
     g.fillPoints(rightPiece, true);
 
-    // Normal highway portals otherwise read as one flat slab from a distance.
-    // Use BIG graphic shapes first (visible at bridge approach scale), then
-    // smaller seams/rocks as texture.
-    if (!isWildlifeFacade && sH > 0.018) {
-      const wallL = Math.max(-150, baseLeftX);
-      const wallR = Math.min(SCREEN_W + 150, baseRightX);
-      const wallW = wallR - wallL;
-      const faceTop = Math.min(crestY + dropY * 0.18, lintelY - archThk * 0.25);
-      const faceBot = groundY;
-      const lowerH = Math.max(8, Math.min(42, dropY * 0.30));
-
-      const drawWallBand = (y, h, color, alpha) => {
-        if (h <= 0) return;
-        g.fillStyle(color, alpha);
-        if (!cutMouth || y + h <= archTopY || y >= groundY) {
-          g.fillRect(wallL, y, wallW, h);
-          return;
-        }
-        g.fillRect(wallL, y, Math.max(0, outerL - wallL), h);
-        g.fillRect(outerR, y, Math.max(0, wallR - outerR), h);
-      };
-
-      // Large horizontal pour courses across the exterior wall. These are
-      // intentionally chunky: tiny texture disappears at the bridge approach,
-      // but broad bands make the tan facade read as engineered concrete.
-      const courseH = Math.max(2, Math.min(10, dropY * 0.045));
-      const yCourse1 = faceTop + dropY * 0.20;
-      const yCourse2 = faceTop + dropY * 0.38;
-      const yCourse3 = faceTop + dropY * 0.56;
-      drawWallBand(yCourse1, courseH, 0x9E9788, 0.62);
-      drawWallBand(yCourse1 + courseH, Math.max(1, courseH * 0.35), 0xD1CAB5, 0.55);
-      drawWallBand(yCourse2, courseH, 0x938D80, 0.58);
-      drawWallBand(yCourse2 + courseH, Math.max(1, courseH * 0.35), 0xD1CAB5, 0.50);
-      drawWallBand(yCourse3, courseH, 0x8B8579, 0.56);
-      drawWallBand(yCourse3 + courseH, Math.max(1, courseH * 0.35), 0xD1CAB5, 0.45);
-
-      // Stronger lower retaining-wall band. This breaks the huge beige shape
-      // into "upper hillside/concrete" + "engineered wall" at a glance.
-      g.fillStyle(0x8F897B, 0.92);
-      if (!cutMouth) {
-        g.fillRect(wallL, faceBot - lowerH, wallW, lowerH);
-      } else {
-        g.fillRect(wallL, faceBot - lowerH, Math.max(0, outerL - wallL), lowerH);
-        g.fillRect(outerR, faceBot - lowerH, Math.max(0, wallR - outerR), lowerH);
-      }
-      g.fillStyle(0xD1CAB5, 0.85);
-      g.fillRect(wallL, faceBot - lowerH, wallW, Math.max(2, lowerH * 0.10));
-
-      // Dark toe / shoreline band at the base, with small riprap blocks where
-      // bridge water meets the retaining wall.
-      const toeH = Math.max(3, Math.min(18, dropY * 0.13));
-      g.fillStyle(0x514D45, 0.95);
-      g.fillRect(wallL, faceBot - toeH, wallW, toeH);
-      const rockW = Math.max(2, 8500 * sW);
-      const rockH = Math.max(1, toeH * 0.55);
-      if (rockW >= 2.5 && wallW > rockW * 3) {
-        for (let rx = wallL; rx < wallR; rx += rockW * 1.45) {
-          if (cutMouth && rx > outerL - rockW && rx < outerR + rockW) continue;
-          const rowLift = ((Math.floor(rx / Math.max(1, rockW)) & 1) ? 0.18 : 0.52) * toeH;
-          g.fillStyle(0x46443E, 0.78);
-          g.fillRect(rx, faceBot - rowLift - rockH, rockW, rockH);
-        }
-      }
-
-      // Panel seams / pour joints.  Keep them subtle and skip the mouth so
-      // they don't draw across the opening.
-      const seamSpacing = Math.max(12, 32000 * sW);
-      const seamAlpha = clamp(rimAlpha * 0.62, 0.28, 0.58);
-      if (seamSpacing >= 9 && wallW > seamSpacing * 1.4) {
-        g.fillStyle(0x6F685C, seamAlpha);
-        for (let sx = wallL + seamSpacing; sx < wallR; sx += seamSpacing) {
-          if (cutMouth && sx > outerL && sx < outerR) continue;
-          const tHill = Math.min(1, Math.abs(sx - centerX) / Math.max(1, (baseRightX - baseLeftX) * 0.5));
-          const surfaceY = Math.max(faceTop, crestY + tHill * dropY + dropY * 0.035);
-          g.fillRect(Math.floor(sx), surfaceY, Math.max(1, seamSpacing * 0.035), Math.max(1, faceBot - toeH - surfaceY));
-        }
-        g.fillStyle(0x615A50, seamAlpha);
-        const hSeamY = Math.max(faceTop + 1, faceBot - lowerH);
-        if (!cutMouth) {
-          g.fillRect(wallL, hSeamY, wallW, Math.max(1, lowerH * 0.10));
-        } else {
-          g.fillRect(wallL, hSeamY, Math.max(0, outerL - wallL), Math.max(1, lowerH * 0.10));
-          g.fillRect(outerR, hSeamY, Math.max(0, wallR - outerR), Math.max(1, lowerH * 0.10));
-        }
-      }
-    }
-
-    // Subtle vertical shading band on the LEFT slope for depth.
-    // Skipped for wildlife (two mounds make a "valley" shading look
-    // weird; the rim band already does the job).
-    if (sH > 0.05 && !isWildlifeFacade) {
-      g.fillStyle(0x9F988A, 0.35);
-      g.fillPoints([
-        leftPiece[0], leftPiece[1], leftPiece[2], leftPiece[3], leftPiece[4],
-        { x: centerX, y: crestY + dropY * 0.04 },
-      ], true);
-    }
-
     // Lighter rim band along the upper silhouette — a thin highlight
     // strip hugging the top edge.  Built from the OUTER silhouette of
     // both pieces (base-left → peak → base-right) so the rim wraps
@@ -2143,21 +2045,6 @@ export class Road {
       ];
       g.fillStyle(0xCFC9B6, rimAlpha);
       g.fillPoints(rimBand, true);
-      if (!isWildlifeFacade) {
-        const capDrop = Math.max(2, dropY * 0.022);
-        const capBand = [
-          ...upper,
-          ...upper.slice().reverse().map(p => ({ x: p.x, y: p.y + capDrop })),
-        ];
-        g.fillStyle(0x7F796D, 0.70);
-        g.fillPoints(capBand, true);
-        const hiBand = [
-          ...upper,
-          ...upper.slice().reverse().map(p => ({ x: p.x, y: p.y + Math.max(1, capDrop * 0.28) })),
-        ];
-        g.fillStyle(0xDED6C0, 0.55);
-        g.fillPoints(hiBand, true);
-      }
     }
 
     // Mouth decoration — arch ring for wildlife, rectangular lintel
@@ -2227,23 +2114,11 @@ export class Road {
     } else if (cutMouth && archThk > 1) {
       // ── Rectangular lintel beam (normal highway tunnels) ────────
       const archW = outerR - outerL;
-      const portalPad = Math.max(4, archW * 0.13);
-      const portalL = outerL - portalPad;
-      const portalR = outerR + portalPad;
-      const lintelL = portalL;
-      const lintelW = portalR - portalL;
-      const lintelH = Math.max(5, archThk * 1.35);
-      const lintelTopY = archTopY - lintelH;
-      const columnW = Math.max(4, archW * 0.12);
-      // Large portal frame: thick cap and side columns, intentionally more
-      // contrasty than the wall so the end of the bridge reads as an entrance.
-      g.fillStyle(0x8B8577, 1);
-      g.fillRect(portalL, lintelTopY, lintelW, lintelH);
-      g.fillRect(portalL, archTopY, columnW, Math.max(0, groundY - archTopY));
-      g.fillRect(portalR - columnW, archTopY, columnW, Math.max(0, groundY - archTopY));
-      g.fillStyle(0xD4CCB8, 0.95);
-      g.fillRect(portalL, lintelTopY, lintelW, Math.max(2, lintelH * 0.22));
-      g.fillRect(portalL, archTopY, Math.max(2, columnW * 0.28), Math.max(0, groundY - archTopY));
+      const lintelL = outerL - archThk * 0.4;
+      const lintelW = archW + archThk * 0.8;
+      const lintelTopY = archTopY - archThk;
+      g.fillStyle(0xC4BFA8, 1);
+      g.fillRect(lintelL, lintelTopY, lintelW, archThk);
       // Board-form imprints — vertical lines from the wood-form pour.
       const formSpacingPx = Math.max(3, 10000 * sW);
       if (formSpacingPx >= 3 && lintelW > formSpacingPx * 1.5) {
@@ -2259,33 +2134,18 @@ export class Road {
       // Lighter rim band along the lintel TOP.
       g.fillStyle(0xCFC9B6, rimAlpha);
       g.fillRect(lintelL, lintelTopY,
-                 lintelW, Math.max(1, lintelH * 0.18));
+                 lintelW, Math.max(1, archThk * 0.22));
+      // Darken only the opening so the tunnel reads deeper without
+      // adding perspective-sensitive detail across the facade face.
+      g.fillStyle(0x08090A, 0.32);
+      g.fillRect(outerL, archTopY,
+                 archW, Math.max(0, groundY - archTopY));
       // Soft shadow under the lintel.
-      g.fillStyle(0x000000, 0.55);
-      g.fillRect(portalL, archTopY,
-                 lintelW, Math.max(2, lintelH * 0.28));
-      // Darken the tunnel mouth itself so the portal reads as a real opening,
-      // then add tiny ceiling lights receding into the bore.
-      const mouthH = Math.max(0, groundY - archTopY);
-      if (mouthH > 3 && archW > 8) {
-        g.fillStyle(0x0A0D0C, 0.66);
-        g.fillRect(outerL + archW * 0.025, archTopY + lintelH * 0.12,
-                   archW * 0.95, mouthH - lintelH * 0.12);
-        const lightCount = 4;
-        const lightY = archTopY + Math.max(1, mouthH * 0.18);
-        const lightR = Math.max(1, Math.min(3.5, archW * 0.018));
-        if (lightR >= 1 && archW > 22) {
-          for (let k = 0; k < lightCount; k++) {
-            const t = (k + 0.5) / lightCount;
-            const lx = outerL + archW * (0.20 + 0.60 * t);
-            const fade = 0.95 - k * 0.12;
-            g.fillStyle(0xFFF1A6, 0.55 * fade);
-            g.fillEllipse(lx, lightY + k * lightR * 0.18, lightR * 2.2, lightR);
-          }
-        }
-      }
+      g.fillStyle(0x000000, 0.35);
+      g.fillRect(outerL, archTopY,
+                 archW, Math.max(1, archThk * 0.30));
       // Dark stroke on jamb edges + lintel underside.
-      const stroke = Math.max(2, archW * 0.025);
+      const stroke = Math.max(1.2, archThk * 0.10);
       g.fillStyle(0x4A453B, 1);
       g.fillRect(outerL - stroke * 0.5, archTopY,
                  stroke, Math.max(0, groundY - archTopY));
@@ -2302,37 +2162,6 @@ export class Road {
                  innerInset, Math.max(0, groundY - archTopY));
       g.fillRect(outerL + stroke * 0.5, archTopY + stroke * 0.7,
                  archW - stroke, Math.max(1, innerInset * 0.7));
-    }
-
-    // ── Hillside weathering streaks ───────────────────────────────────
-    // Subtle vertical drainage marks running down the hill flanks so
-    // the silhouette doesn't read as a single flat painted shape.
-    // Drawn AFTER the rim band so streaks sit on top of the concrete
-    // face but under any lintel detail.  World-unit spacing so streaks
-    // scale with perspective.
-    if (sH > 0.06) {
-      const streakSpacingPx = Math.max(8, 24000 * sW);
-      const streakAlpha = clamp(rimAlpha * 0.30, 0.10, 0.30);
-      g.fillStyle(0x7E7868, streakAlpha);
-      const flankHalf = (baseRightX - baseLeftX) / 2;
-      if (streakSpacingPx >= 8 && flankHalf > streakSpacingPx) {
-        for (let sx = baseLeftX + streakSpacingPx;
-                 sx < baseRightX - streakSpacingPx;
-                 sx += streakSpacingPx) {
-          // Skip streaks that would land in the mouth opening
-          if (cutMouth && sx > outerL && sx < outerR) continue;
-          // Hillside surface Y at this column — linear approximation
-          // of the triangular flank silhouette (crest at centerX,
-          // ground at base edges).  Streak starts there and runs
-          // ~85% of the way down to groundY.
-          const tHill = Math.min(1, Math.abs(sx - centerX) / flankHalf);
-          const surfaceY = crestY + tHill * dropY;
-          const streakBotY = groundY - dropY * 0.15;
-          if (streakBotY > surfaceY + 2) {
-            g.fillRect(Math.floor(sx), surfaceY, 1, streakBotY - surfaceY);
-          }
-        }
-      }
     }
   }
 

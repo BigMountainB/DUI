@@ -699,6 +699,18 @@ export class GameScene extends Phaser.Scene {
     // mouth opening because Phaser stencils it out.
     this._tunnelMaskGfx = this.add.graphics().setVisible(false);
     this.tunnelGfx.setMask(this._tunnelMaskGfx.createGeometryMask());
+    // Tunnel ambient dim — a full-screen black wash that darkens the bore
+    // ~40% while the camera is inside a tunnel.  Sits ABOVE the tunnel shell
+    // (9.82) so it dims walls + ceiling + pavement, but BELOW the player car
+    // (9.95) and the HUD/vignette (11+) so those stay lit.  The rect is drawn
+    // once at full alpha; the per-frame fade just eases the layer's ALPHA
+    // toward the target (see _renderFrame) so entering / exiting is a quick
+    // fade, not a hard lighting flip.
+    this.tunnelDimGfx = this.add.graphics().setDepth(9.85);
+    this.tunnelDimGfx.fillStyle(0x000000, 1)
+      .fillRect(-150, -150, SCREEN_W + 300, SCREEN_H + 300);
+    this.tunnelDimGfx.setAlpha(0).setVisible(false);
+    this._tunnelDim = 0;   // current eased darkness (0 → TUNNEL_DIM_MAX)
     // signGfx replaced by _signGfxPool (per-sign Graphics with dynamic
     // depths matched to each sign's distance — see below).
     // Bridge front-overlay (depth 4) — acts as an opaque road-surface
@@ -1777,7 +1789,7 @@ export class GameScene extends Phaser.Scene {
     // main cam → world only; uiCam → HUD only.
     this._worldObjects.push(
       ...[
-        this.roadGfx, this.ghostGfx, this.propsGfx, this._ruralFenceGfx, this._utilityLineGfx, this.bridgeFrontGfx, this.tunnelFacadeGfx, this.tunnelGfx, this._tunnelMaskGfx, ...this._signGfxPool, this._explosionGfx, this._smokeGfx, this._damageGlassGfx, this.overlayGfx, this.vignetteGfx,
+        this.roadGfx, this.ghostGfx, this.propsGfx, this._ruralFenceGfx, this._utilityLineGfx, this.bridgeFrontGfx, this.tunnelFacadeGfx, this.tunnelGfx, this._tunnelMaskGfx, this.tunnelDimGfx, ...this._signGfxPool, this._explosionGfx, this._smokeGfx, this._damageGlassGfx, this.overlayGfx, this.vignetteGfx,
         this.weatherFxGfx, this.wipersGfx, ...this.chaseWipers,
         this.hudFlashGfx, this.playerSprite, this._rearPlateImg, this._rearPlate,
         this._copLightGfx,
@@ -2052,8 +2064,16 @@ export class GameScene extends Phaser.Scene {
     // iOS (queue for the prefetch).  Without this, a cold-load run with
     // mode='tilt' would have NO listener attached and tilt would silently
     // do nothing.
+    // Attach tilt EARLY so the snow zone can auto-engage it with zero mid-
+    // drive setup (seamless): for the player's chosen tilt mode OR ANY
+    // weather run (Normal+, which reaches the Cascades snow).  Android /
+    // desktop attach directly (no permission gate); iOS attaches now if a
+    // grant is already remembered, else the start-gesture prefetch (relaxed
+    // gate below) requests permission on the first tap.  Skipped on Easy
+    // (no weather) for non-tilt players, and after a remembered denial.
     const persistedMode = this.registry?.get?.('steeringMode');
-    if (persistedMode === 'tilt' && !this._tiltAttached) {
+    const _tiltWanted = persistedMode === 'tilt' || (Difficulty.weather?.() ?? false);
+    if (_tiltWanted && !this._tiltAttached) {
       // Fast-path: if we've already grabbed orientation permission
       // earlier in this session, just attach the listener directly.
       // Without this, every scene restart (crash → retry, mode swap)
@@ -2063,7 +2083,7 @@ export class GameScene extends Phaser.Scene {
       if (permGranted) {
         this._tiltAttached = true;
         window.addEventListener('deviceorientation', this._tiltOnOrient, true);
-      } else {
+      } else if (!this.registry?.get?.('tiltPermissionDenied')) {
         this._enableTiltSteer?.();
       }
     }
@@ -2108,9 +2128,15 @@ export class GameScene extends Phaser.Scene {
       if (this._tiltAttached || this._tiltRequestInFlight) return;
       const confirm = e?.target?.closest?.('#phone-confirm');
       if (confirm && !e?.target?.closest?.('#phone-confirm-ok')) return;
+      // Request at the START of the run for the chosen tilt mode OR any run
+      // that can hit snow (Normal+ → Weather), so tilt is ready before the
+      // snow zone auto-engages it — no mid-drive permission interruption.
+      // Don't re-prompt once the player has denied.
       const picked = this.registry?.get?.('titleThumbsPick')
                   ?? this.registry?.get?.('steeringMode');
-      if (picked !== 'tilt') return;
+      const wantTilt = picked === 'tilt' || (Difficulty.weather?.() ?? false);
+      if (!wantTilt) return;
+      if (this.registry?.get?.('tiltPermissionDenied')) return;
 
       this._tiltRequestInFlight = true;
       P.requestPermission()
@@ -2123,6 +2149,12 @@ export class GameScene extends Phaser.Scene {
             // restart, mode swap, etc.) can attach the listener
             // directly without waiting for another user gesture.
             this.registry?.set?.('tiltPermissionGranted', true);
+            if (this._tiltPrefetchCleanup) this._tiltPrefetchCleanup();
+          } else if (res !== 'granted') {
+            // Remember the denial so the prefetch stops re-prompting on
+            // every tap (iOS returns the remembered 'denied' silently, but
+            // skipping the call entirely is cleaner).
+            this.registry?.set?.('tiltPermissionDenied', true);
             if (this._tiltPrefetchCleanup) this._tiltPrefetchCleanup();
           }
           const cbs = this._tiltPendingCbs ?? [];
@@ -2202,12 +2234,17 @@ export class GameScene extends Phaser.Scene {
   _isLeftRaw()  {
     const mode = this._activeSteeringMode?.();
     const touch = mode === 'tilt' ? false : this._touchLeft;
-    return touch || this._tiltLeftActive  || !!this.cursors?.left.isDown  || !!this.wasd?.left.isDown;
+    // Tilt flags only steer when tilt is the ACTIVE mode (e.g. the snow
+    // auto-engage).  Tilt now attaches at game start for weather runs, so
+    // an idle gyro must NOT bleed phone-angle into classic/tap steering.
+    const tiltL = mode === 'tilt' ? this._tiltLeftActive : false;
+    return touch || tiltL || !!this.cursors?.left.isDown  || !!this.wasd?.left.isDown;
   }
   _isRightRaw() {
     const mode = this._activeSteeringMode?.();
     const touch = mode === 'tilt' ? false : this._touchRight;
-    return touch || this._tiltRightActive || !!this.cursors?.right.isDown || !!this.wasd?.right.isDown;
+    const tiltR = mode === 'tilt' ? this._tiltRightActive : false;
+    return touch || tiltR || !!this.cursors?.right.isDown || !!this.wasd?.right.isDown;
   }
 
   /** Steering mode — 'classic' (default), 'tilt', or 'flappy'.
@@ -2365,10 +2402,11 @@ export class GameScene extends Phaser.Scene {
         free.phase     = Math.random() * 6.2832;
         free.size      = 0.8 + Math.random() * 0.6;
         free.hit       = false;
-        // Round-robin the 3 frames so every one shows and the weeds don't
-        // read as the same ball repeating.
-        this._tumbleTexIdx = ((this._tumbleTexIdx ?? -1) + 1) % 3;
-        free.s.setTexture('tumbleweed_' + (this._tumbleTexIdx + 1));
+        // Cycle the 3 frames in 1→3→2 order (reads as a smoother tumble than
+        // 1→2→3) so every one shows and the weeds don't repeat as one ball.
+        const TUMBLE_SEQ = [1, 3, 2];
+        this._tumbleTexIdx = ((this._tumbleTexIdx ?? -1) + 1) % TUMBLE_SEQ.length;
+        free.s.setTexture('tumbleweed_' + TUMBLE_SEQ[this._tumbleTexIdx]);
       }
       // sqrt curve front-loads the slowdown: ~5-7s at wind 0, ~3.6-5.4s a
       // mile in, ~1.5-3s once fully built.
@@ -4070,6 +4108,18 @@ export class GameScene extends Phaser.Scene {
     if (wState === 'snow') weatherSlide = 0.45 * wInten * wSev;
     // Clamp so severity ramp can't push slide past total grip loss.
     weatherSlide = Math.min(0.92, weatherSlide);
+    // ── Snow steering FEEL by input mode (per user 2026-06-06) ──────────
+    // TILT tames the ice: cancel most of the snow slide so smooth analog
+    // lean holds an almost-perfect line.  A small residual remains (so it's
+    // "almost", not "perfect") — the 4x4 + snow-tire (traction) penReduction
+    // below then closes that gap toward perfect, which is the intended
+    // upgrade headroom.  Digital modes get NO grip relief here AND an
+    // oversensitivity boost at desiredLateral, so L/R + tap feel twitchy and
+    // jarring on snow → players coast to tilt.
+    if (wState === 'snow' && _mode === 'tilt') {
+      const TILT_SNOW_TAME = 0.70;   // tilt cancels up to 70% of the snow slide
+      weatherSlide *= (1 - TILT_SNOW_TAME * _snowRamp);
+    }
     const _is4x4   = VEHICLES[this.player.vehicleId]?.drive === '4x4';
     const _hasTrac = !!(this._vehicleAccessories?.().traction);
     const penReduction = Math.min(1, (_is4x4 ? 0.60 : 0) + (_hasTrac ? 0.40 : 0));
@@ -4132,9 +4182,19 @@ export class GameScene extends Phaser.Scene {
 
     // Desired lateral velocity from the driver's intent.  Snow slip +
     // alcoholHoldover already baked into effectiveSteerDir above.
+    // DIGITAL snow oversensitivity (per user): on snow, L/R + tap throw the
+    // car harder so a press overcorrects on the low-grip ice — jarring, to
+    // push players toward smooth analog tilt.  It's a SENSITIVITY (not grip),
+    // so car / snow-tire upgrades do NOT rescue digital — it stays jarring on
+    // snow by design.  Tilt gets no boost (1×) and is tamed via grip above.
+    const DIGITAL_SNOW_SENS = 1.2;   // up to +120% sensitivity at full snow
+    const _snowSensMul = (wState === 'snow' && _mode !== 'tilt')
+      ? 1 + DIGITAL_SNOW_SENS * _snowRamp
+      : 1;
     const desiredLateral = effectiveSteerDir * TURN_SPEED
                          * (phys.steerSensitivity ?? 1)
-                         * vehicleTurnRate;
+                         * vehicleTurnRate
+                         * _snowSensMul;
 
     // Heroin "input lag" — slows the settle in both directions.
     // steerReturnSlow further slows the release (when the driver isn't
@@ -8887,6 +8947,19 @@ export class GameScene extends Phaser.Scene {
     // The facade pass (above) publishes road._tunnelMouthRect.
     this._updateTunnelMask();
     this.road.renderTunnelOverlay(this.tunnelGfx);
+    // Tunnel ambient dim — ease the layer's alpha toward its target so
+    // entering / exiting a tunnel is a quick fade (~0.3 s) instead of an
+    // instant lighting flip.  road._cameraInTunnel was set in road.render().
+    {
+      const TUNNEL_DIM_MAX = 0.40;     // 40% darker at full dim
+      const FADE_SEC       = 0.30;     // time to fade fully in / out
+      const target = this.road?._cameraInTunnel ? TUNNEL_DIM_MAX : 0;
+      const dt   = Math.min(0.05, (this.game?.loop?.delta ?? 16.7) / 1000);
+      const step = (TUNNEL_DIM_MAX / FADE_SEC) * dt;
+      if (this._tunnelDim < target)      this._tunnelDim = Math.min(target, this._tunnelDim + step);
+      else if (this._tunnelDim > target) this._tunnelDim = Math.max(target, this._tunnelDim - step);
+      this.tunnelDimGfx?.setAlpha(this._tunnelDim).setVisible(this._tunnelDim > 0.002);
+    }
     this.road.renderSignOverlay(this._signGfxPool);
     this._renderSignText();       // text labels on top of green/brown signs
     this._renderSignDecals();     // hwy-shield + brand-logo images on signs
