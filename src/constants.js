@@ -15,8 +15,8 @@ export const LANE_DASH_LEN  = 3;   // segments painted (the actual dash)
 export const LANE_DASH_GAP  = 9;   // segments of gap before the next dash
 export const LANES        = 3;
 export const DRAW_DIST    = 380;   // segments rendered ahead (farther horizon)
-export const CAM_HEIGHT   = 1900;  // higher = more road visible ahead (was 1500)
-export const CAM_DEPTH    = 0.68;  // lower = wider FOV / more visible distance (was 0.74)
+export const CAM_HEIGHT   = 2100;  // higher = more road visible ahead (1500 → 1900 → 2100)
+export const CAM_DEPTH    = 0.64;  // lower = wider FOV / more visible distance (0.74 → 0.68 → 0.64)
 // ── Mutable camera profile (view-mode aware) ─────────────────────────
 //   chase   — third-person rear-view (default).  CAM_HEIGHT / CAM_DEPTH
 //             above are the initial values.
@@ -217,6 +217,70 @@ export const COP_SPAWN_Z  = DRAW_DIST * SEG_LENGTH * 0.9;
 export const COP_REAR_BUMPS_TO_ARREST = 5;   // rear cops ramming you 5×
 export const COP_HEADONS_TO_ARREST    = 3;   // 3rd head-on with oncoming cop
 export const COP_PITS_TO_ARREST       = 1;   // any successful PIT = instant BUSTED
+// Speed traps: blow past a roadside trooper ABOVE this (mph) — or in the
+// oncoming lane — and the trooper clocks you.  At 0★ this opens a 30s civil
+// "pull over" window (Stage 1); at ≥1★ (an active warrant) the trap cop just
+// joins the pursuit.  Brake to/under this and stay in your lane to slip by.
+export const COP_TRAP_SPEED_MPH = 80;
+// Speed-trap civil stop (0★ layer).  COMPLY_SEC: seconds to pull over before
+// the stop escalates to +1★.  SHOULDER_X: steer past this (right of the fog
+// line at x>1.0) while braking during a trap pursuit to COMMIT to the stop —
+// the auto-stop assist then eases the car to a halt (cruise braking floors at
+// 60 mph, so you can't reach a stop on your own).  PULLOVER_MPH: once the car
+// is this slow on the shoulder you count as pulled over.  ABORT_X: steer back
+// inside this and the auto-stop releases (you changed your mind / fled).
+export const COP_TRAP_COMPLY_SEC   = 30;
+export const COP_TRAP_PULLOVER_MPH = 8;
+export const COP_TRAP_SHOULDER_X   = 1.2;
+export const COP_TRAP_ABORT_X      = 0.9;
+// Once stopped on the shoulder, the car is HELD for the traffic stop while the
+// trooper "writes you up" (the ticket math lands in Stage 3).  The party clock
+// keeps ticking through it.  Then the car is released and drives off.
+export const COP_TRAP_HOLD_SEC     = 30;
+// ── Stage 3: the ticket (money / DUI / bust) ─────────────────────────────
+// When the held stop ends the trooper writes the ticket.  The offense is
+// assessed from the drug bars AT THE MOMENT YOU PULLED OVER (not after the 30s
+// metabolizes).  "Under the limit" → a plain speeding ticket; "over" → a DUI.
+//   Limit (sober): alcohol < ALCOHOL_LIMIT AND every OTHER drug < DRUG_LIMIT.
+//   Exception: if MULTI_COUNT+ drugs are active at once, EVERY drug (alcohol
+//   included) must be < MULTI_LIMIT.
+export const COP_DUI_ALCOHOL_LIMIT = 0.20;   // alcohol bar ≥ this → intoxicated
+export const COP_DUI_DRUG_LIMIT    = 0.50;   // any other drug bar ≥ this → intoxicated
+export const COP_DUI_MULTI_COUNT   = 4;      // this many active drugs flips to…
+export const COP_DUI_MULTI_LIMIT   = 0.10;   // …a stricter per-drug ceiling
+// Fines (subtract from score, since money == persisted score).  A FRACTION of
+// current cash, capped at a dollar ceiling — scales with wealth, never busts a
+// broke early-game player, and can't drain a rich player infinitely.
+export const COP_TICKET_SPEEDING_FRAC   = 0.50;     // speeding = 50% of cash…
+export const COP_TICKET_SPEEDING_CAP    = 300;      // …capped at $300 max
+export const COP_TICKET_DUI_FRAC        = 1.00;     // DUI = 100% of cash…
+export const COP_TICKET_DUI_CAP         = 10000;    // …capped at $10,000 max
+// A DUI also debuffs earnings ×MULT for the next PENALTY_MI miles.
+export const COP_DUI_EARN_MULT     = 0.75;
+export const COP_DUI_EARN_MI       = 50;
+// Suspended-license bust: this many DUIs inside a rolling WINDOW_MI window →
+// busted (sober speeding tickets don't count).  A lawyer raises the count.
+export const COP_DUI_BUST_COUNT        = 2;
+export const COP_DUI_BUST_COUNT_LAWYER = 3;
+export const COP_DUI_WINDOW_MI         = 50;
+
+// ── Finish cinematic (park in front of the Pullman Party House) ───────────
+// On crossing the mile-289 finish, input locks, the car eases to a stop over
+// FINISH_PARK_SEC while drifting laterally to FINISH_PARK_X (the house sits on
+// the LEFT, so this is negative), then the Game Over panel opens.  PARK_LERP
+// is the per-second easing rate of the lateral drift toward the house.
+export const FINISH_PARK_SEC  = 3.0;
+export const FINISH_PARK_X    = -1.35;   // left shoulder, in front of the house
+export const FINISH_PARK_LERP = 2.0;
+
+// ── The Crush (the Girl) — relationship, not a cash faucet ───────────────
+// Texting her is FREE and once per town (a town == a CHECKPOINT window).  Text
+// her each town to keep her warm; skip a town and she cools to "…".  Skip more
+// than GIRL_MAX_SKIPS towns total across the run and she finds someone else
+// (gone for good this run).  Arrive at the Pullman party still with her (not
+// gone, and you texted at least once) → GIRL_PARTY_BONUS at the finish.
+export const GIRL_MAX_SKIPS   = 4;       // tolerated skipped towns; the 5th loses her
+export const GIRL_PARTY_BONUS = 15000;   // finish payoff for arriving with her
 // Top speed for any cop, in MPH (matched against player display speed).
 // 145 mph means a 140 mph boosted player without cocaine never quite gets
 // away; one cocaine pickup (+5 mph) is enough to start outrunning them.
@@ -349,19 +413,19 @@ const _REST_STOP_DEF = [
   // and the East Channel Bridge (10–11.5).  Mile 9.5 keeps the entire
   // 1-mi ramp window (8.5–9.5) on dry road only after the player exits
   // the lid tunnel — no on-bridge / in-water ramp paint.
-  { id: 'M',  name: 'Mercer Island, WA',   mileage:  9.5, exit: 'Exit 7B',    hwy: 'hwy_i90',   amenities: ['camp'] },
+  { id: 'M',  name: 'Mercer Island, WA',   mileage:  9.5, exit: 'Exit 7B',    hwy: 'hwy_i90',   amenities: ['camp', 'parkride'] },
   // Bellevue moved 1 mi past the East Channel Bridge end (mile 11.5) so
   // the ramp window (11.5–12.5) lands on dry Bellevue shoreline rather
   // than half-on the floating bridge.
   { id: 'B',  name: 'Bellevue, WA',        mileage: 12.5, exit: 'Exit 10',    hwy: 'hwy_i90',   amenities: ['dealer', 'drugs'] },
   { id: 'I',  name: 'Issaquah, WA',        mileage:   18, exit: 'Exit 18',    hwy: 'hwy_i90',   amenities: ['hunting', 'camp'] },
   { id: 'SQ', name: 'Snoqualmie, WA',      mileage:   25, exit: 'Exit 25',    hwy: 'hwy_i90',   amenities: ['dealer'] },
-  { id: 'N',  name: 'North Bend, WA',      mileage:   32, exit: 'Exit 32',    hwy: 'hwy_i90',   amenities: ['gas', 'hunting', 'drugs'] },
+  { id: 'N',  name: 'North Bend, WA',      mileage:   32, exit: 'Exit 32',    hwy: 'hwy_i90',   amenities: ['gas', 'hunting', 'drugs', 'parkride'] },
   { id: 'SP', name: 'Snoqualmie Pass, WA', mileage:   53, exit: 'Exit 53',    hwy: 'hwy_i90',   amenities: ['camp', 'gas'] },
   { id: 'EA', name: 'Easton, WA',          mileage:   70, exit: 'Exit 70',    hwy: 'hwy_i90',   amenities: ['camp'] },
   { id: 'C',  name: 'Cle Elum, WA',        mileage:   84, exit: 'Exit 84',    hwy: 'hwy_i90',   amenities: ['gas', 'hunting'] },
   { id: 'TH', name: 'Thorp, WA',           mileage:  101, exit: 'Exit 101',   hwy: 'hwy_i90',   amenities: ['camp'] },
-  { id: 'E',  name: 'Ellensburg, WA',      mileage:  109, exit: 'Exit 109',   hwy: 'hwy_i90',   amenities: ['dealer', 'gas'] },
+  { id: 'E',  name: 'Ellensburg, WA',      mileage:  109, exit: 'Exit 109',   hwy: 'hwy_i90',   amenities: ['dealer', 'gas', 'parkride'] },
   { id: 'V',  name: 'Vantage, WA',         mileage:  137, exit: 'Exit 137',   hwy: 'hwy_i90',   amenities: ['gas'] },
   // 2026-05-31: non-I-90 rest stops switched from highway-name labels
   // ("WA-262", "WA-17", "Airport Rd", etc.) to "Exit <mileage>".  The
@@ -370,12 +434,12 @@ const _REST_STOP_DEF = [
   // real WSDOT exit numbers ("Exit 4", "Exit 7B", etc.) since those
   // ARE numeric and don't echo the I-90 shield.
   { id: 'Y',  name: 'Royal City, WA',      mileage:  158, exit: 'Exit 158',   hwy: 'hwy_wa26',  amenities: ['hunting'] },
-  { id: 'O',  name: 'Othello, WA',         mileage:  184, exit: 'Exit 184',   hwy: 'hwy_wa26',  amenities: ['drugs', 'gas'] },
+  { id: 'O',  name: 'Othello, WA',         mileage:  184, exit: 'Exit 184',   hwy: 'hwy_wa26',  amenities: ['drugs', 'gas', 'parkride'] },
   { id: 'H',  name: 'Hatton, WA',          mileage:  205, exit: 'Exit 205',   hwy: 'hwy_wa26',  amenities: ['camp', 'gas'] },
   { id: 'W',  name: 'Washtucna, WA',       mileage:  228, exit: 'Exit 228',   hwy: 'hwy_wa26',  amenities: ['gas'] },
   { id: 'L',  name: 'La Crosse, WA',       mileage:  253, exit: 'Exit 253',   hwy: 'hwy_us195', amenities: ['camp'] },
-  { id: 'CO', name: 'Colfax, WA',          mileage:  274, exit: 'Exit 274',   hwy: 'hwy_us195', amenities: ['dealer', 'gas'] },
-  { id: 'P',  name: 'Pullman, WA',         mileage:  289, exit: 'Exit 289',   hwy: 'hwy_wa270', amenities: ['gas', 'hunting', 'camp', 'dealer', 'drugs'] },
+  { id: 'CO', name: 'Colfax, WA',          mileage:  274, exit: 'Exit 274',   hwy: 'hwy_us195', amenities: ['dealer', 'gas', 'parkride'] },
+  { id: 'P',  name: 'Pullman, WA',         mileage:  289, exit: 'Exit 289',   hwy: 'hwy_wa270', amenities: ['gas', 'hunting', 'camp', 'dealer', 'drugs', 'parkride'] },
 ];
 export const REST_STOPS = _REST_STOP_DEF.map(rs => ({
   ...rs, t: rs.mileage / TOTAL_ROUTE_MILES,

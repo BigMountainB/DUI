@@ -1,7 +1,8 @@
 // Weather — pure-function weather state keyed off route mileage.  Only
 // runs on Normal+ difficulty (Easy short-circuits to 'clear').
 //
-//   clear     — default everywhere outside the rain/snow windows
+//   clear     — default everywhere outside the weather windows
+//   fog       — mile 14–25 (Issaquah valley / Eastside basin)
 //   rain      — mile 30–40 (North Bend approach into the foothills)
 //   snow      — mile 40–88 (Cascades / Snoqualmie Pass through Cle Elum)
 //
@@ -14,8 +15,17 @@
 import { Difficulty } from '../systems/Difficulty.js';
 
 export const Weather = {
+  // Timed fog-lift multiplier (0..1), driven by GameScene.  Holds at 1
+  // while the player is in the Issaquah basin, then ramps to 0 over 5 s of
+  // real time once they cross mile 23.6 — applied only to the FOG branch of
+  // intensity() so the Preston cluster's pop-in is masked by lifting fog
+  // instead of appearing in clear air.  Pure-function elsewhere; this one
+  // mutable hook is deliberate (time-based, not mile-based).
+  _fogLiftMul: 1,
+
   state(mile) {
     if (!Difficulty.weather()) return 'clear';
+    if (mile >= 14 && mile < 25) return 'fog';
     if (mile >= 30 && mile < 40) return 'rain';
     if (mile >= 40 && mile < 88) return 'snow';
     return 'clear';
@@ -30,6 +40,14 @@ export const Weather = {
    *  up" between the storms). */
   intensity(mile) {
     if (!Difficulty.weather()) return 0;
+    if (mile >= 14 && mile < 25) {
+      // Issaquah valley fog: rolls in over 14-17, then sits THICK all the
+      // way to mile 23.6 (was: lifted over 22-25).  The lift-out is now
+      // TIME-based (Weather._fogLiftMul, ramped 1→0 over 5 s by GameScene
+      // once the player crosses 23.6), so it masks the Preston pop-in.
+      const f = (mile < 17) ? (mile - 14) / 3 : 1;   // ease in over 3 mi, else full
+      return f * (this._fogLiftMul ?? 1);
+    }
     if (mile >= 30 && mile < 40) {
       if (mile < 32) return (mile - 30) / 2;   // ease in over the first 2 mi
       return 1;                                 // hold full to the snow handoff
@@ -75,4 +93,5 @@ export const Weather = {
 
   isRain(mile) { return this.state(mile) === 'rain'; },
   isSnow(mile) { return this.state(mile) === 'snow'; },
+  isFog(mile)  { return this.state(mile) === 'fog';  },
 };

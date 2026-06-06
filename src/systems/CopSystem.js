@@ -106,6 +106,54 @@ export class CopSystem {
     });
   }
 
+  /** Speed-trap civil-stop pursuer (0★ layer, Stage 1).  Same rear-pursuit
+   *  cop as an encounter spawn, but TAGGED so the comply window can pull it
+   *  back off cleanly (player pulled over) or promote it into the normal
+   *  wanted system (player ignored the stop → +1★). */
+  _spawnTrapPursuit(playerPos) {
+    this._spawnRearFromEncounter(playerPos);
+    const cop = this.cops[this.cops.length - 1];
+    if (cop) {
+      cop.trapPursuit = true;
+      // Pull the civil-stop cruiser in CLOSE behind (≈40-65 ft) so it's plainly
+      // visible in the mirror as it lights you up — a far rear-spawn at 0★ was
+      // easy to miss entirely.
+      cop.position   = playerPos - (2400 + Math.random() * 1500);
+      cop.laneOffset = (Math.random() - 0.5) * 0.4;
+    }
+    return cop;
+  }
+
+  /** Player pulled over — park the trap pursuer just behind, lights on, and
+   *  PIN it there for the duration of the held traffic stop (no PIT/ram, no
+   *  drift).  If the cruiser despawned (player outran it earlier) spawn a
+   *  fresh one parked behind so the trooper is visibly there for the stop. */
+  parkTrapPursuit(playerPos) {
+    let cop = this.cops.find(c => c.trapPursuit);
+    if (!cop) { this._spawnTrapPursuit(playerPos); cop = this.cops.find(c => c.trapPursuit); }
+    if (cop) {
+      cop.parked     = true;
+      // Starts BEHIND (mirror-only); GameScene's held-stop tick slides it
+      // forward into view so it visibly "pulls up" and parks just ahead-left
+      // in the travel lane beside the player's shoulder.
+      cop.position   = playerPos - 2600;
+      cop.laneOffset = 0.5;                // right travel lane, inboard of the shoulder
+      cop.speed      = 0;
+      cop.baseSpeed  = 0;
+    }
+  }
+
+  /** Player complied with the civil stop — drop the trap pursuer(s). */
+  endTrapPursuit() {
+    this.cops = this.cops.filter(c => !c.trapPursuit);
+  }
+
+  /** Comply window expired — the trap pursuer becomes a regular wanted-level
+   *  cop (so it keeps chasing as the player enters the 1★ system). */
+  promoteTrapPursuit() {
+    for (const c of this.cops) if (c.trapPursuit) c.trapPursuit = false;
+  }
+
   /** 5★ rolling barricade — 3 stationary cop cars across the road with a
    *  single-lane gap.  Player must thread the gap or take the slow penalty. */
   _spawnBarricade(playerPos) {
@@ -210,16 +258,19 @@ export class CopSystem {
     });
   }
 
-  addStar(amount = 1) {
-    // Sex-worker dirt-on-a-politician buff: while starCapMax is set
-    // and the player hasn't passed starCapEndPos yet, the wanted
-    // level can't climb above the cap.
-    const cap = (this.starCapMax != null) ? this.starCapMax : MAX_STARS;
+  addStar(amount = 1, sourceCap = MAX_STARS) {
+    // starCapMax = sex-worker "dirt-on-a-politician" hard cap (while active).
+    // sourceCap lets the CALLER cap its own contribution: driving / collision
+    // heat passes 3, so reckless DRIVING can only ever reach 3★ — using a
+    // WEAPON on a cop is the sole path into 4-5★.  Never reduces below the
+    // current level (a low sourceCap can't pull a weapon-earned 5★ down).
+    const hardCap = (this.starCapMax != null) ? this.starCapMax : MAX_STARS;
     // Cocaine "sloppy" multiplier — GameScene stamps phys.cocaineStarMul
     // onto this._starGainMul each frame so we don't have to plumb the
     // multiplier through every addStar call site.
-    const mul = this._starGainMul ?? 1;
-    this.stars     = clamp(this.stars + amount * mul, 0, Math.min(MAX_STARS, cap));
+    const mul  = this._starGainMul ?? 1;
+    const ceil = Math.min(MAX_STARS, hardCap, Math.max(this.stars, sourceCap));
+    this.stars     = clamp(this.stars + amount * mul, 0, ceil);
     this.starTimer = 4;
   }
 
@@ -233,15 +284,13 @@ export class CopSystem {
   }
 
   clearStarsAtStateLine() {
-    // Graduated reduction based on current heat:
-    //   5★ → 0 (helicopter overhead keeps the pursuit live — town-
-    //          crossings don't help, only a paint job clears stars)
-    //   4★ → 1
-    //   3★ or less → 2 (legacy default)
+    // Crossing a town line cools low-level heat by ONE star.  Weapon-earned
+    // 4-5★ are IMMUNE — once you've pulled a weapon on a cop the chopper
+    // stays overhead; only a paint job (not a town crossing) clears it:
+    //   4★ or 5★ → 0 (no reduction)
+    //   3★ or less → 1
     const cur = this.stars;
-    const reduction = cur >= 4.5 ? 0
-                    : cur >= 3.5 ? 1
-                    :              2;
+    const reduction = cur >= 4 ? 0 : 1;
     this._lastStateLineReduction = reduction;
     this.stars         = Math.max(0, cur - reduction);
     this.starTimer     = 0;
@@ -403,8 +452,7 @@ export class CopSystem {
           .sort((a, b) =>
             Math.abs(a.obj.position - playerPos) - Math.abs(b.obj.position - playerPos))
           .slice(0, 3);
-        const copKills = removeAll(targets);
-        this.bumpCount = Math.max(0, this.bumpCount - copKills);
+        removeAll(targets);
         break;
       }
 
@@ -415,9 +463,7 @@ export class CopSystem {
         // is also pulled over.
         const targets = pool.filter(({ obj }) =>
           (obj.position - playerPos) < 0);
-        const copKills = removeAll(targets);
-        this.bumpCount     = Math.max(0, this.bumpCount - copKills);
-        this.rearBumpCount = 0;
+        removeAll(targets);
         break;
       }
 
@@ -431,9 +477,9 @@ export class CopSystem {
           const rel = obj.position - playerPos;
           return inDirection(rel, side) && Math.abs(rel) < RADIUS;
         });
-        const copKills = removeAll(targets);
-        this.stars     = Math.max(0, this.stars - 1);
-        this.bumpCount = Math.max(0, this.bumpCount - copKills);
+        // Donuts are a DISTRACTION, not a weapon — they scatter the immediate
+        // cars but DON'T change your wanted level (no reduce, no escalate).
+        removeAll(targets);
         break;
       }
 
@@ -451,9 +497,6 @@ export class CopSystem {
         const targets = pool.filter(({ obj }) =>
           inDirection(obj.position - playerPos, side));
         removeAll(targets);
-        this.stars     = Math.max(0, this.stars - 2);
-        this.bumpCount = 0;
-        this.arrestPending = false;
         break;
       }
 
@@ -462,9 +505,7 @@ export class CopSystem {
         const side = direction === 'backward' ? 'backward' : 'forward';
         const targets = pool.filter(({ obj }) =>
           inDirection(obj.position - playerPos, side));
-        const copKills = removeAll(targets);
-        this.bumpCount = Math.max(0, this.bumpCount - copKills);
-        this.stars     = Math.max(0, this.stars - 1);
+        removeAll(targets);
         break;
       }
 
@@ -483,8 +524,65 @@ export class CopSystem {
         this.arrestPending = false;
         break;
     }
+    // ── Cop-killer escalation ──────────────────────────────────────────
+    // A WEAPON kill on a cop does NOT cool you down — it makes them want you
+    // MORE.  Each cop death (gun/rocket/grenade/spike — NOT donuts) adds +1★,
+    // so taking out two cruisers in one blast adds +2★.  The blast clears the
+    // immediate threat + resets the arrest counters, but you've bought only a
+    // 3-5 mile head start before fresh pursuit re-engages — time to reach a
+    // rest stop for a disguise / paint job / Park & Ride bus.
+    const copKills = victims.filter(v => v.isCop).length;
+    if (copKills > 0 && type !== 'paint_bomb' && type !== 'disguise') {
+      this.escalateForCopKill(playerPos, copKills);
+    }
     // Returns the victim list so GameScene can spawn per-car FX.
     return { ok: true, victims, weapon: type };
+  }
+
+  /** Cop-kill heat — called from useF12Token when a weapon destroys cop
+   *  car(s).  Adds +1★ PER cop killed (two cruisers in one blast = +2★),
+   *  capped at MAX_STARS.  Clears the arrest counters so the blast itself
+   *  can't bust you, and buys a 3-5 mile head start before fresh pursuit
+   *  re-engages. */
+  escalateForCopKill(playerPos = 0, kills = 1) {
+    this.stars         = Math.min(MAX_STARS, this.stars + kills);
+    this.starTimer     = 4;
+    this.bumpCount     = 0;
+    this.rearBumpCount = 0;
+    this.headOnCount   = 0;
+    this.pitCount      = 0;
+    this.arrestPending = false;
+    const mile = (playerPos / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+    this._pursuitGraceMile = mile + (3 + Math.random() * 2);   // 3-5 mi head start
+  }
+
+  /** Player pulled a WEAPON on a parked speed-trap trooper instead of pulling
+   *  over.  Voids the civil stop: every surviving trap pursuer becomes a live
+   *  chaser (un-parked, back up to speed) and you land at a flat 2★ — a real
+   *  but escapable offense, milder than gunning down an active pursuer (4-5★).
+   *
+   *  Stars are SET, not added: the triggering weapon may itself have just
+   *  "killed" the trooper (e.g. spikes wipe every cop behind you), which runs
+   *  escalateForCopKill → 4★ inside useF12Token.  Setting to 2 here overwrites
+   *  that in the same frame so the two can't stack into 5★.  Grace is cleared
+   *  so this behaves like normal 2★ heat, not a 4-5★ weapon-kill head start. */
+  weaponPulledAtTrap(playerPos = 0) {
+    const chaseSpeed = MAX_SPEED * (COP_TOP_MPH / 120);
+    for (const c of this.cops) {
+      if (!c.trapPursuit) continue;
+      c.trapPursuit = false;
+      c.parked      = false;
+      c.speed       = chaseSpeed;
+      c.baseSpeed   = chaseSpeed;
+    }
+    this.stars             = Math.min(MAX_STARS, 2);
+    this.starTimer         = 4;
+    this.bumpCount         = 0;
+    this.rearBumpCount     = 0;
+    this.headOnCount       = 0;
+    this.pitCount          = 0;
+    this.arrestPending     = false;
+    this._pursuitGraceMile = 0;   // no weapon-kill grace — normal 2★ pursuit
   }
 
   update(dt, playerPos, playerSpeed, playerX = 0) {
@@ -533,7 +631,11 @@ export class CopSystem {
     const _mileForCops = (playerPos / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
     const nightMul = 1 + TimeOfDay.darkness(_mileForCops) * 0.30;
     const cap = Math.max(2, Math.ceil(this.stars * 2 * escMul * nightMul));
-    if (this.stars >= 2 && this._spawnCooldown <= 0 && this.cops.length < cap) {
+    // Cop-killer head start — after a weapon kill, fresh pursuit holds off
+    // until the player has driven the 3-5 mi grace distance (set in
+    // useF12Token).  Lets them reach a rest stop to disguise / paint / bus.
+    const inGrace = _mileForCops < (this._pursuitGraceMile ?? 0);
+    if (this.stars >= 2 && this._spawnCooldown <= 0 && this.cops.length < cap && !inGrace) {
       this._spawnCop(playerPos);
       this._spawnCooldown = Math.max(0.8, (5.5 - this.stars * 0.9) / (escMul * nightMul));
     }
@@ -565,6 +667,12 @@ export class CopSystem {
       const dist  = cop.position - playerPos;
       const aDist = Math.abs(dist);
 
+      // Parked at a civil traffic stop — pinned behind the stopped player,
+      // no pursuit AI / PIT / drift until endTrapPursuit() removes it.
+      if (cop.parked) {
+        cop.speed = 0;
+        continue;
+      }
       // Disabled overrides — spike-strip stops the car flat for 8s, EMP for
       // a custom timer.
       if (cop.empTimer > 0) {
@@ -679,6 +787,7 @@ export class CopSystem {
         kind:        cop.kind,
         colorSet:    cop.colorSet,
         speed:       cop.speed,
+        parked:      cop.parked,
         flash:       this.lightFlash,
       }))
       .filter(c => c.relativePos > 0 && c.relativePos < 50000);

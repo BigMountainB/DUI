@@ -24,8 +24,16 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(__filename), '..');
 
-const TEMPLATE_PATH = path.join(ROOT, 'Images', 'Freeway-Shopping---blank.png');
+// Source art (blank template + brand logos) was moved out of the live tree to
+// Archive/Images (it's build-time-only input, not a shipped runtime asset).
+const IMAGES_DIR    = path.join(ROOT, 'Archive', 'Images');
+const TEMPLATE_PATH = path.join(IMAGES_DIR, 'Freeway-Shopping---blank.png');
 const OUT_DIR       = path.join(ROOT, 'public', 'assets', 'businesses');
+
+// Optional CLI filter: `node scripts/buildShoppingSigns.js H` bakes ONLY the
+// stop with that id (so adding one stop doesn't regenerate all the others).
+// No arg → bake every stop (original behavior).
+const ONLY_ID = (process.argv[2] || '').trim() || null;
 
 // Source brand-logo files supplied by the user in /Images.  Keys are the
 // in-game brand IDs used by AssetManifest.js (biz_*), values are the
@@ -76,6 +84,7 @@ const REST_STOPS = [
   { id: 'V',  mileage:  137, amenities: ['gas'] },
   { id: 'Y',  mileage:  158, amenities: ['hunting'] },
   { id: 'O',  mileage:  184, amenities: ['drugs', 'gas'] },
+  { id: 'H',  mileage:  205, amenities: ['camp', 'gas'] },
   { id: 'W',  mileage:  228, amenities: ['gas'] },
   { id: 'L',  mileage:  253, amenities: ['camp'] },
   { id: 'CO', mileage:  274, amenities: ['dealer', 'gas'] },
@@ -173,7 +182,7 @@ async function buildSign(templatePath, slots, logoIds, outPath) {
     const slot = slots[i];
     const targetW = Math.round(slot.w * (1 - PAD * 2));
     const targetH = Math.round(slot.h * (1 - PAD * 2));
-    const logoBuf = await sharp(path.join(ROOT, 'Images', file))
+    const logoBuf = await sharp(path.join(IMAGES_DIR, file))
       // "contain" — preserve aspect ratio, fit inside the box, transparent edges.
       .resize(targetW, targetH, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
@@ -205,6 +214,7 @@ async function main() {
 
   let written = 0;
   for (const stop of REST_STOPS) {
+    if (ONLY_ID && stop.id !== ONLY_ID) continue;
     if (!stop.amenities?.length) continue;
     const logoIds = stop.amenities
       .map(a => brandFor(a, stop.mileage))

@@ -20,7 +20,7 @@
  *   - extraCurve     – adds phantom curve to road
  *   - inputDelay     – ms delay on steering (ketamine)
  */
-import { DRUGS } from '../constants.js';
+import { DRUGS, CAM } from '../constants.js';
 import { clamp, lerp } from '../utils/Helpers.js';
 import { TimeOfDay } from '../world/TimeOfDay.js';
 import { Weather }   from '../world/Weather.js';
@@ -307,9 +307,12 @@ export class EffectsSystem {
       if (lsd > 0.5) {
         const aberrAlpha = (lsd - 0.5) * 0.18;
         const offset = 4 + Math.sin(t * 1.3) * 2;
-        this.overlay.fillStyle(0xFF2030, aberrAlpha);
+        // CB: swap the red/blue split for a warm/cool amber↔cyan one, which
+        // survives protan/deutan/tritan (the red half washes out otherwise).
+        const cb = this.scene?._colorblind;
+        this.overlay.fillStyle(cb ? 0xFF8A00 : 0xFF2030, aberrAlpha);
         this.overlay.fillRect(-150 - offset, -150, 1100, 750);
-        this.overlay.fillStyle(0x2040FF, aberrAlpha);
+        this.overlay.fillStyle(cb ? 0x00B7FF : 0x2040FF, aberrAlpha);
         this.overlay.fillRect(-150 + offset, -150, 1100, 750);
       }
 
@@ -479,18 +482,18 @@ export class EffectsSystem {
         // — small leftovers that read like "fresh rain just started".
         // New drops keep spawning while it's raining, so leaving the
         // wipers off lets the storm build back up.
-        if (!this._wsDrops) { this._wsDrops = []; this._wsSpawnT = 0; }
-        // Target drop load ramps with the storm (sevT from above): a light
-        // scatter at the leading edge → a heavy sheet deep in.  NO bulk
-        // pre-fill (the old code snapped 60 drops/sec across the whole glass
-        // so rain "appeared instantly").  Drops now accrue at a gentle,
-        // severity-scaled rate and spawn in the LOWER band of the glass, so
-        // the windshield fills bottom-to-top as the storm builds up over a
-        // few seconds instead of covering in one frame.  Post-wipe refill
-        // uses the same gentle rate, so it visibly builds back after a sweep.
-        const TARGET_DROPS = Math.floor((24 + 220 * sevT) * weatherInt);
-        const MAX_DROPS    = 260;
-        const SPAWN_PER_SEC = (5 + 34 * sevT) * Math.max(0.2, weatherInt);
+        if (!this._wsDrops) { this._wsDrops = []; this._wsSpawnT = 0; this._wsBigT = 0; }
+        // WIPERS ON ⇒ keep the glass CLEAR (much easier to see): the fine
+        // drizzle target + spawn rate are cut hard, and each sweep removes
+        // most of what's there (the wipe pulse only fires while the wipers
+        // run, so this never affects the wipers-OFF look).  WIPERS OFF ⇒ the
+        // drizzle builds into the heavy, hard-to-see-through sheet.
+        const wiperOn = !!ctx.wiperActive;
+        // Fine drizzle — the layer that actually fogs the glass.  Scales with
+        // weatherInt/sevT so LIGHT rain stays light; gutted when wipers run.
+        const TARGET_DROPS = Math.floor((40 + 320 * sevT) * weatherInt * (wiperOn ? 0.12 : 1));
+        const MAX_DROPS    = 380;
+        const SPAWN_PER_SEC = (8 + 52 * sevT) * Math.max(0.2, weatherInt) * (wiperOn ? 0.30 : 1);
         this._wsSpawnT += dt;
         const spawnInterval = 1 / Math.max(0.1, SPAWN_PER_SEC);
         // Full-screen coverage (was 110–420, which left a bare strip at
@@ -506,16 +509,44 @@ export class EffectsSystem {
             y:     WS_BOTTOM - Math.random() * (WS_BOTTOM - WS_TOP) * 0.45,
             r:     (1.8 + Math.random() * 2.6) * (1 + 0.5 * sevT),
             alpha: 0.55 + Math.random() * 0.30,
-            vy:    -6 - Math.random() * 4 - 4 * sevT,    // up-drift speed
+            vy:    -6 - Math.random() * 4 - 4 * sevT,    // slow up-drift
+            big:   false,
+            trail: 0,
           });
         }
-        // Wipe pulse — remove ~45 % of drops + shrink/fade survivors.
+        // BIG "runner" drops — fat beads that race UP the glass leaving a long
+        // rivulet trail.  Spawned on their OWN cadence (not part of the drizzle
+        // target) so they still streak through even with the wipers ON — they
+        // last a fraction of a second and don't really block vision, so they
+        // read as character, not as the thing that makes it hard to see.  A few
+        // per second at the storm peak; slightly fewer while wiping.
+        this._wsBigT += dt;
+        const bigPerSec   = (1.0 + 3.5 * sevT) * Math.max(0.25, weatherInt) * (wiperOn ? 0.7 : 1);
+        const bigInterval = 1 / Math.max(0.05, bigPerSec);
+        while (this._wsBigT >= bigInterval && this._wsDrops.length < MAX_DROPS) {
+          this._wsBigT -= bigInterval;
+          const rBase = 4.5 + Math.random() * 3.8;
+          this._wsDrops.push({
+            x:     Math.random() * 800,
+            y:     WS_BOTTOM - Math.random() * (WS_BOTTOM - WS_TOP) * 0.45,
+            r:     rBase * (1 + 0.5 * sevT),
+            alpha: 0.62 + Math.random() * 0.30,
+            vy:    -55 - Math.random() * 55 - 20 * sevT,    // fast runner
+            big:   true,
+            trail: 44 + Math.random() * 70,                 // rivulet length (px)
+          });
+        }
+        // Wipe pulse — fires once per wiper cycle (wipers ON only).  Removes
+        // most drops + shrinks/fades survivors so the glass clears fast and
+        // stays clear (much easier to see).  Big runners get cleared too, but
+        // their own spawner keeps a few streaking between sweeps.
         if (ctx.wiperSweepPulse) {
           const survivors = [];
           for (const d of this._wsDrops) {
-            if (Math.random() < 0.45) continue;     // remove
-            d.r     *= 0.65;
-            d.alpha *= 0.70;
+            if (Math.random() < 0.80) continue;     // remove the bulk each sweep
+            d.r     *= 0.55;
+            d.alpha *= 0.60;
+            d.trail  = (d.trail || 0) * 0.50;        // runners' tails shrink too
             if (d.r > 0.6 && d.alpha > 0.08) survivors.push(d);
           }
           this._wsDrops = survivors;
@@ -526,16 +557,26 @@ export class EffectsSystem {
         for (let i = this._wsDrops.length - 1; i >= 0; i--) {
           const d = this._wsDrops[i];
           d.y += d.vy * dt;
-          if (d.y < TOP_Y) {
-            // Drop reached the top — remove.  New ones spawn at bottom.
+          // Keep runners alive until their trailing rivulet also clears the top.
+          if (d.y < TOP_Y - (d.trail || 0)) {
             this._wsDrops.splice(i, 1);
             continue;
           }
-          // Streak below.
-          this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.30 * d.alpha));
-          this.overlay.fillRect(d.x - d.r * 0.30, d.y, d.r * 0.6, d.r * 2.4);
+          if (d.big) {
+            // Long tapering rivulet trailing BELOW the head (the wet track the
+            // bead leaves as it runs up).  Two stacked segments fade the tail.
+            const tw = Math.max(0.8, d.r * 0.55);
+            this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.20 * d.alpha));
+            this.overlay.fillRect(d.x - tw * 0.5, d.y, tw, d.trail);
+            this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.34 * d.alpha));
+            this.overlay.fillRect(d.x - tw * 0.4, d.y, tw * 0.8, d.trail * 0.45);
+          } else {
+            // Short streak below the drizzle drop.
+            this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.34 * d.alpha));
+            this.overlay.fillRect(d.x - d.r * 0.30, d.y, d.r * 0.6, d.r * 2.4);
+          }
           // Drop body.
-          this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.55 * d.alpha));
+          this.overlay.fillStyle(0xCFE0EE, Math.min(1, 0.62 * d.alpha));
           this.overlay.fillEllipse(d.x, d.y, d.r * 1.5, d.r * 1.9);
           // Specular highlight.
           this.overlay.fillStyle(0xFFFFFF, Math.min(1, 0.85 * d.alpha));
@@ -603,7 +644,15 @@ export class EffectsSystem {
         if (!this._wsStuck) { this._wsStuck = []; this._wsStuckT = 0; }
         const sevSn  = Weather.severity?.(mile) ?? 1;
         const sevSnT = Math.max(0, Math.min(1, (sevSn - 1) / 1.4));
-        const mileDeltaSn = Math.max(0, mile - (this._wsSnowMile ?? mile));
+        // CAP the per-frame mileage delta.  `_wsSnowMile` is only advanced
+        // inside this snow branch, so it goes STALE across the preceding rain
+        // stretch (mi 30-40 the rain branch runs, not this one) — and the
+        // clear-weather branch's `coverage < 0.01 -> 0` flips the `== null`
+        // init guard off, so on the first snow frame the raw delta is the whole
+        // rain run (~10 mi) and coverage maxes to a full whiteout instantly.
+        // Clamp to 0.1 mi/frame (far above the real per-frame mileage) so entry
+        // builds gradually from 0 over ~6 mi, and warps don't cake on arrival.
+        const mileDeltaSn = Math.max(0, Math.min(0.1, mile - (this._wsSnowMile ?? mile)));
         this._wsSnowMile = mile;
         // Full whiteout in ~6 mi at peak (faster in heavier snow); a light
         // flurry (low weatherInt) takes proportionally longer.
@@ -648,6 +697,54 @@ export class EffectsSystem {
           this.overlay.fillStyle(0xFFFFFF, f.a);
           this.overlay.fillCircle(f.x, f.y, rr);
         }
+      } else if (weatherState === 'fog' && weatherInt > 0.02) {
+        // ── Issaquah valley fog — horizon haze + drifting mist ─────────
+        // A pale wall of fog sits on the horizon, thinning up into the sky
+        // and down over the near road, with a few big soft wisps sliding
+        // across it.  Paired with Road.js's gentle distance-fog lift through
+        // the same mile window, the basin reads with real depth.
+        const fi      = weatherInt;
+        const horizon = Math.round(CAM.horizonY ?? 200);
+        const FOG_RGB = 0xC9D2DA;                 // cool pale grey
+        const peak    = 0.80 * fi;                 // thicker: near-wall on the horizon
+        // Smooth vertical haze: peak alpha ON the horizon line, easing to
+        // nothing UP px above and DN px below.  Drawn as many thin 2px
+        // slices with a smootherstep alpha curve and exact, NON-overlapping
+        // integer tiling — so adjacent slices differ by ~0.008 alpha and
+        // there are NO visible horizontal step lines (the old chunky-band
+        // version stepped ~0.07 per band, which read as hard lines).
+        const UP = 170, DN = 300, STEP = 2;        // reaches further up the sky + down over the near road
+        for (let y = horizon - UP; y < horizon + DN; y += STEP) {
+          const dy = y - horizon;
+          // distance-from-horizon → 0..1 (thins a touch faster below so the
+          // near road stays readable), then smootherstep for a seamless fade.
+          const f = dy <= 0 ? 1 - (-dy / UP) : (1 - dy / DN) * 0.85;
+          if (f <= 0) continue;
+          const s = f * f * f * (f * (f * 6 - 15) + 10);   // smootherstep
+          this.overlay.fillStyle(FOG_RGB, peak * s);
+          this.overlay.fillRect(-150, y, 1100, STEP);
+        }
+        // Overall milkiness so the whole frame sits behind a veil (thicker).
+        this.overlay.fillStyle(0xD2DAE1, 0.15 * fi);
+        this.overlay.fillRect(-150, -150, 1100, 750);
+        // Drifting mist wisps — big soft ellipses sliding across the
+        // horizon band at varied speeds / heights / directions so the fog
+        // feels volumetric and alive, not a flat sheet.
+        const WISPS = 8;
+        for (let i = 0; i < WISPS; i++) {
+          const dir   = (i % 2) ? -1 : 1;
+          const speed = 14 + (i % 4) * 8;
+          const phase = (i * 173) % 1100;
+          const x     = -150 + (((phase + dir * t * speed) % 1100) + 1100) % 1100;
+          const y     = horizon - 30 + ((i * 53) % 78);
+          const w     = 220 + (i % 3) * 130;
+          const h     = 24  + (i % 3) * 10;
+          const a     = (0.12 + 0.06 * ((i * 7) % 3)) * fi;
+          this.overlay.fillStyle(0xDBE1E7, a);
+          this.overlay.fillEllipse(x, y, w, h);
+          this.overlay.fillStyle(0xECF0F4, a * 0.5);
+          this.overlay.fillEllipse(x, y, w * 0.55, h * 0.55);
+        }
       } else {
         // Not snowing — the pile melts / blows off the glass over a few
         // seconds once you leave the zone.  Reset trackers for re-entry.
@@ -665,12 +762,57 @@ export class EffectsSystem {
       // they've stacked too much — it's still drivable but visibly bad.
       if (this._comboApocalypse) {
         const flash = Math.abs(Math.sin(t * 4.0)) * 0.55 + 0.25;
-        this.overlay.fillStyle(0xFF0000, flash);
         const BORDER = 22;
-        this.overlay.fillRect(-150, -150, 1100, BORDER + 150);
-        this.overlay.fillRect(-150, 450 - BORDER, 1100, BORDER + 150);
-        this.overlay.fillRect(-150, -150, BORDER + 150, 750);
-        this.overlay.fillRect(800 - BORDER, -150, BORDER + 150, 750);
+        // Colorblind mode (gated on scene._colorblind, set in GameScene from
+        // settings.colorblind): pure red 0xFF0000 is the unreadable half of the
+        // red↔green CVD pair, and the border carries the "you've over-stacked"
+        // warning by COLOR ALONE. Branch to a CVD-safe amber-orange border AND
+        // stamp a non-color cue — pulsing hazard triangles in all four corners
+        // (the universal warning glyph) so the alert reads from shape, not hue.
+        // The non-colorblind path below is byte-identical to the original.
+        if (this.scene?._colorblind) {
+          // Amber-orange border (0xFF8A00) — distinguishable for protan/deutan/
+          // tritan; same flash alpha and BORDER geometry as the default.
+          this.overlay.fillStyle(0xFF8A00, flash);
+          this.overlay.fillRect(-150, -150, 1100, BORDER + 150);
+          this.overlay.fillRect(-150, 450 - BORDER, 1100, BORDER + 150);
+          this.overlay.fillRect(-150, -150, BORDER + 150, 750);
+          this.overlay.fillRect(800 - BORDER, -150, BORDER + 150, 750);
+          // Non-color cue: a warning triangle (▲) in each corner, pulsing with
+          // the same flash. Drawn as a white outline + amber fill so it stays
+          // legible against the border and against any drug overlay underneath.
+          const TS = 34;          // triangle size (base/height in px)
+          const M  = BORDER + 8;  // inset from each screen edge
+          const triPulse = flash + 0.25;
+          // Corner anchors: [apexX, apexY, dirX, dirY] — apex points inward.
+          const corners = [
+            [M,        M,        1,  1],   // top-left
+            [800 - M,  M,       -1,  1],   // top-right
+            [M,        450 - M,  1, -1],   // bottom-left
+            [800 - M,  450 - M, -1, -1],   // bottom-right
+          ];
+          for (const [ax, ay, dx, dy] of corners) {
+            // Equilateral-ish warning triangle: apex at the corner, opening
+            // toward screen center.
+            const x1 = ax,            y1 = ay;
+            const x2 = ax + dx * TS,  y2 = ay;
+            const x3 = ax,            y3 = ay + dy * TS;
+            this.overlay.fillStyle(0xFFFFFF, Math.min(1, triPulse + 0.15));
+            this.overlay.fillTriangle(
+              x1 - dx * 3, y1 - dy * 3,
+              x2 + dx * 3, y2,
+              x3,          y3 + dy * 3,
+            );
+            this.overlay.fillStyle(0xFF8A00, triPulse);
+            this.overlay.fillTriangle(x1, y1, x2, y2, x3, y3);
+          }
+        } else {
+          this.overlay.fillStyle(0xFF0000, flash);
+          this.overlay.fillRect(-150, -150, 1100, BORDER + 150);
+          this.overlay.fillRect(-150, 450 - BORDER, 1100, BORDER + 150);
+          this.overlay.fillRect(-150, -150, BORDER + 150, 750);
+          this.overlay.fillRect(800 - BORDER, -150, BORDER + 150, 750);
+        }
       }
     }
 

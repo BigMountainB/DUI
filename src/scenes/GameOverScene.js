@@ -305,17 +305,22 @@ export class GameOverScene extends Phaser.Scene {
       });
     });
 
+    // Right-side action column — centred in the space to the RIGHT of the
+    // RUN REPORT panel (panel ends at x=422) so the buttons + crisis-support
+    // text no longer overlap it.  611 = midpoint of [422, SCREEN_W=800], so
+    // the 242-wide buttons clear the panel with equal margins each side.
+    const RIGHT_CX = 611;
     const cp = this.lastCheckpoint;
-    this._makeNeonButton(520, 263, 242, 39, 'RETRY', accent, () => this._retrySameSettings());
-    this._makeNeonButton(520, 310, 242, 39, 'START OVER', 0x2D9BFF, () => this._startOver());
+    this._makeNeonButton(RIGHT_CX, 263, 242, 39, 'RETRY', accent, () => this._retrySameSettings());
+    this._makeNeonButton(RIGHT_CX, 310, 242, 39, 'START OVER', 0x2D9BFF, () => this._startOver());
 
-    this.add.text(520, 365, 'NEED SUPPORT?', {
+    this.add.text(RIGHT_CX, 365, 'NEED SUPPORT?', {
       fontSize: '12px', fontFamily: IMPACT, color: accentCss,
     }).setOrigin(0.5, 0);
-    this.add.text(520, 383, 'CALL OR TEXT 988  |  CRISIS SUPPORT', {
+    this.add.text(RIGHT_CX, 383, 'CALL OR TEXT 988  |  CRISIS SUPPORT', {
       fontSize: '11px', fontFamily: IMPACT, color: '#FFFFFF',
     }).setOrigin(0.5, 0);
-    this.add.text(520, 400, 'SAMHSA: 1-800-662-HELP (4357)', {
+    this.add.text(RIGHT_CX, 400, 'SAMHSA: 1-800-662-HELP (4357)', {
       fontSize: '10px', fontFamily: IMPACT, color: '#D6E8FF',
     }).setOrigin(0.5, 0);
     this.add.text(CX, 432, isBust
@@ -397,15 +402,19 @@ export class GameOverScene extends Phaser.Scene {
     }).setOrigin(0.5, 0);
     layer.add(title);
 
-    // Two-column rows so all 10 drugs fit comfortably.
+    // Two-column rows — ONLY unlocked drugs are listed.  Locked ones are
+    // hidden entirely so which (and how many) remain is a surprise (per
+    // user); their unlock method is revealed only AFTER they're unlocked.
     const COL_X    = [SCREEN_W * 0.04, SCREEN_W * 0.52];
     const COL_W    = SCREEN_W * 0.44;
     const ROW_H    = 60;
     const TOP_Y    = 60;
 
-    DRUG_ORDER.forEach((id, idx) => {
-      const col = idx % 2;
-      const row = (idx / 2) | 0;
+    const unlockedDrugs = DRUG_ORDER.filter(id => !!(this.drugSummary[id]?.unlocked));
+
+    unlockedDrugs.forEach((id, fIdx) => {
+      const col = fIdx % 2;
+      const row = (fIdx / 2) | 0;
       const x   = COL_X[col];
       const y   = TOP_Y + row * ROW_H;
 
@@ -413,7 +422,6 @@ export class GameOverScene extends Phaser.Scene {
       const summary = this.drugSummary[id] ?? {};
       const peakPct = Math.round((summary.maxReached ?? 0) * 100);
       const picks   = summary.pickupCount ?? 0;
-      const unlocked = !!summary.unlocked;
 
       // Status string + colour.  "Used" includes any path that left a
       // detectable footprint on the bar — pickups, rest-stop restocks,
@@ -422,10 +430,7 @@ export class GameOverScene extends Phaser.Scene {
       // every unlocked bar to 60% without incrementing pickupCount).
       const usedAny = picks > 0 || peakPct > 0;
       let status, statusColor;
-      if (!unlocked) {
-        status      = '🔒 LOCKED';
-        statusColor = '#888888';
-      } else if (!usedAny) {
+      if (!usedAny) {
         status      = '⊕ UNLOCKED — never used';
         statusColor = '#88CCFF';
       } else {
@@ -444,16 +449,29 @@ export class GameOverScene extends Phaser.Scene {
       });
       layer.add([label, stat]);
 
-      // Hint for locked drugs (replaces the empty space below status).
-      if (!unlocked && UNLOCK_HINTS[id]) {
-        const hint = this.add.text(x, y + 34, `→ ${UNLOCK_HINTS[id]}`, {
+      // How it was unlocked — revealed now that it IS unlocked.  Starter
+      // drugs (alcohol / weed) have no unlock method, so the line is omitted.
+      if (UNLOCK_HINTS[id]) {
+        const how = this.add.text(x, y + 34, `🔓 ${UNLOCK_HINTS[id]}`, {
           fontSize: '10px', fontFamily: 'Arial',
           color: '#CCCCCC', fontStyle: 'italic',
           wordWrap: { width: COL_W },
         });
-        layer.add(hint);
+        layer.add(how);
       }
     });
+
+    // Count-free teaser when undiscovered drugs remain — signals there's
+    // more to find WITHOUT revealing which or how many (keeps the surprise).
+    if (unlockedDrugs.length < DRUG_ORDER.length) {
+      const gridRows = Math.ceil(unlockedDrugs.length / 2);
+      const teaseY = TOP_Y + gridRows * ROW_H + 4;
+      const tease = this.add.text(CX, teaseY, '🔒 More to discover — keep driving…', {
+        fontSize: '12px', fontFamily: IMPACT,
+        color: '#9A8CCB', stroke: '#000', strokeThickness: 2,
+      }).setOrigin(0.5, 0);
+      layer.add(tease);
+    }
 
     // Close button — bottom centre + scrim click + Esc key.
     const closeBtn = this._makeButton(

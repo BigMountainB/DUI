@@ -20,7 +20,7 @@ const DRUG_TEX = (id) => (id === 'alcohol' ? 'drug_beer' : `drug_${id}`);
 // apply SHOP_DRUG_MARKUP (2.5×) on top.  Cut ~70-90 % from the
 // pre-rebalance numbers per the cost ladder so dealer trips are
 // tempting but pharmacy is the budget option.
-const DRUG_PRICE = {
+export const DRUG_PRICE = {
   alcohol:  5,   weed:   5,    cocaine: 40,   shrooms: 15,
   lsd:     10,   heroin: 15,   rx:      10,   fentanyl: 25,
   ketamine:15,   meth:   15,
@@ -173,12 +173,19 @@ const SECTIONS = {
     label: '🚗  CARS',
     items: [],   // populated dynamically per-stop in create()
   },
+  // Park & Ride — only at stops whose amenities include 'parkride'.  Where
+  // the (drug) Dealer meets you: pre-paid phone orders are picked up here
+  // FREE.  Items populated dynamically in create() from save.dealerOrders.
+  parkride: {
+    label: '🅿️  PARK & RIDE',
+    items: [],
+  },
 };
 
-// Landing tab order (5 brand placards).  dealer_acc / dealer_cars are
+// Landing tab order (brand placards).  dealer_acc / dealer_cars are
 // reached via the Dealer chooser, not the landing.
-const TAB_ORDER = ['gas', 'hunting', 'camp', 'dealer', 'drugs'];
-const ALL_SECTIONS = ['gas', 'hunting', 'camp', 'dealer', 'dealer_acc', 'dealer_cars', 'drugs'];
+const TAB_ORDER = ['gas', 'hunting', 'camp', 'dealer', 'parkride', 'drugs'];
+const ALL_SECTIONS = ['gas', 'hunting', 'camp', 'dealer', 'dealer_acc', 'dealer_cars', 'parkride', 'drugs'];
 
 // Charger availability — west-side rest stops carry the CarGo brand
 // which sells both gas AND charging.  East-side stops are Huff's,
@@ -206,6 +213,7 @@ function brandsForStop(stop) {
       ? { name: 'Lord Motors',          logo: 'biz_lord', carFuel: 'electric' }
       : { name: "Sam's Used Car Kingdom", logo: 'biz_suck', carFuel: 'gas' },
     drugs:   { name: 'PharmaBros', logo: 'biz_pharmabros' },
+    parkride:{ name: 'Metro Park & Ride', logo: 'biz_parkride' },
   };
 }
 
@@ -285,6 +293,9 @@ export class RestStopScene extends Phaser.Scene {
     // recorded on exit (see the continue handler).
     this._stats = this.registry?.get?.('stats');
     this._stats?.restStopEnter(this._stop.id);
+    // Pre-paid Dealer orders — drugs already paid for via the phone, redeemed
+    // FREE in the drug menu here (claimed on purchase).
+    this._dealerOrders = (this.registry?.get?.('save')?.get?.('dealerOrders', []) || []).slice();
     // Drug-bar snapshot — drug status pauses at the rest stop and resumes
     // from these levels.  COFFEE / SNOOZE multiply, drug top-ups stack on
     // top.  Just stopping doesn't change anything anymore.
@@ -389,7 +400,7 @@ export class RestStopScene extends Phaser.Scene {
       });
     }
 
-    // ── Quart of 710 Oil — +15 HP top-up.  "710" = "OIL" upside down. ──
+    // ── Quart of 710 Oil — +2 HP top-up.  "710" = "OIL" upside down. ──
     const _vehMaxHp     = VEHICLES[this._vehicleId]?.hp ?? 100;
     const _hpAtEntry    = this._durabilityAtEntry ?? _vehMaxHp;
     const _hpAlreadyMax = _hpAtEntry >= _vehMaxHp;
@@ -403,12 +414,32 @@ export class RestStopScene extends Phaser.Scene {
       gasItems.push({
         id: 'oil_710', label: '🛢  ADD A QUART OF 710 OIL',
         cost: 80,
-        desc: `+10 HP (capped at ${_vehMaxHp} max).`,
+        desc: `+2 HP (capped at ${_vehMaxHp} max).`,
         payload: { oil710: true },
       });
     }
 
     SECTIONS.gas.items = gasItems;
+
+    // ── PARK & RIDE: the (drug) Dealer hands over pre-paid phone orders ──
+    // One free pickup item per drug ordered (phone → Messages → Dealer).
+    // Buying it grants the drug for free and consumes that order.
+    SECTIONS.parkride.items = (this._dealerOrders || []).map((id, i) => ({
+      id:    `pickup_${id}_${i}`,
+      label: `${DRUG_DISPLAY(id).toUpperCase()}  ·  PRE-PAID`,
+      icon:  DRUG_TEX(id),
+      cost:  0,
+      desc:  'Pre-paid via the dealer — +10 % to this bar (cap 80 %)',
+      payload: { drugTopUp: id, amount: 0.10, dealerClaim: id },
+    }));
+    if (!SECTIONS.parkride.items.length) {
+      SECTIONS.parkride.items = [{
+        id: 'parkride_empty', label: '— nothing waiting —', cost: 0,
+        desc: 'Call the dealer first (phone → Messages) and your order meets you here.',
+        disabled: true, disabledReason: 'No pre-paid orders. Call the dealer from your phone.',
+        payload: {},
+      }];
+    }
 
     // ── DEALER_CARS: build region-filtered vehicle catalog ──────────
     const _stopBrands = brandsForStop(this._stop);
@@ -621,7 +652,7 @@ export class RestStopScene extends Phaser.Scene {
         img.setDisplaySize(baseW * k, baseH * k);
         this._landingObjs.push(img);
       } else {
-        const accentFor = { gas: 0xFFCC22, hunting: 0x6E3F1A, camp: 0x2E7A35, dealer: 0xCC1122, drugs: 0x9A36CC };
+        const accentFor = { gas: 0xFFCC22, hunting: 0x6E3F1A, camp: 0x2E7A35, dealer: 0xCC1122, drugs: 0x9A36CC, parkride: 0x1E5BB8 };
         const accent = accentFor[key] ?? 0x888888;
         const strip = this.add.rectangle(logoArea.x, logoArea.y, logoArea.w, logoArea.h, accent, 1)
           .setOrigin(0, 0);
@@ -932,6 +963,7 @@ export class RestStopScene extends Phaser.Scene {
 
     const cost = this.add.text(x + w - 8, y + h / 2,
       disabled              ? 'N/A' :
+      item.payload?.dealerClaim ? 'PREPAID' :
       effectiveCost > 0     ? `$${effectiveCost}` : 'FREE', {
         fontSize: compact ? '11px' : '13px', fontFamily: IMPACT,
         color: '#FFEE00', stroke: '#000', strokeThickness: 2,
@@ -969,6 +1001,12 @@ export class RestStopScene extends Phaser.Scene {
         this._score -= effectiveCost;
         const _si = this._statsSpendInfo(item);
         this._stats?.recordSpend(effectiveCost, _si.category, _si.subId);
+      }
+      // Park & Ride pickup → consume one matching pre-paid Dealer order.
+      if (item.payload?.dealerClaim) {
+        const _oi = this._dealerOrders.indexOf(item.payload.dealerClaim);
+        if (_oi !== -1) this._dealerOrders.splice(_oi, 1);
+        this.registry.get('save')?.set?.('dealerOrders', this._dealerOrders);
       }
       this._refreshScore();
       this._applyPurchase(item);
@@ -1083,11 +1121,11 @@ export class RestStopScene extends Phaser.Scene {
       this._purchases.durabilityOnResume = Math.max(this._purchases.durabilityOnResume ?? 0, target);
     }
     if (p.oil710) {
-      // +15 HP, capped at the vehicle's max.  Stacks if bought multiple
+      // +2 HP, capped at the vehicle's max.  Stacks if bought multiple
       // times in one stop.
       const vehMax = VEHICLES[this._vehicleId]?.hp ?? 100;
       const cur    = this._purchases.durabilityOnResume ?? this._durabilityAtEntry ?? vehMax;
-      this._purchases.durabilityOnResume = Math.min(vehMax, cur + 15);
+      this._purchases.durabilityOnResume = Math.min(vehMax, cur + 2);
     }
     if (p.tractionTires) {
       // Legacy payload (global flag) — kept so existing call sites don't
@@ -1193,6 +1231,12 @@ export class RestStopScene extends Phaser.Scene {
   }
 
   _flash(obj, color) {
+    // Colorblind: the green (success) ↔ red (fail) buy-feedback pair is
+    // unreadable for red-green CVD; remap to cyan (success) / amber (fail).
+    if (this.registry.get('save')?.get?.('settings.colorblind', false) === true) {
+      if      (color === 0x44FF44) color = 0x39C8FF;   // success → cyan
+      else if (color === 0xFF4444) color = 0xFF8A00;   // fail → amber
+    }
     const orig = obj.fillColor;
     obj.setFillStyle(color);
     this.time.delayedCall(120, () => obj.setFillStyle(orig));

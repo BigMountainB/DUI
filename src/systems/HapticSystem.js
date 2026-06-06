@@ -38,6 +38,33 @@ export class HapticSystem {
     this._fire(ms, tier);
   }
 
+  /** Two short pulses ~130 ms apart — mimics an incoming-text notification
+   *  buzz.  Fired whenever a phone-text popup appears.  Honors the haptics
+   *  setting and falls through cleanly when no vibration API is present
+   *  (e.g. iOS Safari before the Capacitor wrap, or desktop). */
+  notify() {
+    if (!this.enabled) return;
+    // Lazily resolve the Capacitor Haptics plugin (shared with _fire).
+    if (!this._capLoaded) {
+      this._capLoaded = true;
+      try {
+        const Cap = (typeof window !== 'undefined' && window.Capacitor) || null;
+        this._capacitor = Cap?.Plugins?.Haptics ?? null;
+      } catch { this._capacitor = null; }
+    }
+    if (this._capacitor?.impact) {
+      // iOS native: two light impacts back-to-back = the "bzzt-bzzt" of a text.
+      const tap = () => { try { this._capacitor.impact({ style: 'LIGHT' }); } catch {} };
+      tap();
+      setTimeout(tap, 130);
+      return;
+    }
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      // Web/Android: a two-buzz pattern (buzz 30 ms · pause 110 ms · buzz 30 ms).
+      try { navigator.vibrate([30, 110, 30]); } catch {}
+    }
+  }
+
   _fire(ms, tier) {
     // Capacitor Haptics — preferred on iOS where navigator.vibrate is
     // ignored.  Lazily resolved; if the plugin isn't present we fall

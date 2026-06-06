@@ -3,7 +3,9 @@ import { BootScene }    from './scenes/BootScene.js';
 import { GameScene }    from './scenes/GameScene.js';
 import { RestStopScene } from './scenes/RestStopScene.js';
 import { GameOverScene } from './scenes/GameOverScene.js';
-import { SCREEN_W, SCREEN_H, VEHICLES } from './constants.js';
+import { SCREEN_W, SCREEN_H, VEHICLES, getLocationName, TOTAL_ROUTE_MILES, DRUGS, DRUG_CONFIG, REST_STOPS } from './constants.js';
+import { Weather } from './world/Weather.js';
+import { DRUG_PRICE } from './scenes/RestStopScene.js';
 import { AchievementSystem } from './systems/AchievementSystem.js';
 import { AudioSystem }       from './systems/AudioSystem.js';
 
@@ -44,6 +46,37 @@ const config = {
 const _boot = () => {
   const game = new Phaser.Game(config);
 
+  // ── Text-entry vs. game keyboard ─────────────────────────────────────
+  // The game binds driving / hotkeys (W A S D F M R Q, Space, Enter, arrows)
+  // through Phaser's keyboard, which CAPTURES them (preventDefault) globally
+  // and also runs on('keydown') handlers (dev-warp digits, Shift+L handedness,
+  // etc.).  While the player is typing in an HTML field (the license-plate name
+  // box, code entry…) that swallows those letters and can trigger game actions
+  // mid-type.  So: suspend Phaser's keyboard (handlers + key captures) whenever
+  // a text field is focused, and restore it on blur.
+  let _savedKeyCaptures = null;
+  const _gameKb = () => game.scene?.getScene?.('Game')?.input?.keyboard;
+  const _isTextField = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  const _suspendGameKeys = () => {
+    const k = _gameKb();
+    if (!k || _savedKeyCaptures !== null) return;   // already suspended
+    try {
+      _savedKeyCaptures = k.getCaptures?.() ?? [];
+      k.clearCaptures?.();          // stop preventDefault — let letters reach the input
+    } catch (_) { _savedKeyCaptures = []; }
+    k.enabled = false;              // stop driving/hotkey handlers from firing
+  };
+  const _resumeGameKeys = () => {
+    const k = _gameKb();
+    if (k) {
+      k.enabled = true;
+      try { if (_savedKeyCaptures && _savedKeyCaptures.length) k.addCaptures?.(_savedKeyCaptures); } catch (_) {}
+    }
+    _savedKeyCaptures = null;
+  };
+  document.addEventListener('focusin',  (e) => { if (_isTextField(e.target)) _suspendGameKeys(); });
+  document.addEventListener('focusout', (e) => { if (_isTextField(e.target)) _resumeGameKeys(); });
+
   // Register the AudioSystem on the registry IMMEDIATELY so the
   // iPhone-menu music app can read stations without waiting for
   // Phaser's BootScene to finish preloading assets.  BootScene later
@@ -67,7 +100,15 @@ const _boot = () => {
   // landscape title screen, pause menu) gets preventDefault so
   // Phaser's input pipeline isn't competing with iOS scroll/zoom.
   const _blockGameTouch = (e) => {
-    if (e.target?.closest?.('#phone-menu')) return;
+    // The phone-menu overlay AND the license-plate modal need native
+    // touch (scroll, input focus, the on-screen keyboard, button taps),
+    // so their touches pass through untouched.  Everything else (game
+    // canvas, landscape title screen) gets preventDefault so iOS
+    // scroll/zoom doesn't fight Phaser's input pipeline.  Without the
+    // #plate-modal exemption the plate input never focused (no keyboard,
+    // so "can't change the name") and the DONE/CANCEL taps were swallowed
+    // — the whole picker looked frozen.
+    if (e.target?.closest?.('#phone-menu, #plate-modal')) return;
     e.preventDefault();
   };
   document.addEventListener('touchstart', _blockGameTouch, { passive: false });
@@ -122,6 +163,22 @@ const _boot = () => {
     },
   };
   window.__phaserGame = game;          // for the menu's map renderer
+  window.__restStops  = REST_STOPS;    // for the phone-map "Next Rest Stop" panel
+  // License plate = the ACTIVE player slot's handle (their leaderboard name).
+  // Each of the 3 title-screen slots is a full independent save; this bridge
+  // always reads/writes whichever slot is currently selected.
+  const _sanitizePlate = (v) =>
+    String(v || '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').trim().slice(0, 8);
+  window.__plate = {
+    get:        () => game.registry.get('save')?.activePlate ?? '',
+    needsEntry: () => !((game.registry.get('save')?.activePlate ?? '').trim()),
+    set: (v) => {
+      const plate = _sanitizePlate(v);
+      if (!plate) return { ok: false };
+      game.registry.get('save')?.setActivePlate?.(plate);
+      return { ok: true, plate };
+    },
+  };
   window.__playerMileFrac = () => {
     const s = game.scene.getScene('Game');
     if (!s?.player) return 0;
@@ -211,6 +268,11 @@ const _boot = () => {
     codex_playdout_s3x_back: 'assets/cars/codex/bestla_playdout_s3x_back.png',
   };
   window.__garage = {
+    // The vehicle actually being driven (registry truth) — independent of
+    // the OWNED list, so custom-mode sandbox cars (not owned) resolve too.
+    // The phone-menu skin sync reads this.
+    current: () => game.registry.get('vehicleId')
+      ?? (game.registry.get('ownedVehicles') ?? ['beater'])[0],
     list: () => {
       const owned = game.registry.get('ownedVehicles') ?? ['beater'];
       const current = game.registry.get('vehicleId') ?? owned[0];
@@ -335,6 +397,246 @@ const _boot = () => {
     },
   };
 
+  // Career stats snapshot for the phone-menu Leaderboard + Stats apps.
+  // Returns a plain-object copy so the menu can't mutate live state.
+  window.__stats = {
+    // Lifetime/persisted career stats (records, earned/spent, drugs, etc.).
+    get: () => {
+      const stats = game.registry.get('stats');
+      if (!stats?.stats) return null;
+      try { return JSON.parse(JSON.stringify(stats.stats)); }
+      catch (_) { return stats.stats; }
+    },
+    // Current-trip (session) counters — for the Stats app's "This Trip" tab.
+    session: () => {
+      const stats = game.registry.get('stats');
+      if (!stats?.session) return null;
+      try { return JSON.parse(JSON.stringify(stats.session)); }
+      catch (_) { return stats.session; }
+    },
+    // Local run history (this device), already sorted best-score first — for
+    // the Leaderboard app's "Your Runs" ranking.
+    runs: () => {
+      const save = game.registry.get('save');
+      const lb = save?.get?.('leaderboard', { runs: [] }) || { runs: [] };
+      return (lb.runs || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    },
+    // Cross-player HOUSE leaderboard — one row per player profile slot on this
+    // device.  Reads every slot's records/leaderboard directly (does NOT switch
+    // the active slot).  Includes only created players (a non-empty plate) plus
+    // the active slot.  The UI re-sorts by score / time / miles.  records is the
+    // primary source (StatsTracker keeps it current); runs is a defensive
+    // fallback so a slot with history but no records still ranks.
+    house: () => {
+      const save = game.registry.get('save');
+      const slots = save?.data?.slots;
+      if (!Array.isArray(slots)) return [];
+      const active = save.activeSlot | 0;
+      const out = [];
+      slots.forEach((slot, i) => {
+        const plate = (slot?.plate ?? '').toString().trim();
+        const isActive = i === active;
+        if (!plate && !isActive) return;          // skip empty, non-active slots
+        const rec  = slot?.global?.stats?.records ?? {};
+        const runs = (slot?.global?.leaderboard?.runs) ?? [];
+        const bestScore = rec.bestScore   || runs.reduce((m, r) => Math.max(m, r.score || 0), 0);
+        const mostMiles = rec.mostMilesRun || runs.reduce((m, r) => Math.max(m, r.miles || 0), 0);
+        let fastest = rec.fastestCompletionSec || 0;
+        if (!fastest) {
+          const done = runs.filter(r => r.completed && r.timeSec > 0).map(r => r.timeSec);
+          if (done.length) fastest = Math.min(...done);
+        }
+        out.push({
+          index:                i,
+          plate:                plate || (isActive ? '' : '—'),
+          active:               isActive,
+          bestScore,
+          mostMilesRun:         mostMiles,
+          fastestCompletionSec: fastest || 0,
+          hasRuns:              runs.length > 0,
+        });
+      });
+      return out;
+    },
+  };
+
+  // Settings app — volume / mute / haptics.  Sound routes through the
+  // AudioSystem (so it works from the portrait start menu, no pause
+  // needed); haptics persists to the save and is pushed to the live
+  // scene (GameScene also reads it on create).
+  window.__settings = {
+    get: () => {
+      const audio = game.registry.get('audio');
+      const save  = game.registry.get('save');
+      return {
+        muted:   !!audio?.muted,
+        volume:  audio?.volume ?? 0.32,
+        haptics: save?.get?.('settings.haptics', true) !== false,
+      };
+    },
+    setMuted: (v) => {
+      const audio = game.registry.get('audio');
+      if (audio && !!audio.muted !== !!v) audio.toggleMute?.();
+    },
+    setVolume: (v) => {
+      const audio = game.registry.get('audio');
+      if (!audio) return;
+      audio.volume = Math.max(0, Math.min(1, Number(v) || 0));
+      audio._applyMasterGain?.();
+    },
+    setHaptics: (v) => {
+      game.registry.get('save')?.set?.('settings.haptics', !!v);
+      game.scene.getScene('Game')?.haptics?.setEnabled?.(!!v);
+    },
+    // Speedometer / distance units: 'mph' | 'kmh'.
+    getUnits: () => game.registry.get('save')?.get?.('settings.units', 'mph'),
+    setUnits: (u) => {
+      const uu = (u === 'kmh') ? 'kmh' : 'mph';
+      game.registry.get('save')?.set?.('settings.units', uu);
+      const s = game.scene.getScene('Game'); if (s) s._unitsKmh = (uu === 'kmh');
+    },
+    // Screen-shake intensity 0..1 (1 = full).
+    getShake: () => game.registry.get('save')?.get?.('settings.shake', 1),
+    setShake: (v) => {
+      const t = Math.max(0, Math.min(1, Number(v) || 0));
+      game.registry.get('save')?.set?.('settings.shake', t);
+      const s = game.scene.getScene('Game'); if (s) s._shakeMult = t;
+    },
+    // Colorblind-safe mode (remaps red/green UI to blue/orange).
+    getColorblind: () => game.registry.get('save')?.get?.('settings.colorblind', false) === true,
+    setColorblind: (on) => {
+      game.registry.get('save')?.set?.('settings.colorblind', !!on);
+      const s = game.scene.getScene('Game'); if (s) s._colorblind = !!on;
+    },
+    // HUD visible (true) / hidden (false).
+    getHud: () => game.registry.get('save')?.get?.('settings.hud', true) !== false,
+    setHud: (vis) => {
+      game.registry.get('save')?.set?.('settings.hud', !!vis);
+      const s = game.scene.getScene('Game');
+      if (s) { s._hudHidden = !vis; s._setHudVisible?.(!s._awaitingStart); }
+    },
+    // Reset PROGRESS — fully blanks the ACTIVE player slot (plate, lifetime
+    // stats, leaderboard, achievements, money, cars, every mode's progress),
+    // leaving the other players untouched.  Frees the plate so it can be
+    // renamed.
+    //
+    // This used to end with a hard `location.reload()` for a guaranteed-clean
+    // reboot, but a page reload tears down the AudioContext and the browser
+    // then blocks autoplay until the next user tap — so the radio went silent
+    // on reset.  Instead we soft-restart into the title (same path as
+    // __mainMenu): the AudioSystem lives on the registry and survives a scene
+    // restart, so the music keeps playing.  SaveSystem resolves the slot via
+    // getters, so Wallet / plate / leaderboard re-read the wiped slot for
+    // free; the only stale state is StatsTracker's live `stats` reference
+    // (reload re-points it) and the registry vehicleId (may point at a
+    // now-unowned car — drop it back to the starter).
+    resetProgress: () => {
+      game.registry.get('save')?.resetProgress?.();
+      game.registry.get('stats')?.reload?.();
+      game.registry.set('vehicleId', 'beater');
+      try {
+        game?.scene?.start?.('Game', {});
+        reapplyAfterRestart();
+      } catch (_) {}
+    },
+  };
+
+  // Location widget — current town + live weather + a simulated temperature
+  // for the phone-menu top bar (name by the GPS arrow, temp + symbol upper
+  // right).  Temp is faked from a lowland→Cascade-pass gradient, capped by
+  // the active weather so snow reads cold and rain reads cool.
+  window.__location = {
+    get: () => {
+      const scene = game.scene.getScene('Game');
+      const mile  = Math.max(0, scene?._odometer ?? 0);
+      const name  = getLocationName(mile / TOTAL_ROUTE_MILES);
+      let weather = 'clear';
+      try { weather = Weather.state(mile); } catch (_) {}
+      // Coldest at the Snoqualmie Pass summit (~mile 50), warm in the lowlands.
+      const passCold = Math.max(0, 1 - Math.abs(mile - 50) / 45);
+      let tempF = 70 - passCold * 33;
+      if (weather === 'snow')      tempF = Math.min(tempF, 31);
+      else if (weather === 'rain') tempF = Math.min(tempF, 52);
+      return { name, weather, tempF: Math.round(tempF) };
+    },
+  };
+
+  // The Lawyer (phone → Messages).  One-time $15k retainer, paid from the
+  // run's current cash (score), halves all future "busted" fines for good.
+  // Flavor contacts (The Ex / Mom / The Boss / The Unknown) — pure-tone texters.
+  // GameScene logs their messages per run; the Messages app reads the threads.
+  window.__buddytexts = {
+    threads: () => game.scene.getScene('Game')?._buddyThreads ?? { ex: [], mom: [], boss: [], unknown: [] },
+  };
+
+  window.__lawyer = {
+    status: () => {
+      const save  = game.registry.get('save');
+      const scene = game.scene.getScene('Game');
+      return {
+        retained: save?.get?.('lawyerRetained', false) === true,
+        cash:     Math.max(0, Math.round(scene?.score ?? 0)),
+        cost:     15000,
+      };
+    },
+    retain: () => {
+      const save  = game.registry.get('save');
+      const scene = game.scene.getScene('Game');
+      if (save?.get?.('lawyerRetained', false) === true) return { ok: false, reason: 'already' };
+      const cash = Math.round(scene?.score ?? 0);
+      if (cash < 15000) return { ok: false, reason: 'funds', need: 15000 - cash };
+      if (scene) scene.score -= 15000;
+      save?.set?.('lawyerRetained', true);
+      return { ok: true };
+    },
+  };
+
+  // The Dealer (phone → Messages).  Order a drug, pay now from the run's
+  // cash (score); it's waiting FREE at the next rest stop's drug menu.
+  const _dealerLabel = (id) => (DRUG_CONFIG[id]?.label ?? id).replace(/^[^A-Za-z]+/, '').trim();
+  window.__dealer = {
+    status: () => {
+      const save    = game.registry.get('save');
+      const scene   = game.scene.getScene('Game');
+      const unlocks = game.registry.get('drugUnlocks');
+      const isUnlocked = (id) => (unlocks && typeof unlocks === 'object')
+        ? !!unlocks[id] : !!DRUG_CONFIG[id]?.unlocked;
+      return {
+        cash:   Math.max(0, Math.round(scene?.score ?? 0)),
+        orders: (save?.get?.('dealerOrders', []) || []).slice(),
+        drugs:  Object.values(DRUGS).filter(isUnlocked).map(id => ({
+          id, label: _dealerLabel(id), price: DRUG_PRICE[id] ?? 200,
+        })),
+      };
+    },
+    label: (id) => _dealerLabel(id),
+    order: (id) => {
+      const save  = game.registry.get('save');
+      const scene = game.scene.getScene('Game');
+      const price = DRUG_PRICE[id];
+      if (price == null) return { ok: false, reason: 'badid' };
+      const cash = Math.round(scene?.score ?? 0);
+      if (cash < price) return { ok: false, reason: 'funds', need: price - cash };
+      if (scene) scene.score -= price;
+      const orders = (save?.get?.('dealerOrders', []) || []).slice();
+      orders.push(id);
+      save?.set?.('dealerOrders', orders);
+      return { ok: true };
+    },
+  };
+
+  // The Crush (phone → Contacts).  Gender-neutral (they/them) — they invited
+  // you to the party in Pullman.  Texting is FREE and once per town — keep them
+  // warm each town or they cool off ("…", with annoyed/angry texts) and
+  // eventually find someone else.  Reward is a party payoff at the finish, NOT
+  // per-text cash.  All logic lives on GameScene (it owns the per-town /
+  // checkpoint loop); this is a thin pass-through for the UI.
+  window.__girl = {
+    status: () => game.scene.getScene('Game')?._girlStatus?.()
+      ?? { gone: false, responded: false, sent: 0, everTexted: false, canText: false, skips: 0, skipsLeft: 4, thread: [] },
+    text:   () => game.scene.getScene('Game')?._girlText?.() ?? { ok: false },
+  };
+
   // Music app — list stations and play specific tracks.
   window.__music = {
     list: () => {
@@ -365,9 +667,20 @@ const _boot = () => {
       const audio = game.registry.get('audio');
       audio?.skipTrack?.();
     },
+    // Scrubber: { time, duration, name } or null when nothing's playing.
+    progress: () => game.registry.get('audio')?.trackProgress?.() ?? null,
+    seek: (frac) => game.registry.get('audio')?.seekTrackFrac?.(frac) ?? false,
     isMuted: () => {
       const audio = game.registry.get('audio');
       return !!audio?.muted;
+    },
+    // Default station (genre) that auto-plays on boot — persisted in the
+    // save's settings.radio.  Setting it also switches to it now as feedback.
+    getDefaultStation: () => game.registry.get('save')?.get?.('settings.radio', 0),
+    setDefaultStation: (idx) => {
+      const i = parseInt(idx, 10) || 0;
+      game.registry.get('save')?.set?.('settings.radio', i);
+      game.registry.get('audio')?.setStation?.(i);
     },
     toggleMute: () => {
       const audio = game.registry.get('audio');
@@ -409,6 +722,14 @@ const _boot = () => {
       const audio = game.registry.get('audio');
       if (!audio) return;
       audio.setPaused?.(!audio.paused);
+    },
+    // Music app's ⏸/▶ button — truly HOLDS the music (stops the procedural
+    // scheduler AND any real track) until un-paused, unlike togglePaused()
+    // which is the game-pause volume duck.
+    isMusicPaused: () => !!game.registry.get('audio')?.musicPaused,
+    toggleMusicPaused: () => {
+      const a = game.registry.get('audio');
+      a?.setMusicPaused?.(!a.musicPaused);
     },
     nowPlayingUrl: () => {
       const audio = game.registry.get('audio');

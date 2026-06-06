@@ -8,7 +8,14 @@ import {
   getLastSignTown,
   CAR_LEN_Z, CAR_WIDTH_LANES, PLAYER_VIRTUAL_Z,
   VEHICLES, GAS_LIGHT_AT_MI,
-  setCameraMode, CAM,
+  setCameraMode, CAM, COP_TRAP_SPEED_MPH,
+  COP_TRAP_COMPLY_SEC, COP_TRAP_PULLOVER_MPH, COP_TRAP_SHOULDER_X, COP_TRAP_ABORT_X, COP_TRAP_HOLD_SEC,
+  COP_DUI_ALCOHOL_LIMIT, COP_DUI_DRUG_LIMIT, COP_DUI_MULTI_COUNT, COP_DUI_MULTI_LIMIT,
+  COP_TICKET_SPEEDING_FRAC, COP_TICKET_SPEEDING_CAP, COP_TICKET_DUI_FRAC, COP_TICKET_DUI_CAP,
+  COP_DUI_EARN_MULT, COP_DUI_EARN_MI,
+  COP_DUI_BUST_COUNT, COP_DUI_BUST_COUNT_LAWYER, COP_DUI_WINDOW_MI,
+  FINISH_PARK_SEC, FINISH_PARK_X, FINISH_PARK_LERP,
+  GIRL_MAX_SKIPS, GIRL_PARTY_BONUS,
 } from '../constants.js';
 import { clamp, lerp } from '../utils/Helpers.js';
 import { Road }          from '../road/Road.js';
@@ -27,6 +34,14 @@ import { getPaletteAtProgress, REGION_ORDER, REGION_PALETTES, lerpColor } from '
 const CAM_DEPTH = 0.84;
 const IMPACT    = 'Impact, "Arial Black", Arial, sans-serif';
 const PLAYER_CAR_VISUAL_H = 49;
+// Bottom-anchored Y for chase-view popups + speed-trap sign — just ABOVE the
+// mile/town location line (SCREEN_H-8) and its wanted-stars row (SCREEN_H-26).
+// Bump this if the toasts ever crowd the location text.
+const HUD_POPUP_BOTTOM_Y = SCREEN_H - 40;
+// License-plate art per save slot (slot 0/1/2 → WA/OR/ID).  Used on the title
+// "WHO'S DRIVING?" slots and the active player's car rear bumper.
+const PLATE_KEYS = ['plate_wa', 'plate_or', 'plate_id'];
+const PLATE_ASPECT = 827 / 374;   // source plate art aspect (w/h)
 const SCENERY_ROAD_CLEARANCE_CAR_LENGTHS = 2;
 const SCENERY_IMAGE_PROFILES = {
   // City-photo cutouts need height-led sizing. Width-led sizing makes
@@ -95,16 +110,20 @@ const SCENERY_IMAGE_PROFILES = {
   // size by height so they don't read as tiny piles in the field.
   // Issaquah residences — fixed offsets are selected from a 1.25-car-width
   // shoulder setback; minOffset is only a safety floor.
-  codex_issaquah_front_supply:  { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 1.05, groundDrop: 0.010 },
-  codex_issaquah_highlands:     { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 1.05, groundDrop: 0.010 },
-  codex_issaquah_cottage:       { heightMult: 4.4, maxW: 440, maxH: PLAYER_CAR_VISUAL_H * 4.4, minOffset: 1.05, groundDrop: 0.010 },
-  codex_issaquah_roadside_strip_perspective: { widthMult: 3.35, maxW: 420, maxH: PLAYER_CAR_VISUAL_H * 2.25, minOffset: 2.65, groundDrop: 0.010 },
+  // groundDrop is PER-PNG measured transparent bottom padding + a 0.010
+  // shoulder tuck (same convention as west_seattle_*) so the visible base
+  // lands on the road plane instead of floating.  Regenerate with
+  // scripts/measure_grounddrop.mjs.  Full-bleed PNGs keep 0.010.
+  codex_issaquah_front_supply:  { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 1.05, groundDrop: 0.036 },
+  codex_issaquah_highlands:     { heightMult: 4.8, maxW: 520, maxH: PLAYER_CAR_VISUAL_H * 4.8, minOffset: 1.05, groundDrop: 0.034 },
+  codex_issaquah_cottage:       { heightMult: 4.4, maxW: 440, maxH: PLAYER_CAR_VISUAL_H * 4.4, minOffset: 1.05, groundDrop: 0.036 },
+  codex_issaquah_roadside_strip_perspective: { widthMult: 3.35, maxW: 420, maxH: PLAYER_CAR_VISUAL_H * 2.25, minOffset: 2.65, groundDrop: 0.029 },
   // Eastern Washington town frontage and rural field accents. They are
   // intentionally smaller than the dense Issaquah/Seattle roadside art.
-  codex_cle_elum_general_store:       { heightMult: 3.45, maxW: 295, maxH: PLAYER_CAR_VISUAL_H * 3.45, minOffset: 1.05, groundDrop: 0.010 },
-  codex_ellensburg_main_street_shops: { heightMult: 3.75, maxW: 330, maxH: PLAYER_CAR_VISUAL_H * 3.75, minOffset: 1.05, groundDrop: 0.010 },
-  codex_east_wa_weathered_house:      { heightMult: 3.00, maxW: 250, maxH: PLAYER_CAR_VISUAL_H * 3.00, minOffset: 1.05, groundDrop: 0.010 },
-  codex_east_wa_barn:                 { heightMult: 2.70, maxW: 270, maxH: PLAYER_CAR_VISUAL_H * 2.70, minOffset: 2.40, groundDrop: 0.010 },
+  codex_cle_elum_general_store:       { heightMult: 3.45, maxW: 295, maxH: PLAYER_CAR_VISUAL_H * 3.45, minOffset: 1.05, groundDrop: 0.118 },
+  codex_ellensburg_main_street_shops: { heightMult: 3.75, maxW: 330, maxH: PLAYER_CAR_VISUAL_H * 3.75, minOffset: 1.05, groundDrop: 0.104 },
+  codex_east_wa_weathered_house:      { heightMult: 3.00, maxW: 250, maxH: PLAYER_CAR_VISUAL_H * 3.00, minOffset: 1.05, groundDrop: 0.179 },
+  codex_east_wa_barn:                 { heightMult: 2.70, maxW: 270, maxH: PLAYER_CAR_VISUAL_H * 2.70, minOffset: 2.40, groundDrop: 0.174 },
   // Silos — wide cluster (1388x779 source).  Width-driven so the row of
   // silos reads as a wide bank, not a single tall column.  minOffset
   // pushes it well off-road since the cluster spans ~3 lanes wide.
@@ -132,11 +151,11 @@ const SCENERY_IMAGE_PROFILES = {
   // Aspect ratio ~640/232 (tan) / 640/223 (white) means widthMult-driven
   // sizing reads better than heightMult here; maxH clamps the short
   // dimension so they don't tower over the bungalows next door.
-  codex_east_wa_doublewide_tan:       { widthMult: 8.55, maxW: 960, maxH: PLAYER_CAR_VISUAL_H * 5.55, minOffset: 1.10, groundDrop: 0.010 },
-  codex_east_wa_doublewide_white:     { widthMult: 8.55, maxW: 960, maxH: PLAYER_CAR_VISUAL_H * 5.55, minOffset: 1.10, groundDrop: 0.010 },
+  codex_east_wa_doublewide_tan:       { widthMult: 8.55, maxW: 960, maxH: PLAYER_CAR_VISUAL_H * 5.55, minOffset: 1.10, groundDrop: 0.040 },
+  codex_east_wa_doublewide_white:     { widthMult: 8.55, maxW: 960, maxH: PLAYER_CAR_VISUAL_H * 5.55, minOffset: 1.10, groundDrop: 0.037 },
   // Fenced houses — modest one/two-story residential.
-  codex_east_wa_fenced_house_tan:     { heightMult: 2.80, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 2.80, minOffset: 1.08, groundDrop: 0.010 },
-  codex_east_wa_fenced_house_white:   { heightMult: 2.85, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 2.85, minOffset: 1.08, groundDrop: 0.010 },
+  codex_east_wa_fenced_house_tan:     { heightMult: 2.80, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 2.80, minOffset: 1.08, groundDrop: 0.034 },
+  codex_east_wa_fenced_house_white:   { heightMult: 2.85, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 2.85, minOffset: 1.08, groundDrop: 0.030 },
   east_wa_herd_3_cows:                { widthMult: 1.35, maxW: 145, maxH: PLAYER_CAR_VISUAL_H * 0.48, minOffset: 3.40, groundDrop: 0.002 },
   east_wa_herd_5_cows:                { widthMult: 1.80, maxW: 190, maxH: PLAYER_CAR_VISUAL_H * 0.76, minOffset: 3.60, groundDrop: 0.002 },
   east_wa_herd_6_cows:                { widthMult: 1.90, maxW: 205, maxH: PLAYER_CAR_VISUAL_H * 0.82, minOffset: 3.80, groundDrop: 0.002 },
@@ -147,7 +166,7 @@ const SCENERY_IMAGE_PROFILES = {
   codex_west_seattle_warehouse_row:      { widthMult: 2.95, maxW: 360, maxH: PLAYER_CAR_VISUAL_H * 2.45, minOffset: 3.20, groundDrop: 0.010 },
   codex_west_seattle_hillside_condos:    { heightMult: 3.65, maxW: 280, maxH: PLAYER_CAR_VISUAL_H * 4.3, minOffset: 4.10, groundDrop: 0.010 },
   codex_west_seattle_overpass_ramp:      { widthMult: 2.85, maxW: 380, maxH: PLAYER_CAR_VISUAL_H * 2.2, minOffset: 2.95, groundDrop: 0.010 },
-  space_needle:                 { heightMult: 6.0, maxW: 110, maxH: PLAYER_CAR_VISUAL_H * 6.0, minOffset: 4.80, groundDrop: 0.010 },
+  space_needle:                 { heightMult: 9.0, maxW: 165, maxH: PLAYER_CAR_VISUAL_H * 9.0, minOffset: 1.5, groundDrop: 0.010 },
   // ── Trees & shrubs ────────────────────────────────────────────────
   // Urban broadleaves — Bigleaf Maple + Vine Maple.  Crown is wider
   // than tall (heightMult lower than conifers, generous maxW).
@@ -353,6 +372,17 @@ export class GameScene extends Phaser.Scene {
     // because the id was still in this._passedRestStops from before.
     this._passedRestStops    = new Set();
     this._passedCheckpoints  = new Set();
+    // The tumbleweed pool holds this.add.image() objects bound to the PREVIOUS
+    // scene instance.  scene.start('Game') (rest-stop exit) destroys those
+    // GameObjects, but this plain-array property survives on the reused scene
+    // instance — so _renderTumbleweeds would call setTexture() on a destroyed
+    // Image (its .scene is undefined → "reading 'sys' of undefined") and FREEZE
+    // the game on the first Vantage frame after a rest stop.  Null it so the
+    // pool rebuilds fresh.
+    this._tumbleweeds        = null;
+    // Cleared so a fresh run (incl. the DUI bust-to-start restart) doesn't boot
+    // straight into the frozen busted-screen state.
+    this._bustingToStart     = false;
     this._npcCrashesPostDrink = 0;
     this._drugBumpCount       = 0;
     this._drugBumpFired       = false;
@@ -362,6 +392,54 @@ export class GameScene extends Phaser.Scene {
     this._beerLineTimer       = 90;
     this._bonusWeaponTimer    = 0;
     this._flatTireTimer       = 0;
+    // Speed-trap civil stop (0★ police layer, Stage 1).  When the player blows
+    // a trap doing > COP_TRAP_SPEED_MPH at 0★, a pursuer spawns and a comply
+    // window opens; pull to the right shoulder in time or it escalates to +1★.
+    this._trapPursuitActive   = false;
+    this._trapComplyTimer     = 0;
+    this._trapStopping        = false;   // auto-stop assist engaged
+    this._trapStopHeld        = false;   // held at a full stop for the traffic stop
+    this._trapStopHoldTimer   = 0;
+    // Stage 3 — the ticket.  `_trapTicket` snapshots the offense (sober vs DUI
+    // + base fine) at the MOMENT of pulling over; it's resolved when the hold
+    // ends.  `_duiStopMiles` is the rolling list of odometer-miles where an
+    // intoxicated stop happened (suspended-license bust = too many inside
+    // COP_DUI_WINDOW_MI).  `_duiEarnPenaltyMi` is the odometer mile through
+    // which a DUI's ×COP_DUI_EARN_MULT earnings debuff stays in effect.
+    this._trapTicket          = null;
+    this._duiStopMiles        = [];
+    this._duiEarnPenaltyMi    = -1;
+    this._trapWarnSent        = new Set();   // trap miles a friend has already texted about
+    // Flavor contacts (The Ex / Mom / The Boss / The Unknown) text you on the
+    // road — pure tone, no gameplay effect.  Per-run threads + a cadence timer.
+    this._buddyThreads        = { friend: [], ex: [], mom: [], boss: [], unknown: [], spam: [] };
+    this._buddyTextTimer      = 35 + Math.random() * 20;   // first text ~35-55s in
+    // Per-run contact/service state that lives in the save (so it would
+    // otherwise carry across games).  Reset on a FRESH new game (New / Start
+    // Over / Retry) — NOT a checkpoint or rest-stop resume, which continues the
+    // same trip.  The buddy threads above already reset per run; the Friend
+    // then re-populates with THIS run's (re-randomized) trap miles.
+    //   • Crush (the Girl) — text her again from scratch each game.
+    //   • Lawyer retainer — re-hire the $15k lawyer each game (fits the
+    //     per-run economy: money == this run's score).
+    //   • Dealer orders — unfilled orders don't carry into the next game.
+    if (!this._resumeFromStop && this._resumeFromPosition == null) {
+      const _save = this.registry.get('save');
+      _save?.set?.('girlResponded',    false);
+      _save?.set?.('girlTexts',        0);
+      _save?.set?.('girlSkips',        0);
+      _save?.set?.('girlGone',         false);
+      _save?.set?.('lawyerRetained',   false);
+      _save?.set?.('dealerOrders',     []);
+    }
+    // Crush per-run scene state.  `_girlTextPending`: they're awaiting a text
+    // in the CURRENT town (cleared when you text; re-armed on entering a new
+    // town, where an un-cleared flag = a skip).  `_girlThread`: the message log
+    // they send YOU (annoyed → angry → silent → gone, plus a miss-you reply on
+    // a 3-town streak).  `_girlStreak`: consecutive towns texted.
+    this._girlTextPending     = true;
+    this._girlThread          = [];
+    this._girlStreak          = 0;
     this._steerHistory        = null;     // drunk-delay input ring
     // Overdose freezes the final frame until GameOver appears. Phaser
     // reuses this GameScene instance on restart, so clear the latch or a
@@ -504,6 +582,8 @@ export class GameScene extends Phaser.Scene {
     this.effects = new EffectsSystem(this);
     this.cops    = new CopSystem();
     this.haptics = new HapticSystem();
+    // Honor the phone-menu Settings → Haptics toggle (persisted in save).
+    this.haptics.setEnabled(this.registry.get('save')?.get?.('settings.haptics', true) !== false);
     this.audio   = this.registry.get('audio'); // shared from BootScene — already playing
     // Always unpause on scene-create.  _endGame() and _onArrested() pause
     // the audio when a run ends, but the audio object is a registry
@@ -532,6 +612,18 @@ export class GameScene extends Phaser.Scene {
     // Career stats tracker (registry singleton).  Hot-path methods mutate
     // in-memory; tripStart/Complete/End + rest-stop transitions flush.
     this.stats   = this.registry.get('stats');
+    // Phone-menu Settings (persisted in save) → cached for in-run reads.
+    // unitsKmh: speed/distance in km·h / km vs mph / mi.  shakeMult: screen-
+    // shake scale (0–1).  hudHidden: "Hide HUD" toggle.
+    {
+      const _save = this.registry.get('save');
+      this._unitsKmh   = _save?.get?.('settings.units', 'mph') === 'kmh';
+      this._shakeMult  = _save?.get?.('settings.shake', 1);
+      this._hudHidden  = _save?.get?.('settings.hud', true) === false;
+      // Colorblind-safe mode: remaps the red/green score-multiplier tiers to
+      // a blue→amber→orange ramp (distinguishable across all CVD types).
+      this._colorblind = _save?.get?.('settings.colorblind', false) === true;
+    }
     // Keep per-vehicle stat routing in sync on every (re)create — a fresh
     // start, rest-stop resume, or checkpoint respawn may be on a new car.
     this.stats?.setVehicle(this.player.vehicleId);
@@ -673,12 +765,19 @@ export class GameScene extends Phaser.Scene {
       this.effects.triggerShake = (durationMs, intensity) => {
         const _phys = this.effects.getPhysics?.(this.drugs);
         const damp  = _phys?.collisionShakeDamp ?? 0;
-        _origTriggerShake(durationMs, intensity * (1 - damp));
+        _origTriggerShake(durationMs, intensity * (1 - damp) * (this._shakeMult ?? 1));
       };
     }
 
     this.hudGfx = this.add.graphics().setDepth(20);
     this._hudObjects.push(this.hudGfx);
+
+    // Flashing red/blue cruiser lights for the held traffic stop (depth 19 =
+    // under the HUD text/popup at 20, over the world).  Drawn in the held-stop
+    // tick, cleared when the stop ends.
+    this._trapLightGfx = this.add.graphics().setDepth(19);
+    this._hudObjects.push(this._trapLightGfx);
+    this._trapLightWasOn = false;
 
     // ── DEBUG OVERLAY ────────────────────────────────────────────────
     // Toggle with F3.  Draws on-screen collision rectangles, sprite
@@ -738,6 +837,31 @@ export class GameScene extends Phaser.Scene {
         this.playerSprite.setTint(_vehTint);
       }
     }
+
+    // ── Rear license plate — the player's leaderboard handle painted on
+    // the car's back bumper.  A small Text we re-anchor to the player
+    // sprite every frame in _updateRearPlate (tracks x / y / lean / scale).
+    // Rendered at a high internal resolution (setResolution below) because
+    // it gets scaled DOWN to ~4 px tall on the car — a low-res glyph would
+    // turn to mush.  "Arial Black" filled in at that size, so a plain bold
+    // weight + near-black-on-white (max contrast) reads better.
+    // State-plate art for the active player's car (slot 0/1/2 → WA/OR/ID),
+    // sized to the car's painted plate area in _updateRearPlate.  Sits just
+    // UNDER the handle text.  The handle no longer needs a cream background —
+    // the plate art is the background now.
+    this._rearPlateImg = this.textures.exists(PLATE_KEYS[0])
+      ? this.add.image(SCREEN_W / 2, SCREEN_H - 130, PLATE_KEYS[0]).setDepth(9.955).setVisible(false)
+      : null;
+    this._rearPlate = this.add.text(SCREEN_W / 2, SCREEN_H - 130, '', {
+      fontFamily: 'Arial, "Helvetica Neue", sans-serif',
+      fontStyle: 'bold',
+      fontSize: '16px',
+      color: '#111111',
+      stroke: '#FFFFFF', strokeThickness: 3,   // contrasting outline over the plate art
+      align: 'center',
+    }).setOrigin(0.5, 0.5).setDepth(9.96).setVisible(false);
+    this._rearPlate.setResolution(4);
+    this._rearPlateStr = '';
 
     // ── First-person cockpit (currently beater only) ──────────────────
     // Transparent dashboard overlay covers the lower screen; the upper
@@ -937,6 +1061,12 @@ export class GameScene extends Phaser.Scene {
         this.cops.rearBumps  = 0;
         this.cops.pitsLanded = 0;
       }
+      this._trapPursuitActive = false;
+      this._trapComplyTimer   = 0;
+      this._trapStopping      = false;
+      this._trapStopHeld      = false;
+      this._trapStopHoldTimer = 0;
+      this._trapTicket        = null;   // drop any unresolved ticket snapshot
       // Refresh the party clock so a near-finish warp registers as
       // ON-TIME (otherwise warp 9 finishes the run immediately with
       // clock=0 → TOO LATE).
@@ -1126,6 +1256,13 @@ export class GameScene extends Phaser.Scene {
     this._passedCheckpoints = new Set(['Seattle, WA']);
     this._probationTimer = 0;  // seconds remaining where drug use = +2 stars
     this._gameFinished   = false;
+    // Finish cinematic — set when crossing mile-289; the car parks in front
+    // of the Pullman Party House (input locked) before Game Over.  `_finishCause`
+    // is the _endGame cause to fire once parked.
+    this._finishCinematic = false;
+    this._finishCineT     = 0;
+    this._finishCineEnded = false;
+    this._finishCause     = null;
     this._statsTripEnded = false;   // one-shot guard for the stats trip-end hook
 
     // ── Pause state ───────────────────────────────────────────────────
@@ -1642,7 +1779,7 @@ export class GameScene extends Phaser.Scene {
       ...[
         this.roadGfx, this.ghostGfx, this.propsGfx, this._ruralFenceGfx, this._utilityLineGfx, this.bridgeFrontGfx, this.tunnelFacadeGfx, this.tunnelGfx, this._tunnelMaskGfx, ...this._signGfxPool, this._explosionGfx, this._smokeGfx, this._damageGlassGfx, this.overlayGfx, this.vignetteGfx,
         this.weatherFxGfx, this.wipersGfx, ...this.chaseWipers,
-        this.hudFlashGfx, this.playerSprite,
+        this.hudFlashGfx, this.playerSprite, this._rearPlateImg, this._rearPlate,
         this._copLightGfx,
         ...this._carSpritePool,
         ...this._drugSpritePool,
@@ -1746,7 +1883,7 @@ export class GameScene extends Phaser.Scene {
       // Tap mode: ANY tap in the play area = action.  Latch sticky —
       // once on, stays on until pointerup, regardless of where the
       // finger drags afterward.
-      if (this._steeringMode() === 'flappy') {
+      if (this._activeSteeringMode() === 'flappy') {
         this._touchRight = true;
         this._tapLatchValid = true;
         return;
@@ -1784,7 +1921,7 @@ export class GameScene extends Phaser.Scene {
       // Tap mode: if the touch started in a valid area, KEEP the
       // steer engaged no matter where the finger moves now — including
       // over UI clusters, pedals, edges.  Released only on pointerup.
-      if (this._steeringMode() === 'flappy') {
+      if (this._activeSteeringMode() === 'flappy') {
         if (this._tapLatchValid) this._touchRight = true;
         return;
       }
@@ -2063,12 +2200,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   _isLeftRaw()  {
-    const mode = this._steeringMode?.();
+    const mode = this._activeSteeringMode?.();
     const touch = mode === 'tilt' ? false : this._touchLeft;
     return touch || this._tiltLeftActive  || !!this.cursors?.left.isDown  || !!this.wasd?.left.isDown;
   }
   _isRightRaw() {
-    const mode = this._steeringMode?.();
+    const mode = this._activeSteeringMode?.();
     const touch = mode === 'tilt' ? false : this._touchRight;
     return touch || this._tiltRightActive || !!this.cursors?.right.isDown || !!this.wasd?.right.isDown;
   }
@@ -2088,6 +2225,189 @@ export class GameScene extends Phaser.Scene {
     this.registry?.set?.('steeringMode', m);
     return m;
   }
+
+  /** Player's current route mile (0..TOTAL_ROUTE_MILES). */
+  _playerMile() {
+    return ((this.player?.position ?? 0) / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+  }
+
+  /** Vantage crosswind envelope: mile -> strength 0..1.  Ramps up over
+   *  131-137, holds full to 177, ramps down to 183.  Drives the tap-steering
+   *  switch, the leftward "wind pull" on the car, and (Phase 4) the tree
+   *  sway + tumbleweed spawns.  Geographically the Columbia Basin desert. */
+  _windStrength(mile = this._playerMile()) {
+    if (mile < 131 || mile >= 183) return 0;
+    if (mile < 137) return (mile - 131) / 6;          // ramp up
+    if (mile <= 177) return 1;                         // full
+    return Math.max(0, 1 - (mile - 177) / 6);          // ramp down
+  }
+
+  /** Snow-zone steering-disturbance envelope: mile -> 0..1.  Ramps IN over
+   *  3 mi (40→43) so the wander + tilt auto-engage build gradually as the
+   *  player enters the Cascades snow, holds full, then eases out with the
+   *  snow lift (86→88).  Gated on Weather.isSnow so it's silent on Easy
+   *  (no weather) and outside the zone.  Drives the snow wander in
+   *  _updatePhysics and the tilt auto-engage in _activeSteeringMode.  The
+   *  snow VISUAL is full from mile 40; only this STEERING feel eases in —
+   *  that gentle build is the "coast into tilt" the design calls for. */
+  _snowSteerRamp(mile = this._playerMile()) {
+    if (!Weather.isSnow(mile)) return 0;               // Easy / outside zone
+    if (mile < 43) return (mile - 40) / 3;             // ramp in over 3 mi
+    if (mile > 86) return (88 - mile) / 2;             // ease out with the lift
+    return 1;
+  }
+
+  /** Per-tree wind-sway rotation (radians).  Origin (0.5,1) pivots at the
+   *  trunk base so the canopy swings.  A gentle baseline oscillation plays
+   *  everywhere; `wind` (0..1, the Vantage envelope) adds gust amplitude,
+   *  speeds it up, and adds a steady downwind (leftward = negative) lean.
+   *  Each tree gets a stable random phase so they don't sway in lockstep. */
+  _treeSwayRot(sp, wind) {
+    const phase   = (sp._swayPhase ??= Math.random() * 6.2832);
+    const t       = (this.time?.now ?? 0) * 0.001;
+    const baseAmp = 0.018;            // ~1° idle sway
+    const gustAmp = 0.16 * wind;      // up to ~9° in a full Vantage gust
+    const lean    = -0.13 * wind;     // steady lean downwind (leftward)
+    const freq    = 1.7 + wind * 1.5; // sways faster as the wind builds
+    return lean + (baseAmp + gustAmp) * Math.sin(t * freq + phase);
+  }
+
+  /** Effective steering mode for INPUT this frame.  Base is classic L/R
+   *  (the title picker is now inert; a Custom menu will let players override
+   *  later).  Zones temporarily override it: the Vantage crosswind switches
+   *  to tap ('flappy'); the snow zone will switch to tilt / mouse-follow
+   *  (added in a later phase, gated on the pre-snow permission prompt).
+   *  NOTE: distinct from _steeringMode() (the persisted save-profile mode). */
+  _activeSteeringMode() {
+    // Vantage stays CLASSIC — the crosswind is applied as a leftward
+    // steering pull (see _updatePhysics), not a mode switch: the full pull
+    // already maxes the left, so only right input does anything.
+    //
+    // SNOW zone → TILT (analog) so the player coasts into smooth lean-steering
+    // that handles the wander + slide.  Gated on _tiltAttached: it only
+    // engages where tilt is actually available (permission already granted);
+    // otherwise we keep CLASSIC so steering still works and the player still
+    // feels the snow wander in their current mode.  (Pre-snow permission
+    // prompt + desktop pointer-follow fallback are the follow-ups for a full
+    // no-setup coast-in.)
+    if (this._tiltAttached && this._snowSteerRamp() > 0) return 'tilt';
+    return 'classic';
+  }
+
+  /** Tumbleweeds rolling across the road through the Vantage crosswind.
+   *  A small pool of spinning, bouncing props that spawn on the upwind
+   *  (right) shoulder and roll downwind (left) across the pavement while
+   *  drifting toward the player.  Spawn cadence speeds up with wind
+   *  strength; nothing spawns outside the wind zone.  Projected through
+   *  sampleSurface so they sit on the road plane in perspective. */
+  _renderTumbleweeds() {
+    const wind = this._windStrength();
+    if (!this._tumbleweeds) {
+      this._tumbleweeds = [];
+      for (let i = 0; i < 7; i++) {
+        this._tumbleweeds.push({
+          active: false,
+          s: this.add.image(0, 0, 'tumbleweed_1')
+               .setOrigin(0.5, 0.5).setDepth(7.58).setVisible(false),
+        });
+      }
+      this._tumbleSpawnAt = 0;
+      this._tumbleLastNow = 0;
+    }
+    const now = this.time?.now ?? 0;
+    const dt  = Math.min(0.05, ((now - (this._tumbleLastNow || now)) * 0.001));
+    this._tumbleLastNow = now;
+
+    // No wind → make sure everything is parked, then bail.
+    if (wind <= 0.05) {
+      for (const t of this._tumbleweeds) { if (t.active) { t.active = false; t.s.setVisible(false); } }
+      return;
+    }
+
+    const camPos  = this._renderCamPos();
+    const segs    = this.road.segments;
+    const carX    = this.playerSprite?.x ?? (SCREEN_W / 2);
+    const carHalf = (this.playerSprite?.displayWidth ?? 90) * 0.4;
+
+    // Kill / finish plane: the PLAYER CAR's Z plane, not the camera eye.  In
+    // chase cam the car sits PLAYER_VIRTUAL_Z ahead of the render eye, so a
+    // weed that lives past it reads as passing BEHIND the car.  Floored at 100
+    // so cockpit (eye ≈ car) still works.  Weeds also FINISH their road-cross
+    // right at this plane (see the distance-mapped motion below).
+    const killZ = Math.max(100, PLAYER_VIRTUAL_Z - (CAM.eyeForwardZ ?? 0));
+
+    // Spawn — cadence eases from ~1 every 5-7s as the wind starts, to
+    // ~1 every 1.5-3s at full strength (and back out as it dies down).
+    if (now >= (this._tumbleSpawnAt || 0)) {
+      const free = this._tumbleweeds.find(t => !t.active);
+      if (free) {
+        free.active = true;
+        // Each weed lives on a ~3-SECOND timer (u: 0→1).  Over that life it
+        // both APPROACHES (relZ from its spawn distance down to the car plane)
+        // and CROSSES the road (offset right shoulder → left shoulder), so the
+        // cross always takes ~3 s at ANY player speed.  A fixed time-based roll
+        // depended on speed (it flew by / never crossed); a pure distance-
+        // mapped roll did too.  Because the weed closes SLOWER than the player
+        // advances, its world-Z rises with the car — so it also drifts DOWNROAD
+        // in the player's direction, giving the DIAGONAL cross the user wanted
+        // rather than a straight perpendicular dart.
+        const span     = 6000 + Math.random() * 4000;       // depth closed during the cross
+        free.relZEnd   = killZ;                              // finishes at the car plane (never behind)
+        free.relZSpawn = killZ + span;
+        free.crossSec  = 2.7 + Math.random() * 0.8;          // ~3 s to cross the road
+        free.u         = 0;
+        free.startOff  =  2.6 + Math.random() * 1.4;         // enters from the right shoulder
+        free.endOff    = -(2.6 + Math.random() * 1.4);       // exits across the left shoulder
+        free.offset    = free.startOff;
+        free.worldZ    = camPos + free.relZSpawn;
+        free.spin      = (Math.random() < 0.5 ? -1 : 1) * (3 + wind * 7 + Math.random() * 3);
+        free.rot       = Math.random() * 6.2832;
+        free.phase     = Math.random() * 6.2832;
+        free.size      = 0.8 + Math.random() * 0.6;
+        free.hit       = false;
+        // Round-robin the 3 frames so every one shows and the weeds don't
+        // read as the same ball repeating.
+        this._tumbleTexIdx = ((this._tumbleTexIdx ?? -1) + 1) % 3;
+        free.s.setTexture('tumbleweed_' + (this._tumbleTexIdx + 1));
+      }
+      // sqrt curve front-loads the slowdown: ~5-7s at wind 0, ~3.6-5.4s a
+      // mile in, ~1.5-3s once fully built.
+      const k  = Math.sqrt(wind);
+      const lo = 5 - 3.5 * k;
+      const hi = 7 - 4.0 * k;
+      this._tumbleSpawnAt = now + (lo + Math.random() * (hi - lo)) * 1000;
+    }
+
+    // Update + project each active tumbleweed.  u (0→1 over crossSec) drives
+    // BOTH the depth-approach and the lateral cross, so it always takes ~3 s.
+    for (const t of this._tumbleweeds) {
+      if (!t.active) continue;
+      t.u   += dt / t.crossSec;
+      t.rot += t.spin * dt;
+      if (t.u >= 1) { t.active = false; t.s.setVisible(false); continue; }
+      const relZ = t.relZSpawn + (t.relZEnd - t.relZSpawn) * t.u;   // gentle, speed-independent approach
+      t.offset   = t.startOff  + (t.endOff  - t.startOff)  * t.u;   // right → left across the road
+      t.worldZ   = camPos + relZ;                                   // world-Z rises with the car ⇒ diagonal downroad
+      const proj = this.road.sampleSurface?.(relZ, t.offset);
+      if (!proj || proj.sw < 2) { t.s.setVisible(false); continue; }
+      // No tumbleweeds over the Vantage bridge / river — they'd blow off it.
+      const seg = segs[((Math.floor(t.worldZ / SEG_LENGTH) % segs.length) + segs.length) % segs.length];
+      if (seg?.bridge || seg?.water) { t.s.setVisible(false); continue; }
+      const sz     = Math.max(6, proj.sw * t.size);
+      const bounce = Math.abs(Math.sin(now * 0.006 + t.phase)) * proj.sw * 0.35;
+      t.s.setPosition(proj.sx, proj.sy - sz * 0.5 - bounce)
+         .setDisplaySize(sz, sz)
+         .setRotation(t.rot)
+         .setVisible(true);
+      // Run-over: a tiny 0.25 HP sting the first time a weed sweeps across the
+      // car as it finishes its cross near the car plane (just a bush).
+      if (!t.hit && t.u > 0.8 && Math.abs(proj.sx - carX) < sz * 0.45 + carHalf) {
+        t.hit = true;
+        this._applyDamage?.(0.25, 'tumbleweed');
+      }
+    }
+  }
+
   /** Reset all wanted-level state (stars, active cops, bump counters,
    *  helicopter).  Called when the player starts/restarts/changes mode
    *  so a chase doesn't carry over into a fresh control scheme.
@@ -2105,6 +2425,14 @@ export class GameScene extends Phaser.Scene {
     this.cops.pitCount      = 0;
     this.cops.arrestPending = false;
     this.cops.helicopterActive = false;
+    // Drop any in-flight speed-trap civil stop so its timer can't fire a
+    // phantom +1★ after the warp/reset.
+    this._trapPursuitActive = false;
+    this._trapComplyTimer   = 0;
+    this._trapStopping      = false;
+    this._trapStopHeld      = false;
+    this._trapStopHoldTimer = 0;
+    this._trapTicket        = null;   // drop any unresolved ticket snapshot
   }
 
   _setSteeringMode(mode, onDone) {
@@ -2382,6 +2710,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   _setHudVisible(v) {
+    // "Hide HUD" Settings toggle overrides gameplay-driven visibility.
+    if (this._hudHidden) v = false;
     this.hudScore?.setVisible(v);
     this.hudMult?.setVisible(v);
     this.hudDist?.setVisible(v);
@@ -2429,6 +2759,10 @@ export class GameScene extends Phaser.Scene {
     const rawDt = delta / 1000;
     // Reset the per-frame F12-fire gate (see _useTopF12 for the why).
     this._f12FiredThisFrame = false;
+
+    // DUI bust-to-start screen is showing — freeze the world (the full-screen
+    // overlay covers it) until the 5s delayedCall restarts the scene.
+    if (this._bustingToStart) return;
 
     // Title-screen state: render the gameplay road and the player car at
     // idle, but freeze score/odometer/spawning. Tap or Enter/Space starts
@@ -2667,6 +3001,23 @@ export class GameScene extends Phaser.Scene {
         AchievementSystem.award('snowblind', this.registry);
       }
     }
+    // ── Issaquah valley fog: timed lift to mask the Preston pop-in ──────
+    // Weather.intensity() now holds the fog FULL through the basin (no
+    // mile-22 lift); the lift-out is driven here over 5 s of REAL time once
+    // the player crosses mile 23.6.  Result: the cluster homes are already
+    // drawn while it's socked-in, then emerge as the fog dissipates instead
+    // of appearing in clear air.  Sets Weather._fogLiftMul (fog branch only;
+    // read by Road distance-fog + EffectsSystem haze).
+    {
+      const fogMile = this._playerMile();
+      if (Weather.isFog?.(fogMile) && fogMile >= 23.6) {
+        if (this._fogLiftT0 == null) this._fogLiftT0 = time;
+        Weather._fogLiftMul = Math.max(0, Math.min(1, 1 - (time - this._fogLiftT0) / 5000));
+      } else if (fogMile < 23.6) {
+        this._fogLiftT0 = null;        // reset before the trigger (covers restart / checkpoint)
+        Weather._fogLiftMul = 1;
+      }
+    }
     {
       const mile = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
       // The control only exists during precipitation. If the player drove
@@ -2743,6 +3094,36 @@ export class GameScene extends Phaser.Scene {
     // ── Probation timer ───────────────────────────────────────────────
     if (this._probationTimer > 0) this._probationTimer -= rawDt;
 
+    // ── Friend's advance speed-trap warning (15-20 mi out) ────────────
+    // A buddy texts the city + mile of a trap they spotted, well before you
+    // reach it, so you can ease off in time.  Fires once per trap per run, at
+    // a per-trap 15-20 mi lead (the trap miles are exposed by RouteData).
+    const _trapMiles = this.road?.segments?.trapMiles;
+    if (_trapMiles?.length && !this._awaitingFirstGameTap) {
+      const curMile = (this.player.position / (ROUTE_SEGS * SEG_LENGTH)) * TOTAL_ROUTE_MILES;
+      for (const tm of _trapMiles) {
+        const ahead = tm - curMile;
+        if (ahead <= 0 || this._trapWarnSent.has(tm)) continue;
+        const lead = 15 + (Math.floor(tm * 7) % 6);   // per-trap 15-20 mi lead
+        if (ahead > lead) continue;
+        this._trapWarnSent.add(tm);
+        const city = getLocationName(tm / TOTAL_ROUTE_MILES) || 'up ahead';
+        this._logBuddyText('friend', 'The Friend',
+          'Speed trap in ' + city + ' around mile ' + Math.round(tm) + ' — slow down before you hit it!');
+      }
+    }
+
+    // ── Flavor contacts texting you on the road ───────────────────────
+    // The Ex / Mom / The Boss / The Unknown drop characterful texts on a
+    // cadence — pure tone, no gameplay effect (readable in the Messages app).
+    if (!this._awaitingFirstGameTap && !this._trapStopHeld) {
+      this._buddyTextTimer = (this._buddyTextTimer ?? 60) - rawDt;
+      if (this._buddyTextTimer <= 0) {
+        this._buddyTextTimer = 50 + Math.random() * 45;   // next in ~50-95s
+        this._fireBuddyText();
+      }
+    }
+
     // ── Wanted-level activation ──────────────────────────────────────
     //
     // FIRST STAR is gated.  Two separate paths can trigger it; whichever
@@ -2754,24 +3135,171 @@ export class GameScene extends Phaser.Scene {
     //   Path B:  20 NPC-car bumps while at least one drug bar ≥ 30%
     //            (one-shot gate — `_drugBumpFired` flag prevents re-trigger)
     //
-    // ── Random cop encounter trigger ─────────────────────────────────
-    // Once the player has at least 1 star, every random roadside cop
-    // they pass spawns a rear-pursuit cop closing in from behind.  The
-    // sprite's `triggered` flag flips so each encounter only fires once.
-    if (this.cops.stars >= 1) {
+    // ── Speed traps ───────────────────────────────────────────────────
+    // Roadside troopers (copEncounter sprites) are SPEED TRAPS.  The only
+    // heads-up is the friend's named text 15-20 mi out (see above); there is
+    // no close-range nudge.  Blow past a trap SPEEDING (> COP_TRAP_SPEED_MPH)
+    // or recklessly (over
+    // the double-yellow / in oncoming) and the trooper clocks you → +1★
+    // (driving heat caps at 3★; 4-5★ is weapons-only).  Brake under the
+    // threshold and stay in your lane to slip by clean.  Works at 0★ — a
+    // trap is how you EARN your first star from reckless driving.
+    if (!this._awaitingFirstGameTap) {
       const segs = this.road?.segments;
       if (segs?.length) {
+        const SEGN     = segs.length;
         const startSeg = Math.floor(this.player.position / SEG_LENGTH);
+        // (Old close-range "speed trap ahead" buddy nudge removed — the named
+        //  friend text 15-20 mi out is the only warning now.)
+        // Trap witnessing — scan BEHIND for a just-passed trap.
+        const mph      = this._displayMPH?.() ?? 0;
+        const oncoming = this.player.x < -0.10;            // crossed the double-yellow
+        const speeding = mph > COP_TRAP_SPEED_MPH;
         for (let n = 1; n <= 60; n++) {
-          const seg = segs[(startSeg - n + segs.length) % segs.length];
+          const seg = segs[(startSeg - n + SEGN) % SEGN];
           if (!seg?.sprites) continue;
           for (const sp of seg.sprites) {
             if (!sp.copEncounter || sp.triggered) continue;
             sp.triggered = true;
-            this.cops._spawnRearFromEncounter?.(this.player.position);
-            this._showPopup('🚨 COP ON YOUR TAIL!', '#FF4444');
+            // Two cop kinds share copEncounter (for render/collision); behavior
+            // splits on type.  PARKED = a speed trap (0★ civil stop).  DRIVING =
+            // ambient highway presence: NO 0★ stop — it only joins an active
+            // pursuit when you're already wanted.
+            const isParkedTrap = sp.type === 'cop_random_parked';
+            if (speeding || oncoming) {
+              if (this.cops.stars >= 1) {
+                // Already wanted = an active warrant.  Either cop kind that
+                // clocks you JOINS the pursuit; no civil stop is offered.
+                // (Pulling over with a warrant → busted; that's Stage 3.)
+                this.cops._spawnRearFromEncounter?.(this.player.position);
+                this._showPopup('SPOTTED!\nYou\'ve got a warrant — they\'re on you!', '#FF4444');
+              } else if (isParkedTrap && !this._trapPursuitActive) {
+                // 0★ civil stop — PARKED TRAPS ONLY.  A pursuer peels out and
+                // a comply window opens.  No star yet — pull to the right
+                // shoulder in time to avoid it.
+                this._trapPursuitActive = true;
+                this._trapComplyTimer   = COP_TRAP_COMPLY_SEC;
+                this.cops._spawnTrapPursuit?.(this.player.position);
+                // The below-mirror trap sign (see the _trapSign block in
+                // update) shows the alternating SLOW DOWN / PULL OVER prompt
+                // while the comply window is open — no one-shot popup needed.
+              }
+              // Driving cop at 0★ → ambient, no reaction.
+            } else if (isParkedTrap) {
+              this._showPopup('Slipped past the trap.', '#88FF88');
+            }
           }
         }
+      }
+    }
+
+    // ── Speed-trap comply window (0★ civil stop) ───────────────────────
+    // The pursuer is on you and the 30s clock is ticking.  Committing to the
+    // stop (right shoulder + braking) engages the auto-stop assist in
+    // _updatePlayer (`_trapStopping`); once the car is essentially halted
+    // (< COP_TRAP_PULLOVER_MPH) you've "pulled over" → the car is HELD at a
+    // full stop for the COP_TRAP_HOLD_SEC traffic stop (handled below) while
+    // the trooper parks behind you.  Let the clock run out — or never commit —
+    // → +1★ and the trap cop promotes into the 1-3★ wanted system.
+    if (this._trapPursuitActive && !this._awaitingFirstGameTap) {
+      this._trapComplyTimer -= rawDt;
+      const mphNow = this._displayMPH?.() ?? 0;
+      if (this._trapStopping && mphNow < COP_TRAP_PULLOVER_MPH) {
+        // Stopped on the shoulder → begin the held traffic stop.  Comply
+        // window is satisfied (no escalation); the car stays put for 30s.
+        this._trapPursuitActive = false;
+        this._trapStopping      = false;
+        this._trapComplyTimer   = 0;
+        this._trapStopHeld      = true;
+        this._trapStopHoldTimer = COP_TRAP_HOLD_SEC;
+        this._trapStopHeldX     = this.player.x;             // freeze steering here for the stop
+        this._trapCopArrive     = 0;                         // cruiser pull-up animation 0→1
+        // Snapshot the offense NOW (drug bars at the moment of the stop) so the
+        // 30s of metabolizing can't change the charge.  Resolved at hold-end.
+        this._trapTicket        = this._assessTrafficStop();
+        this.cops.parkTrapPursuit?.(this.player.position);   // trooper pulls up behind you
+        // "TRAFFIC STOP" + the countdown are shown by the below-mirror trap sign.
+      } else if (this._trapComplyTimer <= 0) {
+        this._trapPursuitActive = false;
+        this._trapStopping      = false;
+        this._trapComplyTimer   = 0;
+        this.cops.promoteTrapPursuit?.();
+        this.cops.addStar(1, 3);   // ignored the stop → into the wanted system
+        this._showPopup('Failed to pull over!  +1★', '#FF4444');
+      }
+    }
+
+    // ── Speed-trap HELD traffic stop ───────────────────────────────────
+    // You pulled over; the car is pinned at a full stop (forced in
+    // _updatePlayer) while the trooper writes you up.  The party clock keeps
+    // ticking the whole time.  When the hold ends the trooper pulls off and
+    // you're free to go.  (The actual ticket $ + DUI/bust math is Stage 3.)
+    if (this._trapStopHeld && !this._awaitingFirstGameTap) {
+      this._trapStopHoldTimer -= rawDt;
+      // "TRAFFIC STOP" + the countdown are drawn by the below-mirror trap sign
+      // (see the _trapSign block after this), not a popup banner.
+      // Cruiser pulls up from behind into view over ~1.3s, then holds just
+      // ahead-left.  It starts behind (mirror-only); as it slides forward it
+      // crosses into the camera's view (relativePos>0) from the bottom — so it
+      // reads as the trooper rolling up.  parkTrapPursuit marked it `parked`,
+      // so CopSystem won't move it — GameScene owns its position during the
+      // stop.  endTrapPursuit removes it when the stop clears (before the
+      // player drives off), so they never collide with it.
+      this._trapCopArrive = Math.min(1, (this._trapCopArrive ?? 0) + rawDt / 1.3);
+      const _e  = this._trapCopArrive * this._trapCopArrive * (3 - 2 * this._trapCopArrive); // smoothstep
+      const _tc = this.cops.cops.find(c => c.trapPursuit);
+      if (_tc) {
+        // Slide from behind (mirror-only) up to a CLOSE spot just ahead-left so
+        // it's big and unmistakably on screen for the stop.  +600 is close
+        // enough to render large at the 2.2× cop scale.
+        _tc.position   = this.player.position + (-1800 + 2400 * _e);   // -1800 → +600 (close, ahead-left)
+        _tc.laneOffset = 0.5;
+      }
+      // Flashing red/blue cruiser lights across the top + sides of the screen.
+      this._drawTrapStopLights();
+      if (this._trapStopHoldTimer <= 0) {
+        this._trapStopHeld      = false;
+        this._trapStopHoldTimer = 0;
+        this._trapLightGfx?.clear();
+        this._trapLightWasOn    = false;
+        this.cops.endTrapPursuit?.();   // trooper pulls off
+        this._issueTrafficTicket();     // Stage 3 — charge the fine / DUI / bust
+      }
+    } else if (this._trapLightWasOn) {
+      // Stop ended some other way (warp/OD/reset) — kill the flash.
+      this._trapLightGfx?.clear();
+      this._trapLightWasOn = false;
+    }
+
+    // ── Speed-trap sign (just below the rear-view mirror) ──────────────
+    // Comply window open  → alternate SLOW DOWN (red) / PULL OVER (blue).
+    // Pulled over (held)  → "TRAFFIC STOP" + the seconds remaining.
+    // Hidden any other time.  No emojis.
+    if (this._trapSign) {
+      if (this._trapStopHeld) {
+        const secs = Math.max(0, Math.ceil(this._trapStopHoldTimer));
+        this._trapSign.setText('TRAFFIC STOP\n' + secs + 's')
+          .setColor('#FFFFFF').setVisible(true);
+      } else if (this._trapPursuitActive) {
+        const slow = Math.floor((this.time?.now ?? 0) / 500) % 2 === 0;
+        this._trapSign.setText(slow ? 'SLOW DOWN' : 'PULL OVER')
+          .setColor(slow ? '#FF3B30' : '#2E9BFF').setVisible(true);
+      } else if (this._trapSign.visible) {
+        this._trapSign.setText('').setVisible(false);
+      }
+    }
+
+    // ── Finish cinematic — park in front of the Pullman Party House ─────
+    // Crossing mile 289 set _finishCinematic; _updatePlayer eases the car to
+    // a stop while drifting it left toward the house (input locked).  After
+    // FINISH_PARK_SEC the run hands off to the Game Over panel.
+    if (this._finishCinematic && !this._finishCineEnded) {
+      this._finishCineT = Math.min(1, (this._finishCineT ?? 0) + rawDt / FINISH_PARK_SEC);
+      if (this._finishCineT >= 1) {
+        this._finishCineEnded = true;
+        this._finishCinematic = false;
+        this._endGame(this._finishCause || 'finish_late');
+        return;
       }
     }
 
@@ -2787,7 +3315,7 @@ export class GameScene extends Phaser.Scene {
       const pathA = everDrunk && (drunk || stoned) && this._npcCrashesPostDrink >= 3;
       const pathB = !this._drugBumpFired && this._drugBumpCount >= 20;
       if (pathA || pathB) {
-        this.cops.addStar(1);
+        this.cops.addStar(1, 3);
         this._showPopup('★ WANTED LEVEL ACTIVATED!\nCops dispatched.', '#FF4444');
         this._npcCrashesPostDrink = 0;
         this._drugBumpFired        = true;     // path B is one-shot
@@ -2907,14 +3435,19 @@ export class GameScene extends Phaser.Scene {
       // jeopardy.  speedMult < 1 means SOMETHING is slowing the car;
       // the player can't help it, so don't drain their wallet for it.
       const drugSlowing = (phys?.speedMult ?? 1) < 0.99;
+      // Speed-trap traffic stop: the game is FORCING you to slow down and pull
+      // to the right shoulder (off-road), so charging the slow-driving AND the
+      // off-road penalty during the stop is double-jeopardy — suppress both for
+      // the whole sequence (comply window → auto-stop → held stop).
+      const trafficStop = this._trapPursuitActive || this._trapStopping || this._trapStopHeld;
       let penalty   = 0;
 
-      if (dispMph < 120 && !fentActive && !weedHigh && !drugSlowing) {
+      if (dispMph < 120 && !fentActive && !weedHigh && !drugSlowing && !trafficStop) {
         // -$5/sec floor at 60 mph, linear up to 0 at 120 mph.
         const slowness = Math.min(1, (120 - dispMph) / 60);
         penalty += 5 * slowness * mult;
       }
-      if (Math.abs(this.player.x) > 1) {
+      if (Math.abs(this.player.x) > 1 && !trafficStop) {
         // -$10/sec when off the road; scales by how deep into the dirt.
         // Weed ≥ 60 % halves the penalty (the player is in chill mode).
         const depth = Math.min(1, (Math.abs(this.player.x) - 1) / 1.0);
@@ -2984,9 +3517,33 @@ export class GameScene extends Phaser.Scene {
           if (sober && cleanRun && noStops) {
             AchievementSystem.award('trifecta', this.registry);
           }
-          this._endGame(onTime ? 'finish_on_time' : 'finish_late');
+          // ── The Crush — party payoff ──────────────────────────────
+          // No per-text cash; THIS is her reward.  Arrive still together
+          // (not gone, and you texted at least once) → she's waiting at the
+          // party.  Otherwise she found someone else.
+          {
+            const _gs = this.registry.get('save');
+            const _gGone  = _gs?.get?.('girlGone', false) === true;
+            const _gTexts = _gs?.get?.('girlTexts', 0) ?? 0;
+            if (!_gGone && _gTexts > 0) {
+              this.score += GIRL_PARTY_BONUS;
+              this.stats?.recordEarn(GIRL_PARTY_BONUS, 'girlParty');
+              this._showPopup(`💕 They're waiting at the party!\n+$${GIRL_PARTY_BONUS.toLocaleString()}`, '#FF88CC');
+            } else if (_gGone) {
+              this._showPopup('💔 They found someone else.', '#FF6688');
+            }
+          }
+          // Play the park-in-front-of-the-house cinematic, THEN Game Over.
+          // (The bonus/achievements above are already applied; _finishCause
+          // is the cause the cinematic hands to _endGame once parked.)
+          this._finishCinematic = true;
+          this._finishCineT     = 0;
+          this._finishCineEnded = false;
+          this._finishCause     = onTime ? 'finish_on_time' : 'finish_late';
           return;
         }
+        // Entering a new town — the Crush expects a text each town.
+        this._girlOnNewTown();
         this._showPopup(`CHECKPOINT!\n${cp.name}`, '#00FF88');
       }
     }
@@ -3040,7 +3597,7 @@ export class GameScene extends Phaser.Scene {
     if (region !== this._prevRegion) {
       this._prevRegion = region;
       this.cops.clearStarsAtStateLine();
-      const dropped  = this.cops._lastStateLineReduction ?? 2;
+      const dropped  = this.cops._lastStateLineReduction ?? 1;
       const key      = REGION_ORDER[region]?.key ?? '';
       const display  = REGION_PALETTES[key]?.name ?? key.replace(/_/g, ' ');
       const subtitle = dropped > 0
@@ -3266,6 +3823,32 @@ export class GameScene extends Phaser.Scene {
     const gradeMult = Math.max(0.85, Math.min(1.15, 1 - curGrade * 2.0));
     targetSpeed *= gradeMult;
 
+    // ── Speed-trap auto-stop assist (0★ civil stop) ───────────────────────
+    // Cruise braking floors at 60 mph, so the player can't reach a stop on
+    // their own — without this, "pull over" is impossible.  During a trap
+    // pursuit, steering onto the right shoulder (x > SHOULDER_X) while braking
+    // COMMITS to the stop; the car then eases to 0.  Once stopped the comply
+    // logic flips to `_trapStopHeld`, which PINS the car at 0 for the whole
+    // 30s traffic stop (so it doesn't "almost stop then drive off").  Steer
+    // back inside ABORT_X (or hit a bridge/tunnel/water seg) before you've
+    // stopped and it releases — you can still flee, but the timer keeps
+    // ticking toward +1★.  A held stop cannot be aborted (you're pulled over).
+    if (this._trapPursuitActive) {
+      const _seg     = this.road.segments[curSegIdx];
+      const _safeSeg = !_seg?.bridge && !_seg?.tunnel && !_seg?.water;
+      if (!this._trapStopping && _safeSeg && this._isBrake() && p.x > COP_TRAP_SHOULDER_X) {
+        this._trapStopping = true;
+      }
+      if (this._trapStopping && (!_safeSeg || p.x < COP_TRAP_ABORT_X)) {
+        this._trapStopping = false;     // left the shoulder / unsafe ground → abort
+      }
+      if (this._trapStopping) targetSpeed = 0;   // ease to a halt
+    } else if (this._trapStopping) {
+      this._trapStopping = false;
+    }
+    if (this._trapStopHeld) targetSpeed = 0;      // pinned for the held traffic stop
+    if (this._finishCinematic) targetSpeed = 0;   // finish cinematic — ease to a stop at the house
+
     // Flat tire from roadblock — hard-cap top speed to 45 mph until timer ends.
     if (this._flatTireTimer > 0) {
       this._flatTireTimer = Math.max(0, this._flatTireTimer - dt);
@@ -3339,9 +3922,10 @@ export class GameScene extends Phaser.Scene {
                        && _now >= (this._crashRollStartAt ?? 0);
     const _readyState   = !!this._awaitingFirstGameTap;
     const _steerLocked  = !!this._steerLockUntilTap;
-    const _mode = this._steeringMode();
+    const _mode = this._activeSteeringMode();
     let steerIn;
-    if ((_iframeActive && !_rollPhase) || _readyState || _steerLocked) {
+    if ((_iframeActive && !_rollPhase) || _readyState || _steerLocked || this._trapStopHeld) {
+      // Steering fully disabled while held for a traffic stop — no input.
       steerIn = 0;
     } else if (_mode === 'flappy') {
       steerIn = (this._isRight() ? 1 : -1);
@@ -3393,6 +3977,48 @@ export class GameScene extends Phaser.Scene {
     } else {
       this._alcHoldDir   = 0;
       this._alcHoldTimer = 0;
+    }
+
+    // ── Vantage crosswind ───────────────────────────────────────────
+    // A LEFTWARD pull that ramps with wind strength (mile 131->137 up,
+    // full to 177, down by 183) — it feels like the left arrow is stuck.
+    // Steering RIGHT completely overtakes it (full right turning power,
+    // same as before the wind); the pull only applies when the player
+    // ISN'T actively steering right (so doing nothing drifts left, and
+    // holding left just makes it worse).  Applied AFTER player input +
+    // alcohol, and NOT flipped by drunk invertSteering — the wind blows
+    // the same way no matter how scrambled the controls are.
+    const _windPull = this._windStrength(_mileForSnow) * 0.9;
+    if (_windPull > 0) {
+      this._windActive = true;     // for tree sway / tumbleweeds
+      if (effectiveSteerDir <= 0.01) {
+        effectiveSteerDir = Math.max(-1, effectiveSteerDir - _windPull);
+      }
+      // else: right input wins outright — leave it at full right power.
+    } else {
+      this._windActive = false;
+    }
+
+    // ── Snow wander — coast the player into smooth analog / tilt steering ──
+    // The snow analog of the Vantage wind.  Instead of a constant one-way
+    // pull (which rewards rhythmic TAPS), snow adds a slow side-to-side DRIFT
+    // the player must continuously counter-steer.  Paired with snow's low
+    // grip (slow lateral settle, computed below), digital taps overshoot and
+    // fishtail while a smooth analog LEAN (tilt) holds the line — the snow
+    // analog of wind→tap is snow→tilt.  Ramps in over 3 mi (40→43) so it
+    // builds as the player enters the Cascades, eases out with the snow
+    // (86→88).  Applied after player input + wind, and NOT flipped by drunk
+    // invertSteering — the road is icy the same way no matter how scrambled
+    // the controls are.  SNOW_DRIFT_MAX is the tuning knob for how strong the
+    // wander feels (steer-units, 1 = full lock).
+    const _snowRamp = this._snowSteerRamp(_mileForSnow);
+    if (_snowRamp > 0) {
+      const _t = (this.time?.now ?? 0) * 0.001;
+      // Two detuned sines → a slow, non-repeating wander (not a metronome).
+      const wander = (Math.sin(_t * 0.62) + 0.5 * Math.sin(_t * 0.27 + 1.3)) / 1.5;
+      const SNOW_DRIFT_MAX = 0.40;
+      effectiveSteerDir = Math.max(-1, Math.min(1,
+        effectiveSteerDir + wander * SNOW_DRIFT_MAX * _snowRamp));
     }
 
     // ── Grip-based lateral-velocity model (pass-1 driving overhaul) ──
@@ -3580,6 +4206,14 @@ export class GameScene extends Phaser.Scene {
 
     // Integrate position from lateral velocity.
     p.x += p.steerVelocity * dt;
+
+    // Finish cinematic — override steering: input is locked and the car eases
+    // laterally toward the house (left, FINISH_PARK_X) while it rolls to a
+    // stop.  Zeroing steerVelocity neutralizes any input the player feeds in.
+    if (this._finishCinematic) {
+      p.steerVelocity = 0;
+      p.x += (FINISH_PARK_X - p.x) * Math.min(1, dt * FINISH_PARK_LERP);
+    }
 
     // Lateral collision impulse (bounce from crash)
     if (p.xImpulse) {
@@ -3985,6 +4619,11 @@ export class GameScene extends Phaser.Scene {
     if (p.x < -1.5) this._applyDamage(1 * dt, 'offroad_left');
 
     p.x = clamp(p.x, -_maxXLeft, _maxXRight);
+    // Locked laterally during a held traffic stop — you're pulled over, so
+    // steering is frozen.  Zero steerVelocity too (curve/drift can still nudge
+    // it with no input, which showed as the car "rocking in place") so the car
+    // is dead still — no translation, no lean.
+    if (this._trapStopHeld) { p.x = this._trapStopHeldX ?? p.x; p.steerVelocity = 0; }
 
     // Advance
     // World-units position: full speed so the road scrolls fast and the game
@@ -4013,7 +4652,12 @@ export class GameScene extends Phaser.Scene {
     if (_iframeActive && !_inRollPhase) {
       p.speed = 0;
     } else {
-      p.position = (p.position + p.speed * distMul * dt) % (ROUTE_SEGS * SEG_LENGTH);
+      // CLAMP at the route end — do NOT modulo-wrap.  Wrapping looped the run
+      // back to mile 0 (car still rolling, HP intact) if the mile-289 finish
+      // trigger was ever missed (e.g. a lag spike near the end jumping position
+      // past the finish).  Clamping pins the car at the end so the finish
+      // detection (progress ≥ finish t) fires instead of the world restarting.
+      p.position = Math.min(ROUTE_SEGS * SEG_LENGTH, p.position + p.speed * distMul * dt);
     }
 
     // Visual lean — follows the car's actual lateral velocity (post
@@ -4047,6 +4691,9 @@ export class GameScene extends Phaser.Scene {
       // ~150 ms — fast enough to look responsive, slow enough to damp.
       const targetAng = leanDir * 6;
       this.playerSprite.angle = lerp(this.playerSprite.angle ?? 0, targetAng, 0.18);
+      // Held traffic stop — pin the body flat so it can't lean/rock (steering
+      // is already disabled and screen-X is frozen via the locked p.x).
+      if (this._trapStopHeld) this.playerSprite.angle = 0;
       // Crash i-frame blink — 7 Hz alpha toggle so the player can see
       // they're temporarily invulnerable.  Outside the window keep the
       // sprite fully opaque (other systems don't touch alpha).
@@ -4092,6 +4739,20 @@ export class GameScene extends Phaser.Scene {
     // (faster car drops to match slower car ahead when inside FOLLOW_DIST)
     // is the same code path; only the threshold changed.
     const FOLLOW_DIST = 4250;
+
+    // ── Lane-change / passing tunables ───────────────────────────────
+    // LANE_CHANGE_SEC: a full 0.5-lane shift takes this long — slow and
+    // deliberate, not a teleport.  PASS_MARGIN: a car only bothers pulling
+    // out if it's ≥ 8 mph faster than the slowpoke ahead.  CUT_IN_GAP: how
+    // close (world units, ~50 ft) a car will merge in FRONT of the player —
+    // assertive but never on top of you.  passChance scales how eagerly cars
+    // pass by difficulty (Hard always, Normal/Custom usually, Easy seldom).
+    const LANE_CHANGE_SEC = 1.3;
+    const LANE_GLIDE  = 0.5 / LANE_CHANGE_SEC;
+    const PASS_MARGIN = MAX_SPEED * 8 / 120;
+    const CUT_IN_GAP  = 3000;
+    const _laneMode   = Difficulty.mode?.() ?? 'normal';
+    const passChance  = _laneMode === 'hard' ? 1.0 : _laneMode === 'easy' ? 0.45 : 0.78;
 
     // ── Shroom synchronised pulse (≥ 45% shrooms) ────────────────────
     // ALL NPC cars slow / speed up in unison — no lateral swerve, no per-
@@ -4140,14 +4801,49 @@ export class GameScene extends Phaser.Scene {
       if (t.vClass === 'tractor') {
         t.driftPhase = (t.driftPhase ?? Math.random() * Math.PI * 2) + dt * 0.40;
         t.laneOffset = 0.95 - Math.abs(Math.sin(t.driftPhase)) * 0.20;
+      } else if (t.targetLaneOffset != null) {
+        // Smooth lane-change glide toward the car's target lane (~0.6s/lane).
+        const dLane = t.targetLaneOffset - t.laneOffset;
+        if (Math.abs(dLane) > 0.001) {
+          t.laneOffset += Math.sign(dLane) * Math.min(Math.abs(dLane), LANE_GLIDE * dt);
+        }
       }
+      // Same-lane follow: keep a hard ~70 ft floor (followDist) from the car
+      // ahead.  A car already AT/ABOVE the floor simply matches a slower
+      // leader's speed (won't close in).  A car that's gotten too close — a
+      // merge cut-in, a same-lane spawn, two cars gliding together — actively
+      // eases BELOW the leader, proportional to how far inside the floor it is,
+      // so the gap GROWS BACK toward followDist instead of locking in lockstep
+      // at the short distance (the old rule only matched speed, which froze
+      // any sub-floor pair forever).  Detection runs a little past the floor
+      // (×1.4) so speed-matching begins before the floor, not after crowding
+      // in.  Lane match 0.18 catches a car mid-glide into this lane.
       let effSpeed = t.speed;
+      const followDist = t.followDist ?? FOLLOW_DIST;
+      const detectDist = followDist * 1.4;
+      let leadGap = Infinity, leadSpeed = null;
       for (const other of this.traffic) {
         if (other === t || other.crashed) continue;
-        if (Math.abs(other.laneOffset - t.laneOffset) > 0.05) continue;
+        if (Math.abs(other.laneOffset - t.laneOffset) > 0.18) continue;
         const gap = other.position - t.position;
-        if (gap > 0 && gap < FOLLOW_DIST && other.speed < effSpeed) {
-          effSpeed = other.speed;
+        if (gap > 0 && gap < detectDist && gap < leadGap) { leadGap = gap; leadSpeed = other.speed; }
+      }
+      // Same-direction cars also yield to the PLAYER ahead in their lane
+      // (tuck in / set up a pass instead of rear-ending you).
+      if (t.speed > 0 && Math.abs((this.player.x ?? 0) - t.laneOffset) < 0.18) {
+        const pg = this.player.position - t.position;
+        if (pg > 0 && pg < detectDist && pg < leadGap) { leadGap = pg; leadSpeed = this.player.speed ?? 0; }
+      }
+      if (leadSpeed != null) {
+        if (t.speed > 0 && leadGap < followDist) {
+          // Inside the floor — slow below the leader (up to 60% under) in
+          // proportion to the intrusion, so the gap re-opens to followDist.
+          const deficit = Math.min(1, (followDist - leadGap) / followDist);
+          const target  = leadSpeed - Math.max(0, leadSpeed) * 0.6 * deficit;
+          if (target < effSpeed) effSpeed = Math.max(0, target);
+        } else if (leadSpeed < effSpeed) {
+          // At/above the floor — just match the slower leader, don't close in.
+          effSpeed = Math.max(0, leadSpeed);
         }
       }
       // Shroom pulse — small ±10 mph oscillation, safe to add raw.
@@ -4168,49 +4864,58 @@ export class GameScene extends Phaser.Scene {
       t.position += effSpeed * dt;
     }
 
-    // HARD-only: NPC lane changes.  Each car independently decides on
-    // its own scheduled clock so the fleet doesn't slide as a block
-    // (no "hive").  Per-car cooldown floor is 30 s; the schedule
-    // re-rolls 30-60 s on every successful or blocked change.
-    if (Difficulty.mode?.() === 'hard' && this.traffic?.length) {
+    // ── Same-direction passing (all difficulties, scaled) ──────────────
+    // A car held up by a slower leader pulls into its OTHER same-direction
+    // lane to overtake — right-lane cars pass on the LEFT, left-lane cars
+    // pass on the RIGHT (so a left-lane car is never passed on its left,
+    // out onto the yellow centerline).  Cars do NOT return to their old
+    // lane afterward: if the road ahead is clear they just stay put, which
+    // keeps traffic spread across both lanes instead of funneling right.
+    // They merge in front of the player only when there's a real gap.  The
+    // smooth glide itself runs in the movement loop above via targetLaneOffset.
+    if (this.traffic?.length) {
       const nowMs = this.time?.now ?? 0;
+      const LEFT = 0.25, RIGHT = 0.75;
       for (const t of this.traffic) {
-        if (!t.alive || t.crashed) continue;
-        if (t.nextLaneChange == null || nowMs < t.nextLaneChange) continue;
+        if (!t.alive || t.crashed || t.isCop) continue;
+        if (t.speed <= 0 || t.vClass === 'tractor') continue;   // same-direction cars only
+        if (t.targetLaneOffset == null) t.targetLaneOffset = t.laneOffset;
+        // Let an in-progress glide finish, and respect the decision cooldown.
+        if (Math.abs(t.laneOffset - t.targetLaneOffset) > 0.02) continue;
+        if (nowMs < (t.passUntil ?? 0)) continue;
+        // Must be settled in one of the two same-direction travel lanes.
+        const inLeft  = t.laneOffset < 0.5;
+        const curLane = inLeft ? LEFT : RIGHT;
+        if (Math.abs(t.laneOffset - curLane) > 0.18) continue;
+        const otherLane = inLeft ? RIGHT : LEFT;   // the only lane it may move to
 
-        // Pick the OTHER lane on the same side of the road.  Same-side
-        // mapping keeps oncoming cars in the oncoming pair and
-        // same-direction cars in the same-direction pair — no one
-        // crosses the centerline.
-        let targetLane = null;
-        if      (t.laneOffset ===  0.25) targetLane =  0.75;
-        else if (t.laneOffset ===  0.75) targetLane =  0.25;
-        else if (t.laneOffset === -0.25) targetLane = -0.75;
-        else if (t.laneOffset === -0.75) targetLane = -0.25;
-        if (targetLane == null) {
-          // Off-grid lane (e.g., custom mode oddities) — skip, retry later.
-          t.nextLaneChange = nowMs + 30000 + Math.random() * 30000;
-          continue;
+        // Nearest leader (NPC or player) ahead in this lane.
+        const followDist = t.followDist ?? FOLLOW_DIST;
+        let lGap = Infinity, lSpeed = Infinity;
+        for (const o of this.traffic) {
+          if (o === t || !o.alive || o.crashed) continue;
+          if (Math.abs(o.laneOffset - t.laneOffset) > 0.18) continue;
+          const g = o.position - t.position;
+          if (g > 0 && g < lGap) { lGap = g; lSpeed = o.speed; }
         }
-
-        // Refuse if another car is occupying that target lane within
-        // ~5 car-lengths of us — prevents merging into a neighbor.
-        const SAFE_GAP = 5000;   // ~5 car lengths in world units
-        const blocked = this.traffic.some(o =>
-          o !== t && o.alive && !o.crashed
-          && Math.abs(o.laneOffset - targetLane) < 0.05
-          && Math.abs(o.position - t.position) < SAFE_GAP);
-        if (blocked) {
-          // Try again in a short window — don't burn the full 30 s
-          // cooldown on a thwarted attempt, but don't retry every
-          // frame either.  2-5 s feels organic.
-          t.nextLaneChange = nowMs + 2000 + Math.random() * 3000;
-          continue;
+        if (Math.abs((this.player.x ?? 0) - t.laneOffset) < 0.18) {
+          const pg = this.player.position - t.position;
+          if (pg > 0 && pg < lGap) { lGap = pg; lSpeed = this.player.speed ?? 0; }
         }
+        const heldUp = lGap < followDist * 1.4 && t.speed > lSpeed + PASS_MARGIN;
 
-        // Snap to the new lane and re-arm the 30-60 s cooldown.
-        t.laneOffset = targetLane;
-        t.nextLaneChange = nowMs + 30000 + Math.random() * 30000;
+        if (heldUp && Math.random() < passChance &&
+            this._laneClearFor(t, otherLane, followDist, followDist, CUT_IN_GAP)) {
+          // Overtake via the other lane, then STAY there — no forced return.
+          // (behindGap below is the FULL floor — a pass never cuts in tighter
+          //  than ~70 ft ahead of the car that ends up behind it.)
+          t.targetLaneOffset = otherLane;
+          t.passUntil = nowMs + 2500;
+        } else {
+          // Clear road, or can't pass yet — hold this lane; re-check shortly.
+          t.passUntil = nowMs + (heldUp ? 700  + Math.random() * 1200
+                                        : 1200 + Math.random() * 1600);
+        }
       }
     }
 
@@ -4228,6 +4933,29 @@ export class GameScene extends Phaser.Scene {
         this.traffic.splice(i, 1);
       }
     }
+  }
+
+  /** True if `t` can move into `targetLane` right now: no NPC within
+   *  `aheadGap` ahead or `behindGap` behind in that lane, and — for the
+   *  player — never closer than a safe gap (`cutInGap` when merging in
+   *  front of the player; `aheadGap` when the player is ahead).  Cars
+   *  mid-glide count as occupying the lane they're entering. */
+  _laneClearFor(t, targetLane, aheadGap, behindGap, cutInGap) {
+    for (const o of this.traffic) {
+      if (o === t || !o.alive || o.crashed) continue;
+      const occupies = Math.abs(o.laneOffset - targetLane) < 0.20
+        || (o.targetLaneOffset != null && Math.abs(o.targetLaneOffset - targetLane) < 0.20);
+      if (!occupies) continue;
+      const gap = o.position - t.position;            // >0 = o ahead of t
+      if (gap >= 0 ? gap < aheadGap : -gap < behindGap) return false;
+    }
+    // Player (same-direction lanes only).
+    if (Math.abs((this.player.x ?? 0) - targetLane) < 0.20) {
+      const pg = this.player.position - t.position;   // >0 = player ahead of t
+      if (pg >= 0) { if (pg < aheadGap) return false; }   // don't merge right behind a close player
+      else         { if (-pg < cutInGap) return false; }  // cut in front of player only with a real gap
+    }
+    return true;
   }
 
   // Smoke puff trailing a crashed vehicle — uses the same explosion list so
@@ -4365,7 +5093,7 @@ export class GameScene extends Phaser.Scene {
       // a newly-spawned car never appears closer than the in-traffic
       // gap rule allows).
       const conflict = this.traffic.some(t =>
-        Math.abs(t.laneOffset - laneOffset) < 0.05 &&
+        Math.abs(t.laneOffset - laneOffset) < 0.18 &&
         Math.abs(t.position - position) < 4250);
       if (!conflict) break;
       position = p.position + 50000 + Math.random() * 22000;
@@ -4414,12 +5142,18 @@ export class GameScene extends Phaser.Scene {
       vClass,                       // 'car' | 'semi' | 'white_truck' | 'work_truck' | 'tractor'
       visualScale,
       alive:      true,
-      // HARD-mode lane-change clock.  Each spawned car gets a random
-      // first-change time in the next 30-60 s so the fleet doesn't all
-      // shift at once (avoids the "hive" look).  Subsequent changes
-      // re-roll the same 30-60 s window on success, so the per-car
-      // floor is always >= 30 s.
-      nextLaneChange: (this.time?.now ?? 0) + 30000 + Math.random() * 30000,
+      // Lane-change state (passing / keep-right).  targetLaneOffset is the
+      // lane the car is gliding toward (== laneOffset when settled).
+      // followDist: ~15% are tailgaters that intentionally ride ~31 ft (1900 u)
+      // off the car ahead (real-traffic flavor); the rest keep a ≥70 ft floor
+      // with a 4250–6500 u spread for natural variety.  The active gap-restore
+      // in the follow loop holds each car at ITS OWN followDist — so tailgaters
+      // stay tight, but everyone else re-opens to ~70 ft instead of locking in
+      // lockstep after a merge/spawn.
+      // passUntil throttles how often the car re-evaluates a lane change.
+      targetLaneOffset: laneOffset,
+      followDist: Math.random() < 0.15 ? 1900 : (4250 + Math.random() * 2250),
+      passUntil:  (this.time?.now ?? 0) + Math.random() * 1500,
     });
 
     // ── Eastern-WA semi PAIR spawn ─────────────────────────────────────
@@ -4447,7 +5181,11 @@ export class GameScene extends Phaser.Scene {
         vClass:       'semi',
         visualScale:  1.35,
         alive:        true,
-        nextLaneChange: (this.time?.now ?? 0) + 30000 + Math.random() * 30000,
+        // Oncoming partner — no passing (speed < 0), but keep the fields
+        // consistent so the movement/glide loop treats it like any car.
+        targetLaneOffset: partnerLane,
+        followDist:   4250,
+        passUntil:    0,
       });
     }
   }
@@ -4476,6 +5214,10 @@ export class GameScene extends Phaser.Scene {
 
   _checkCollisions() {
     const p      = this.player;
+    // Pulled over and held for a traffic stop — the car is pinned and steering
+    // is locked, so nothing should be able to hit it (and a crash here used to
+    // jolt it forward out of the stop).  Skip all collision processing.
+    if (this._trapStopHeld) return;
     const segIdx = Math.floor(p.position / SEG_LENGTH) % this.road.segments.length;
 
     // Road sprite collectibles — collect ONLY when the pickup is visually
@@ -4993,7 +5735,16 @@ export class GameScene extends Phaser.Scene {
 
     for (let i = this.cops.cops.length - 1; i >= 0; i--) {
       const cop = this.cops.cops[i];
-      if (cop.side === 'rear') continue;
+      // NOTE: do NOT skip rear cops here.  Rear-pursuit cops (and SWAT, which
+      // is also side:'rear') ARE the 2-3★ chase — _onCopCollision has a
+      // dedicated rear-ram branch (registerRearBump → BUSTED at 5) and the
+      // PIT branch (armed side-swipe → instant BUSTED).  A stale
+      // `if (cop.side === 'rear') continue;` here made all of that dead code,
+      // so pursuit cops would close, arm the PIT, and then phase right through
+      // the player — "lots of cops going nowhere, never PITing or busting."
+      // Parked civil-stop cops are inert via cop.parked in CopSystem.update,
+      // not here, so they won't false-collide while you sit at the stop.
+      if (cop.parked) continue;
       if (onBridge && (cop.speed ?? 0) < 0
           && Math.abs(playerLane - (cop.laneOffset ?? 0)) > BRIDGE_OPPDIR_GAP) continue;
       // Same dual gate as the traffic loop above.
@@ -6407,6 +7158,9 @@ export class GameScene extends Phaser.Scene {
       }
       this._applyPlayerSpriteDisplaySize?.();
     }
+    // Re-skin the phone menu to the new car (covers custom-mode picks and
+    // mid-run unlocks — the garage path re-skins via its own HTML handler).
+    try { window.__syncMenuBg?.(); } catch (_) {}
   }
 
   /** Set / merge accessory state for the currently-driven vehicle. */
@@ -6450,10 +7204,14 @@ export class GameScene extends Phaser.Scene {
     const sx   = proj?.sx ?? SCREEN_W / 2;
     const sy   = proj?.sy ?? SCREEN_H / 2;
     const sw   = proj?.sw ?? 32;
-    // Per-class damage multiplier — tractors are heavy steel farm
-    // equipment, hitting one is the equivalent of slamming into a
-    // small bulldozer.  2x damage across all crash types.
-    const classDmgMul = car.vClass === 'tractor' ? 2 : 1;
+    // Per-class damage multiplier — heavy vehicles hurt more.  Tractors are
+    // steel farm equipment (≈ slamming a small bulldozer) → 2×.  Semis are
+    // 18-wheelers → 1.5×.  Applied across all crash types.
+    const classDmgMul = car.vClass === 'tractor' ? 2 : (car.vClass === 'semi' ? 1.5 : 1);
+    // Semis are immovable — a clip/sideswipe doesn't budge them; the player
+    // bounces off and scrubs down to 60 mph (handled in those branches below).
+    const isSemi = car.vClass === 'semi';
+    const SEMI_BOUNCE_SPEED = MAX_SPEED * 0.5;   // 60 mph (MAX_SPEED reads 120)
 
     // Count NPC-car crashes that happen after the player has had their
     // first drink — feeds the first-star activation gate in update().
@@ -6533,14 +7291,27 @@ export class GameScene extends Phaser.Scene {
       car.crashSpin  = (Math.random() < 0.5 ? -1 : 1) * (2.5 + impact.severity * 3.5 + Math.random() * 2);
       car.crashSmokeT = 0;
       car.speed      *= clamp(0.65 - impact.severity * 0.22, 0.28, 0.58);
-      if (car.isCop) this.cops.addStar(0.25);   // rear-end NPC traffic-cop
+      if (car.isCop) this.cops.addStar(0.25, 3);   // rear-end NPC traffic-cop
       return;
     }
 
     if (type === 'side-swipe') {
+      const impact = this._impactModel(car.speed ?? 0, hit);
+      if (isSemi) {
+        // Sideswiping an 18-wheeler doesn't move it — the player ricochets
+        // off the trailer, gets shoved away, and scrubs down to 60 mph.
+        p.xImpulse = sideDir * (1.1 + impact.severity * 1.0);   // bounced off the rig
+        p.speed    = Math.min(p.speed, SEMI_BOUNCE_SPEED);
+        this.effects.triggerShake(150 + impact.severity * 150, 0.006 + impact.severity * 0.006);
+        this._showPopup('SIDESWIPED A SEMI!', '#FFAA22');
+        const dmg = this._applyDamage((0.4 + impact.severity * 0.9) * classDmgMul, 'sideswipe');
+        const _earn = Math.round(5 * dmg * this._scoreMult());
+        this.score += _earn;
+        this.stats?.recordEarn(_earn, 'collision', Math.round(5 * dmg));
+        return;   // the semi keeps rolling — NOT destroyed, NOT shoved off-road
+      }
       // Sideways brush — NPC pushed off the road, player keeps full speed,
       // tiny lateral nudge but no explosion, no big screen shake.
-      const impact = this._impactModel(car.speed ?? 0, hit);
       p.xImpulse  = sideDir * (0.35 + impact.severity * 0.75);
       p.speed     = Math.max(1000, p.speed * clamp(0.98 - impact.severity * 0.10, 0.88, 0.97));
       this.effects.triggerShake(80 + impact.severity * 120, 0.003 + impact.severity * 0.005);
@@ -6567,6 +7338,19 @@ export class GameScene extends Phaser.Scene {
 
     // type === 'corner' — diagonal corner clip. Mid-severity.
     const impact = this._impactModel(car.speed ?? 0, hit);
+    if (isSemi) {
+      // Corner-clipping a semi doesn't budge it — the player is shoved away
+      // and scrubbed down to 60 mph, semi keeps rolling.
+      p.xImpulse = sideDir * (1.3 + impact.severity * 1.2);
+      p.speed    = Math.min(p.speed, SEMI_BOUNCE_SPEED);
+      this.effects.triggerShake(160 + impact.severity * 200, 0.007 + impact.severity * 0.008);
+      this._showPopup('CLIPPED A SEMI!', '#FFAA22');
+      const dmgS = this._applyDamage((0.6 + impact.severity * 1.4) * classDmgMul, 'corner');
+      const _earnS = Math.round(5 * dmgS * this._scoreMult());
+      this.score += _earnS;
+      this.stats?.recordEarn(_earnS, 'collision', Math.round(5 * dmgS));
+      return;   // immovable — NOT destroyed, NOT shoved off-road
+    }
     p.xImpulse  = sideDir * (0.9 + impact.severity * 1.2);
     p.speed     = Math.max(800, p.speed * clamp(0.91 - impact.severity * 0.22, 0.68, 0.87));
     this.effects.triggerShake(140 + impact.severity * 230, 0.006 + impact.severity * 0.010);
@@ -6614,7 +7398,7 @@ export class GameScene extends Phaser.Scene {
       this._spawnExplosion(sx, sy, sw);
       p.xImpulse = sideDir * (2.6 + impact.severity * 1.5);
       p.speed    = Math.max(400, p.speed * clamp(0.26 - impact.severity * 0.10, 0.10, 0.20));
-      this.cops.addStar(0.5);                  // head-on with oncoming cop
+      this.cops.addStar(0.5, 3);                  // head-on with oncoming cop
       this.effects.triggerShake(440 + impact.severity * 360, 0.015 + impact.severity * 0.012);
       this._applyDamage((3 + impact.severity * 3) * damageMul, 'cop_head_on');
       // Same spin-to-recovery-lane + 2-sec i-frame as NPC head-on —
@@ -6646,7 +7430,7 @@ export class GameScene extends Phaser.Scene {
       const impact = this._impactModel(cop.speed ?? -p.speed, hit, { headOn: true });
       p.xImpulse = sideDir * (0.55 + impact.severity * 0.9);
       p.speed    = Math.max(800, p.speed * clamp(0.98 - impact.severity * 0.12, 0.86, 0.96));
-      this.cops.addStar(0.2);                  // side-swipe oncoming cop
+      this.cops.addStar(0.2, 3);                  // side-swipe oncoming cop
       this.effects.triggerShake(100 + impact.severity * 160, 0.004 + impact.severity * 0.006);
       this._applyDamage((0.5 + impact.severity * 1.1) * damageMul, 'cop_sideswipe_oncoming');
       this._showPopup('SIDESWIPED ONCOMING COP!', '#FFCC44');
@@ -6662,7 +7446,7 @@ export class GameScene extends Phaser.Scene {
       this._spawnExplosion(sx, sy, sw);
       p.xImpulse = sideDir * (1.0 + impact.severity * 1.0);
       p.speed    = Math.max(400, p.speed * clamp(0.78 - impact.severity * 0.20, 0.50, 0.70));
-      this.cops.addStar(0.2);                  // player rear-ends a cop
+      this.cops.addStar(0.2, 3);                  // player rear-ends a cop
       this.effects.triggerShake(180 + impact.severity * 220, 0.007 + impact.severity * 0.009);
       this._applyDamage((1 + impact.severity * 1.8) * damageMul, 'cop_ram_rear');
       const rearBumps = this.cops.registerRearBump();
@@ -6700,7 +7484,7 @@ export class GameScene extends Phaser.Scene {
       const impact = this._impactModel(cop.speed ?? p.speed, hit);
       p.xImpulse = sideDir * (0.35 + impact.severity * 0.75);
       p.speed    = Math.max(800, p.speed * clamp(0.98 - impact.severity * 0.10, 0.88, 0.96));
-      this.cops.addStar(0.1);                  // player smashes cop side
+      this.cops.addStar(0.1, 3);                  // player smashes cop side
       this.effects.triggerShake(90 + impact.severity * 150, 0.004 + impact.severity * 0.006);
       this._applyDamage(0.5 + impact.severity * 1.0, 'cop_smash');
       // Mark cop visually crashed (spawns debris cloud) and remove.
@@ -6732,7 +7516,7 @@ export class GameScene extends Phaser.Scene {
     const impact = this._impactModel(cop.speed ?? p.speed, hit);
     p.xImpulse = sideDir * (0.8 + impact.severity * 1.0);
     p.speed    = Math.max(600, p.speed * clamp(0.90 - impact.severity * 0.20, 0.66, 0.86));
-    this.cops.addStar(0.1);                    // corner-clip a cop
+    this.cops.addStar(0.1, 3);                    // corner-clip a cop
     this.effects.triggerShake(110 + impact.severity * 180, 0.005 + impact.severity * 0.008);
     this._applyDamage(0.7 + impact.severity * 1.3, 'cop_corner');
     this._showPopup('CLIPPED A COP!', '#FF6644');
@@ -6902,7 +7686,7 @@ export class GameScene extends Phaser.Scene {
       this._spawnExplosion(SCREEN_W / 2, SCREEN_H * 0.55, 40);
       p.xImpulse = (Math.random() > 0.5 ? 1 : -1) * 2.0;
       p.speed    = Math.max(1000, p.speed * 0.45);
-      this.cops.addStar(0.33);                 // hit roadblock
+      this.cops.addStar(0.33, 3);                 // hit roadblock
       this.effects.triggerShake(350, 0.012);
 
       // Every 3rd roadblock hit blows a tire — top speed capped at 45 mph for
@@ -6926,7 +7710,7 @@ export class GameScene extends Phaser.Scene {
       }
       // Probation: first 60s after arrest = any drug use adds 2 stars
       if (this._probationTimer > 0) {
-        this.cops.addStar(1.0);                // drug pickup during probation
+        this.cops.addStar(1.0, 3);                // drug pickup during probation
         this._showPopup('PROBATION!\n+1 STAR!', '#FF4444');
       }
       const result = this.drugs.pickup(sprite.type);
@@ -7468,6 +8252,13 @@ export class GameScene extends Phaser.Scene {
     if (this._paused) {
       this._pauseGfx?.fillStyle?.(0x000000, 0.6);
       this._pauseGfx?.fillRect?.(0, 0, SCREEN_W, SCREEN_H);
+      // Trap-stop visuals (the flashing cop-light bands + the below-mirror
+      // SLOW DOWN/PULL OVER / TRAFFIC STOP sign) are drawn from update(),
+      // which is skipped while paused — so without this they FREEZE on top of
+      // the PAUSED screen and make it look like pausing did nothing.  Clear
+      // them here; the held-stop block redraws them on resume.
+      this._trapLightGfx?.clear();
+      this._trapSign?.setVisible(false);
     }
     if (this._pauseObjects) {
       for (const o of this._pauseObjects) o.setVisible?.(this._paused);
@@ -7861,19 +8652,36 @@ export class GameScene extends Phaser.Scene {
     if (!slot) return;
     const base = this._baseWeaponType(slot);
     const dir  = this._selectedFireDirection();
+    // Pulling a weapon during a parked speed-trap stop (the comply window OR
+    // the held traffic stop) instead of pulling over counts as a weapon on a
+    // cop: the trooper voids the civil stop, becomes a live chaser, and you
+    // escalate into the 4-5★ band.  Disguise / paint-bomb are non-aggressive
+    // (hide / repaint) so they're exempt — same exclusion as the F12 cop-kill
+    // escalation.
+    const weaponOnTrooper = (this._trapPursuitActive || this._trapStopHeld)
+                         && base !== 'disguise' && base !== 'paint_bomb';
     const result = this.cops.useF12Token(base, this.player.position, dir, this.traffic);
     if (result?.ok) {
+      if (weaponOnTrooper) {
+        this._trapPursuitActive = false;
+        this._trapStopping      = false;
+        this._trapComplyTimer   = 0;
+        this._trapStopHeld      = false;
+        this._trapStopHoldTimer = 0;
+        this.cops.weaponPulledAtTrap(this.player.position);
+      }
       // Weapons are infinite-use, but each fire has a 25% chance of
       // attracting a wanted star (witnesses, gunshot acoustic flags,
       // etc).  Custom mode bypasses since cops are typically off there.
       // Disguise + spike_strip don't make noise / aren't violent toward
       // a target, so they don't roll the heat — disguise especially
-      // shouldn't re-add a star on the exact tap that zeroed them.
+      // shouldn't re-add a star on the exact tap that zeroed them.  Skip the
+      // roll entirely when we already escalated for pulling on the trooper.
       const isHeatlessWeapon = (base === 'disguise' || base === 'spike_strip');
-      if (!isHeatlessWeapon
+      if (!weaponOnTrooper && !isHeatlessWeapon
           && Math.random() < 0.25
           && Difficulty.mode?.() !== 'custom') {
-        this.cops.addStar?.(1);
+        this.cops.addStar?.(1, 3);
         this._showPopup?.('🚓 +1 STAR — heard the shot', '#FF6644');
       }
       const arrow = dir === 'backward' ? '▼ REAR' : '▲ FWD';
@@ -7913,6 +8721,11 @@ export class GameScene extends Phaser.Scene {
           // Full explosion at the car's centre.
           this._spawnExplosion(sx, sy, sw * 1.2);
         }
+      }
+
+      // Override the weapon label so the escalation is the message that lands.
+      if (weaponOnTrooper) {
+        this._showPopup('🚨 WEAPON ON AN OFFICER!\nThey won\'t forget that.', '#FF4444');
       }
 
       this._currentWeaponSlot();
@@ -8066,6 +8879,7 @@ export class GameScene extends Phaser.Scene {
     if (!this._perf?.noSprites) {
       this._renderSceneSprites();   // buildings + trees from images
     }
+    this._renderTumbleweeds();      // Vantage crosswind props (wind zone only)
     this._renderVehicles();
     this._renderDrugSprites();
     this.road.renderTunnelFacade(this.tunnelFacadeGfx);
@@ -9305,6 +10119,69 @@ export class GameScene extends Phaser.Scene {
     this.playerSprite.setDisplaySize(targetW, targetW * ratio);
   }
 
+  /** Paint the player's license-plate handle on the back bumper of the
+   *  third-person car.  Re-anchored every frame to the player sprite —
+   *  matches its x, lean angle, blink alpha, and display scale, and rides
+   *  ~17 % of the sprite height above the bumper.  Hidden in cockpit view,
+   *  when the car sprite is hidden, or before the player has set a plate. */
+  _updateRearPlate() {
+    const plate = this._rearPlate;
+    const car   = this.playerSprite;
+    if (!plate || !car) return;
+    const save = this.registry.get('save');
+    const str = String(save?.activePlate ?? '').trim();
+    const img = this._rearPlateImg;
+    if (!str || this._cockpitActive || car.visible === false) {
+      if (plate.visible) plate.setVisible(false);
+      if (img && img.visible) img.setVisible(false);
+      return;
+    }
+    // Rebuild text + refit only when the plate string changes.
+    if (str !== this._rearPlateStr) {
+      this._rearPlateStr = str;
+      plate.setText(str);
+    }
+    // Plate art = the active player's state plate (slot 0/1/2 → WA/OR/ID).
+    if (img) {
+      const key = PLATE_KEYS[save?.activeSlot | 0] ?? PLATE_KEYS[0];
+      if (img.texture?.key !== key && this.textures.exists(key)) img.setTexture(key);
+    }
+    const dispW = car.displayWidth  || 78;
+    const dispH = car.displayHeight || 49;
+    // Where each car's BACK sprite paints its blank license plate.  yUp =
+    // plate-center as a fraction of sprite height ABOVE the bottom (origin
+    // 0.5,1); w = plate width as a fraction of display width.  Measured from
+    // the PNG art: the beater's plate sits dead-centre, ~51 % up — i.e.
+    // between the two taillights, not down on the bumper.  Unlisted vehicles
+    // use DEFAULT (the codex car art is framed consistently).
+    const ANCHOR = { beater: { yUp: 0.51, w: 0.30 } };
+    const a = ANCHOR[this.player?.vehicleId] ?? { yUp: 0.51, w: 0.30 };
+    const theta = car.rotation || 0;
+    const up    = dispH * a.yUp;
+    const cx    = car.x + up * Math.sin(theta);
+    const cy    = car.y - up * Math.cos(theta);
+    // Plate art fills the painted plate area (a.w of car width, aspect-correct).
+    const plateW = dispW * a.w;
+    if (img) {
+      img.setDisplaySize(plateW, plateW / PLATE_ASPECT);
+      img.setPosition(cx, cy);
+      img.rotation = theta;
+      img.alpha    = car.alpha;
+      if (!img.visible) img.setVisible(true);
+    }
+    // Handle text fits the plate's NUMBER BAND (~72% of plate width); the plate
+    // art provides the background + state name.  (Falls back to filling the
+    // plate width if the art is missing.)
+    const baseW    = plate.width || 1;
+    const targetTW = plateW * (img ? 0.72 : 1);
+    plate.setScale(targetTW / baseW);
+    plate.x = cx;
+    plate.y = cy;
+    plate.rotation = theta;
+    plate.alpha = car.alpha;
+    if (!plate.visible) plate.setVisible(true);
+  }
+
   /** Resolve the right texture key for a car based on its colorSet and
    *  its direction relative to the player.  Same-direction → BACK image
    *  (player sees the rear); oncoming → FRONT image (car driving toward
@@ -9368,6 +10245,8 @@ export class GameScene extends Phaser.Scene {
         this.playerSprite.y = surf.sy + 17;
       }
     }
+    // Glue the rear license plate to the (now-positioned) player car.
+    this._updateRearPlate();
 
     const cockpit = this._cockpitActive;
     // Near-cull threshold.  Chase view culls at 0.65×PLAYER_VIRTUAL_Z
@@ -9544,7 +10423,11 @@ export class GameScene extends Phaser.Scene {
         (cop.speed ?? 0) < 0     ? 'front' :
                                    'back';
       const texKey = this._carTexKey(cop.colorSet ?? 'police', facing);
-      place(cop.relativePos, cop.laneOffset, 0xFFFFFF, 1.0, 0, texKey);
+      // Cops render ~40% larger than a stock car so they read as imposing; the
+      // parked cruiser at a traffic stop is bigger still so it's unmistakably
+      // right there on screen beside you.
+      const copScale = cop.parked ? 2.2 : 1.4;
+      place(cop.relativePos, cop.laneOffset, 0xFFFFFF, copScale, 0, texKey);
     }
 
     // Player tire shadow — anchored to sprite.y (the actual on-screen
@@ -9650,10 +10533,21 @@ export class GameScene extends Phaser.Scene {
       if (!proj || proj.sw < 6) continue;
       const w = proj.sw, x = proj.sx, y = proj.sy - w * 0.55;
       g.fillStyle(0x111111, 1); g.fillRect(x - w * 0.32, y, w * 0.64, w * 0.10);
-      g.fillStyle(cop.flash ? 0xFF3333 : 0x440000, 1);
-      g.fillRect(x - w * 0.30, y + 1, w * 0.28, w * 0.07);
-      g.fillStyle(cop.flash ? 0x2255FF : 0x000044, 1);
-      g.fillRect(x + w * 0.02, y + 1, w * 0.28, w * 0.07);
+      if (this._colorblind) {
+        // CB: red half → amber (red↔dark reads as near-black on/off for
+        // protan/deutan), blue half unchanged, + a white center that blinks
+        // with the bar so "active chase" reads by shape + blink, not hue.
+        g.fillStyle(cop.flash ? 0xFFB000 : 0x3A2600, 1);
+        g.fillRect(x - w * 0.30, y + 1, w * 0.28, w * 0.07);
+        g.fillStyle(cop.flash ? 0x2255FF : 0x000044, 1);
+        g.fillRect(x + w * 0.02, y + 1, w * 0.28, w * 0.07);
+        if (cop.flash) { g.fillStyle(0xFFFFFF, 1); g.fillRect(x - w * 0.035, y, w * 0.07, w * 0.10); }
+      } else {
+        g.fillStyle(cop.flash ? 0xFF3333 : 0x440000, 1);
+        g.fillRect(x - w * 0.30, y + 1, w * 0.28, w * 0.07);
+        g.fillStyle(cop.flash ? 0x2255FF : 0x000044, 1);
+        g.fillRect(x + w * 0.02, y + 1, w * 0.28, w * 0.07);
+      }
     }
   }
 
@@ -9976,6 +10870,8 @@ export class GameScene extends Phaser.Scene {
     // shifted camera Z (driver-seat viewpoint in cockpit mode).
     const playerPos = this._renderCamPos();
     const startSeg  = Math.floor(playerPos / SEG_LENGTH);
+    // Wind strength once per frame (drives tree sway below).
+    const _windSway = this._windStrength();
     let used = 0;
     let usedPlanes = 0;
     // Night-tint: dim every scenery sprite by TimeOfDay.darkness().
@@ -10101,6 +10997,12 @@ export class GameScene extends Phaser.Scene {
         const isCrane = typeof useTexKey === 'string' && useTexKey.startsWith('codex_ws_crane_');
         const isWestSeattleHome = typeof useTexKey === 'string'
           && useTexKey.startsWith('west_seattle_');
+        // Issaquah/eastside cluster homes are large authored cutouts placed far
+        // off the road (offset ~2.75), exactly like the WS homes — they need
+        // the SAME far-distance shrink/reposition or, past DRAW_DIST, they pin
+        // to the horizon clamp and float in the sky (Preston foothill view).
+        const isIssaquahHome = typeof useTexKey === 'string'
+          && useTexKey.startsWith('codex_issaquah_');
         // Space Needle — visible from far west (West Seattle Bridge)
         // looking ahead toward downtown.  Treated like the cranes
         // (extended draw distance + 1/n perspective falloff).
@@ -10118,7 +11020,7 @@ export class GameScene extends Phaser.Scene {
         // (they're authored to depend on it).
         const _isStructureForPerspective = false;     // ← DIAGNOSTIC: was `sp.type === 'building' || 'house'`
         const usesFarPerspective = isCrane || isWestSeattleHome || isSpaceNeedle
-                                  || _isStructureForPerspective;
+                                  || isIssaquahHome || _isStructureForPerspective;
         const farDistScale = (usesFarPerspective && n > DRAW_DIST) ? DRAW_DIST / n : 1;
         // Space Needle gets a longer lookahead than cranes so it pops
         // in at the same player position the cranes do (game start
@@ -10166,6 +11068,8 @@ export class GameScene extends Phaser.Scene {
         // wins (used by skyline reveals that should fade in late).
         const minRenderSw = sp.minRenderSw ?? (isStructure ? 0.5 : 1.5);
         if (!proj || proj.sw < minRenderSw) continue;
+        const structureCrestHidden = isStructure && proj.visible === false;
+        if (structureCrestHidden) continue;
         if (used >= pool.length) {
           // Track pool exhaustion across frames so it's visible in F3
           // (and audit logs).  Bellevue + skyline + cycle + cranes can
@@ -10178,14 +11082,13 @@ export class GameScene extends Phaser.Scene {
         const tex = this.textures.get(useTexKey).source[0];
         const baseW = tex?.width  || 64;
         const baseH = tex?.height || 64;
-        // Per-type scale.  Random cops (parked or driving) get 1.4× car
-        // width — life-sized vehicle, slightly bigger than NPC traffic so
-        // they're more noticeable on the shoulder.
         const isTree     = sp.type === 'tree' || sp.type === 'cactus' || sp.type === 'palm' || sp.type === 'shrub';
         const isLandmark = sp.type === 'landmark';
         const isCopRand  = sp.copEncounter === true;
+        const isCopParked = sp.type === 'cop_random_parked';
         const sizeMult   = sp.sizeMult
-                         ?? (isCopRand ? 1.4
+                         ?? (isCopParked ? 2.38            // 1.7× the 1.4 base — parked roadside trap reads bigger
+                           : isCopRand ? 1.4
                            : isLandmark ? 5.5
                            : isTree ? 2.0
                            : 2.6);
@@ -10232,9 +11135,11 @@ export class GameScene extends Phaser.Scene {
           }
         }
         const maxW = profile?.maxW
-          ?? (isCopRand ? SCREEN_W * 0.18 : isTree ? SCREEN_W * 0.20 : SCREEN_W * 0.42);
+          ?? (isCopParked ? SCREEN_W * 0.306    // 1.7× the 0.18 cap so the larger parked trap isn't clipped up close
+            : isCopRand ? SCREEN_W * 0.18 : isTree ? SCREEN_W * 0.20 : SCREEN_W * 0.42);
         const maxH = profile?.maxH
-          ?? (isCopRand ? SCREEN_H * 0.18
+          ?? (isCopParked ? SCREEN_H * 0.306
+            : isCopRand ? SCREEN_H * 0.18
             : isTree ? SCREEN_H * 0.44
             : sp.type === 'house' ? SCREEN_H * 0.36
             : SCREEN_H * 0.68);
@@ -10536,13 +11441,46 @@ export class GameScene extends Phaser.Scene {
             pg.lineBetween(farEdgeX, topY, farEdgeX, botY);
           }
         }
-        s.setPosition(_renderX, proj.sy)
+        const spriteBaseY = proj.sy + targetH * (profile?.groundDrop ?? 0);
+        s.setCrop();
+        s.setPosition(_renderX, spriteBaseY)
           .setDisplaySize(targetW, targetH)
-          .setY(proj.sy + targetH * (profile?.groundDrop ?? 0))
           .setDepth(depth)
           .setAlpha(fadeAlpha)
-          .setFlipX(!!sp.flipX || autoFlipLeft)
+          .setFlipX(!!sp.flipX || autoFlipLeft || isCopParked)   // parked cop flips to face the road (both shoulders)
           .setVisible(true);
+        // ── Per-sprite crest occlusion (clip, not a screen-space band) ──
+        // A structure beyond a hill crest must be hidden by the hill for
+        // the part of it BELOW the crest silhouette; otherwise its lower
+        // half floats over the gap the crest-cull leaves.  crestClipY()
+        // returns that silhouette's screen-Y; with the sprite's bottom-
+        // centre origin, cropping the texture to keep only the TOP portion
+        // lands the visible bottom edge exactly on the crest line (the
+        // sink-crop's "flies up" behaviour — which here is what we want, so
+        // no compensating shift).  Authored far-perspective art (cranes /
+        // Space Needle / city skyline) lives above the horizon and is
+        // excluded.  The setCrop() reset above clears this on non-clipped
+        // frames as pool slots are reused.
+        if (isStructure && !isCrane && !isSpaceNeedle && !isCitySkyline) {
+          const crestY = this.road.crestClipY?.(relZ);
+          // Only clip when a nearer crest is clearly ABOVE the structure's
+          // true ground line (proj.sy).  Flat / climbing terrain keeps the
+          // nearest ground BELOW the base, so this never fires there.
+          if (Number.isFinite(crestY) && crestY < proj.sy - 6) {
+            const clipPx = spriteBaseY - crestY;   // display px hidden by the hill
+            if (clipPx >= targetH - 1) {
+              s.setVisible(false);                 // wholly behind the crest
+            } else if (clipPx > 0) {
+              const visibleTexH = Math.max(1, Math.round(baseH * (1 - clipPx / targetH)));
+              s.setCrop(0, 0, baseW, visibleTexH); // keep top, hide bottom at the crest line
+            }
+          }
+        }
+        // Wind sway — trees/shrubs lean + oscillate.  Origin (0.5,1) pivots
+        // at the trunk base so the canopy swings, not the whole stamp.
+        // Scales with wind strength (huge in Vantage) over a gentle baseline.
+        // Reset to 0 for non-trees since the pooled sprite is reused.
+        s.setRotation(isTree ? this._treeSwayRot(sp, _windSway) : 0);
         // Apply night-tint (or clear it on a day-side region) — only
         // update if changed to avoid touching dirty flag every frame.
         if (s.tintTopLeft !== _scnTint || s.tintFill !== false) s.setTint(_scnTint);
@@ -10666,7 +11604,12 @@ export class GameScene extends Phaser.Scene {
 
         const relZ = n * SEG_LENGTH + SEG_LENGTH / 2;
         const proj = this.road.getVehicleProjection(relZ, sp.offset);
-        if (!proj || proj.sw < 4) continue;
+        // Gate on a VALID projection only — the signW cutoff below is the real
+        // LOD throttle.  The old `proj.sw < 4` gate was far stricter than the
+        // Road.js frame's `spriteH >= 1`, so the green/white sign FACE appeared
+        // a long way before its text/logo, reading as a "blank sign that fills
+        // in up close."  Letting signW govern keeps text+frame in lockstep.
+        if (!proj || proj.sw <= 0) continue;
 
         // Convert vehicle-projection (sized for an 825-unit car body) to
         // sign size:  signW = baseW * proj.sw * 0.5 / 825.
@@ -10852,7 +11795,11 @@ export class GameScene extends Phaser.Scene {
 
         const relZ = n * SEG_LENGTH + SEG_LENGTH / 2;
         const proj = this.road.getVehicleProjection(relZ, sp.offset);
-        if (!proj || proj.sw < 4) continue;
+        // Valid-projection gate only — signW cutoff below is the LOD throttle.
+        // The old `proj.sw < 4` left the white amenities FRAME on screen long
+        // before its logo PNG (frame draws at spriteH >= 1, much farther), the
+        // "white sign until you're close" bug.  Logos now appear with the frame.
+        if (!proj || proj.sw <= 0) continue;
 
         const signW = proj.sw * (sp.baseW / 825) * 0.5;
         const signH = proj.sw * (sp.baseH / 825) * 0.5;
@@ -11272,7 +12219,16 @@ export class GameScene extends Phaser.Scene {
       hard:   { main: '#FF2244', sub: '#FF6688' },
       custom: { main: '#CE67FF', sub: '#BD70FF' },
     };
-    const tones = speedTones[Difficulty.mode()] ?? speedTones.normal;
+    // Colorblind: spread difficulty across blue/amber/orange + lightness —
+    // the default NORMAL-blue vs HARD-red is the CVD-vulnerable pair.
+    const speedTonesCB = {
+      easy:   { main: '#FFFFFF', sub: '#DDEEFF' },
+      normal: { main: '#3A9BFF', sub: '#9FD0FF' },
+      hard:   { main: '#FF7A00', sub: '#FFB870' },
+      custom: { main: '#FFD23D', sub: '#FFE89A' },
+    };
+    const _spTones = this._colorblind ? speedTonesCB : speedTones;
+    const tones = _spTones[Difficulty.mode()] ?? _spTones.normal;
     // Speed sits IMMEDIATELY RIGHT of the rear-view mirror (base
     // coords). mx/mox flips it to the left in left-handed (default) mode.
     // READOUT_RIGHT_X is declared at the top of _buildHUD alongside
@@ -11285,6 +12241,7 @@ export class GameScene extends Phaser.Scene {
       fontSize: '11px', fontFamily: IMPACT,
       color: tones.sub, stroke: '#000000', strokeThickness: 2,
     }).setOrigin(mox(0), 0).setDepth(d);
+    this._mphSub = _mphSub;   // ref so the units toggle can swap MPH↔KM/H
     this._hudObjects?.push(_mphSub);
 
     // ── Party clock (top-center, below the radio name) ──────────────
@@ -11574,14 +12531,25 @@ export class GameScene extends Phaser.Scene {
     this.hudF12hint   = null;
     this.hudWeaponSel = null;
 
-    // ── CENTER: Popup ───────────────────────────────────────────────────
-    // Sits just below the rear-view mirror (mirror frame covers y=2..58)
-    // so achievement / combo toasts don't compete with the rear-view
-    // sprites for visual space.
-    this.hudPopup = this.add.text(SCREEN_W / 2, 62, '', {
+    // ── BOTTOM-CENTER: Popup ────────────────────────────────────────────
+    // Toasts (crashes, checkpoints, drug unlocks, phone texts, etc.) sit
+    // bottom-centre, just ABOVE the mile/town location line (moved here from
+    // below the rear-view mirror per user).  Bottom-anchored (origin 0.5,1)
+    // so multi-line toasts grow UP and never run off the bottom edge.  The
+    // per-frame block in _renderHUD re-applies origin + Y by view mode
+    // (cockpit parks it on the dashboard instead).
+    this.hudPopup = this.add.text(SCREEN_W / 2, HUD_POPUP_BOTTOM_Y, '', {
       fontSize: '18px', fontFamily: IMPACT,
       color: '#FFFF00', stroke: '#000000', strokeThickness: 4, align: 'center',
-    }).setOrigin(0.5, 0).setDepth(d + 5);
+    }).setOrigin(0.5, 1).setDepth(d + 5);
+
+    // Speed-trap sign — same bottom-centre spot, driven persistently from
+    // update(): alternating SLOW DOWN / PULL OVER during the comply window,
+    // then TRAFFIC STOP + countdown once pulled over.  No emojis.
+    this._trapSign = this.add.text(SCREEN_W / 2, HUD_POPUP_BOTTOM_Y, '', {
+      fontSize: '22px', fontFamily: IMPACT,
+      color: '#FF3B30', stroke: '#000000', strokeThickness: 5, align: 'center',
+    }).setOrigin(0.5, 1).setDepth(d + 6).setVisible(false);
 
     // ── Phone-only GAS + BRAKE pedals — TOGGLE buttons (tap once to turn
     //    on, tap again to turn off). Mutually exclusive and stacked:
@@ -11765,7 +12733,7 @@ export class GameScene extends Phaser.Scene {
     // ── REAR-COP indicator (cop behind the player; visible only when active)
     this.hudRearCop = this.add.text(SCREEN_W / 2, SCREEN_H - 32, '', {
       fontSize: '14px', fontFamily: IMPACT,
-      color: '#FF3333', stroke: '#000000', strokeThickness: 4,
+      color: this._colorblind ? '#FFB000' : '#FF3333', stroke: '#000000', strokeThickness: 4,
       align: 'center',
     }).setOrigin(0.5, 1).setDepth(d).setVisible(false);
 
@@ -11937,6 +12905,9 @@ export class GameScene extends Phaser.Scene {
       hard:   '#FF2244',
       custom: '#CE67FF',
     };
+    // CB: the EASY-pink vs HARD-red pair is the opposite-stakes confusion.
+    // Spread across white/blue/orange/amber (the label word still names it).
+    const diffValueColorsCB = { easy: '#E9F4FF', normal: '#39A8FF', hard: '#FF7A00', custom: '#FFD23D' };
     // Driving type value tint — by mode, matching the in-game palette
     // (pink Thumbs, blue Tap, red Tilt) so each scheme reads as a
     // distinct color before the run starts.
@@ -11945,14 +12916,15 @@ export class GameScene extends Phaser.Scene {
       flappy:  '#39A8FF',   // TAP    — blue
       tilt:    '#FF2244',   // TILT   — red
     };
+    const thumbsValueColorsCB = { classic: '#E9F4FF', flappy: '#39A8FF', tilt: '#FF7A00' };
     const updateSelectionText = () => {
       const diffId = DIFF_OPTIONS[diffIdx].id;
       this._titleDiffValue?.setText(DIFF_OPTIONS[diffIdx].label);
-      this._titleDiffValue?.setColor(diffValueColors[diffId] ?? '#37B9FF');
+      this._titleDiffValue?.setColor((this._colorblind ? diffValueColorsCB : diffValueColors)[diffId] ?? '#37B9FF');
       this._titleDiffBlurb?.setText(DIFF_OPTIONS[diffIdx].blurb);
       const thumbsId = THUMBS_OPTIONS[thumbsIdx].id;
       this._titleThumbsValue?.setText(THUMBS_OPTIONS[thumbsIdx].label);
-      this._titleThumbsValue?.setColor(thumbsValueColors[thumbsId] ?? '#BD70FF');
+      this._titleThumbsValue?.setColor((this._colorblind ? thumbsValueColorsCB : thumbsValueColors)[thumbsId] ?? '#BD70FF');
       this._titleThumbsBlurb?.setText(THUMBS_OPTIONS[thumbsIdx].blurb);
     };
     this._refreshDifficultyHighlights = updateSelectionText;
@@ -11981,6 +12953,9 @@ export class GameScene extends Phaser.Scene {
     this._titleResume = savedBg;
     this._titleResumeTxt = null;
     updateSelectionText();
+
+    // ── Player-profile plates (left side) — pick / create the driver ──
+    this._buildPlateSlots(d);
 
     // Shared START dispatcher — used by the painted START panel and
     // keyboard handlers; current selector values determine the launch.
@@ -12072,7 +13047,7 @@ export class GameScene extends Phaser.Scene {
       this._hudObjects.push(
         ...[
           this.hudScore, this.hudMult, this.hudDist, this.hudRegion, this.hudStars, this.hudHP, this.hudHPDamage, this.hudGas, this.hudGasIcon, this.hudAccelBar,
-          this.hudSpeed, this.hudRadio, this.hudPopup,
+          this.hudSpeed, this.hudRadio, this.hudPopup, this._trapSign,
           this.hudRearCop, this.hudRestStop, this.hudHelicopter, this.hudHelicopterImg,
           this._titleScrim, this._titleBackdrop, this._titleMain, this._titleSub, this._titleRoute, this._titleTap,
           this._titleResume,    this._titleResumeTxt,
@@ -12177,7 +13152,8 @@ export class GameScene extends Phaser.Scene {
     // Top speed: 120 MPH base + 5 MPH per cocaine pickup (capped at OD).
     // ceil so a car actually rolling (< 0.5 mph) doesn't read as "0 MPH".
     const rawMph   = this._displayMPH();
-    const mph      = rawMph > 0 && rawMph < 1 ? 1 : Math.round(rawMph);
+    const _spd     = this._unitsKmh ? rawMph * 1.60934 : rawMph;
+    const mph      = _spd > 0 && _spd < 1 ? 1 : Math.round(_spd);
     // Odometer: speed-derived at 4× time compression (120 mph → 120 mi/15 min)
     const milesRaw = this._odometer ?? 0;
     const miles    = Math.floor(milesRaw);
@@ -12215,19 +13191,32 @@ export class GameScene extends Phaser.Scene {
     // approaches), per spec.
     if (this.hudGas) {
       const gas = Math.max(0, Math.round(this.player.gasMi ?? 0));
+      // Colorblind cue — a "!"/"!!" prefix so the urgency reads without color
+      // (redundant with the gas_full↔gas_empty icon swap).
+      const gCue = this._colorblind
+        ? (gas <= 0 ? '' : gas <= 10 ? '!! ' : gas <= GAS_LIGHT_AT_MI ? '! ' : '')
+        : '';
       // Color tracks the gas level only.  The old near-exit warning
       // flicker (orange when ≤1 mi from a rest stop) was dropped per
       // player feedback — it made the gas readout strobe between
       // blue and orange as exits passed.
       let gColor;
-      if (gas <= 0)                       gColor = '#888888';
-      else if (gas <= 10)                 gColor = (Math.sin(this.gameTime * 6) > 0 ? '#FF2244' : '#660000');
-      else if (gas <= GAS_LIGHT_AT_MI)    gColor = '#FFAA22';
-      else                                gColor = '#39A8FF';
+      if (this._colorblind) {
+        // CB: critical pulses on LUMINANCE (white↔blue), never red↔dark.
+        if (gas <= 0)                    gColor = '#BBBBBB';
+        else if (gas <= 10)              gColor = (Math.sin(this.gameTime * 6) > 0 ? '#FFFFFF' : '#39A8FF');
+        else if (gas <= GAS_LIGHT_AT_MI) gColor = '#FFAA22';
+        else                             gColor = '#39A8FF';
+      } else {
+        if (gas <= 0)                    gColor = '#888888';
+        else if (gas <= 10)              gColor = (Math.sin(this.gameTime * 6) > 0 ? '#FF2244' : '#660000');
+        else if (gas <= GAS_LIGHT_AT_MI) gColor = '#FFAA22';
+        else                             gColor = '#39A8FF';
+      }
       // If the PNG icon is mounted, render text-only (no emoji); icon
       // texture swaps to gas_empty once miles ≤ GAS_LIGHT_AT_MI (30).
       if (this.hudGasIcon) {
-        const gStr = gas <= 0 ? 'EMPTY' : `${gas} mi`;
+        const gStr = gas <= 0 ? 'EMPTY' : `${gCue}${gas} mi`;
         if (this.hudGas.text !== gStr) this.hudGas.setText(gStr);
         if (this.hudGas.style.color !== gColor) this.hudGas.setColor(gColor);
         const wantKey = gas <= GAS_LIGHT_AT_MI ? 'ui_gas_empty' : 'ui_gas_full';
@@ -12246,7 +13235,7 @@ export class GameScene extends Phaser.Scene {
             : (tb.right + GAP + ICON_HALF);
         }
       } else {
-        const gStr = gas <= 0 ? '⛽ EMPTY' : `⛽ ${gas} mi`;
+        const gStr = gas <= 0 ? '⛽ EMPTY' : `⛽ ${gCue}${gas} mi`;
         if (this.hudGas.text !== gStr) this.hudGas.setText(gStr);
         if (this.hudGas.style.color !== gColor) this.hudGas.setColor(gColor);
       }
@@ -12264,9 +13253,19 @@ export class GameScene extends Phaser.Scene {
         const barX = tb.left;
         const barW = tb.width;
         const pct  = Math.max(0, Math.min(1, (this._accelCharge ?? 100) / 100));
-        const fillColor = pct < 0.2 ? 0xFF4444 : (pct < 0.5 ? 0xFFAA00 : 0x39A8FF);
+        // CB: danger-red → orange (no red↔blue ambiguity), plus two fixed
+        // white ticks at the 20%/50% tier boundaries so the tier reads from
+        // WHERE the fill edge sits, not its hue.
+        const fillColor = this._colorblind
+          ? (pct < 0.2 ? 0xFF7A00 : pct < 0.5 ? 0xFFAA00 : 0x39A8FF)
+          : (pct < 0.2 ? 0xFF4444 : (pct < 0.5 ? 0xFFAA00 : 0x39A8FF));
         this.hudAccelBar.fillStyle(0x222222, 0.7).fillRect(barX, barY, barW, barH);
         this.hudAccelBar.fillStyle(fillColor, 0.95).fillRect(barX, barY, barW * pct, barH);
+        if (this._colorblind) {
+          this.hudAccelBar.fillStyle(0xFFFFFF, 0.9);
+          this.hudAccelBar.fillRect(barX + Math.round(barW * 0.2), barY, 1, barH);
+          this.hudAccelBar.fillRect(barX + Math.round(barW * 0.5), barY, 1, barH);
+        }
       }
     }
     // Multiplier readout — just the number now ("×3.5"), no combo
@@ -12284,19 +13283,40 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (mult > 1 || combos.length) {
-      const tierColor = mult >= 8 ? '#FF2244' : mult >= 5 ? '#FFAA22' : '#44FF88';
+      // Colorblind-safe ramp (blue→amber→orange) vs the default red/orange/
+      // green — green↔red is the pair red-green CVD players can't separate.
+      const tierColor = this._colorblind
+        ? (mult >= 8 ? '#FF7A00' : mult >= 5 ? '#FFD23D' : '#3A9BFF')
+        : (mult >= 8 ? '#FF2244' : mult >= 5 ? '#FFAA22' : '#44FF88');
+      // Non-color tier cue (colorblind mode only): a redundant pip suffix so
+      // the tier boundary survives without relying on the blue/amber/orange
+      // hue. <5x → "·", 5-8x → "··", 8x+ → "···". The NON-colorblind text
+      // ("×3.5") is left byte-identical — the cue is appended only when the
+      // toggle is on.
+      const tierCue = this._colorblind
+        ? (mult >= 8 ? ' ···' : mult >= 5 ? ' ··' : ' ·')
+        : '';
       this.hudMult
-        .setText(`×${mult.toFixed(1)}`)
+        .setText(`×${mult.toFixed(1)}${tierCue}`)
         .setColor(tierColor)
         .setVisible(true);
     } else {
       this.hudMult.setVisible(false);
     }
     {
-      const dStr = `${milesRaw.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MI`;
+      const _distVal = this._unitsKmh ? milesRaw * 1.60934 : milesRaw;
+      const dStr = `${_distVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${this._unitsKmh ? 'KM' : 'MI'}`;
       if (this.hudDist.text !== dStr) this.hudDist.setText(dStr);
       const sStr = `${mph}`;
       if (this.hudSpeed.text !== sStr) this.hudSpeed.setText(sStr);
+      if (this._mphSub) {
+        const _base = this._unitsKmh ? 'KM/H' : 'MPH';
+        // CB: suffix the difficulty letter so the mode reads without color.
+        const _u = this._colorblind
+          ? `${_base}·${({ easy: 'E', normal: 'N', hard: 'H', custom: 'C' })[Difficulty.mode()] ?? 'N'}`
+          : _base;
+        if (this._mphSub.text !== _u) this._mphSub.setText(_u);
+      }
     }
     // Re-apply the difficulty-tinted Speed color each frame.  _buildHUD's
     // initial color was being locked at scene-init time (before the
@@ -12304,12 +13324,10 @@ export class GameScene extends Phaser.Scene {
     // mode's tone.  Resolved here against the current Difficulty.
     // Palette mirrors the title-screen chrome (pink/blue/red/purple).
     {
-      const tones = {
-        easy:   '#FF39AF',
-        normal: '#39A8FF',
-        hard:   '#FF2244',
-        custom: '#CE67FF',
-      };
+      // Must be CB-gated too, or it overwrites the colorblind build color.
+      const tones = this._colorblind
+        ? { easy: '#FFFFFF', normal: '#3A9BFF', hard: '#FF7A00', custom: '#FFD23D' }
+        : { easy: '#FF39AF', normal: '#39A8FF', hard: '#FF2244', custom: '#CE67FF' };
       const c = tones[Difficulty.mode()] ?? tones.normal;
       if (this.hudSpeed && this.hudSpeed.style.color !== c) this.hudSpeed.setColor(c);
     }
@@ -12324,11 +13342,30 @@ export class GameScene extends Phaser.Scene {
       const sec   = Math.max(0, Math.floor(this._partyClockSec ?? 0));
       const mm    = Math.floor(sec / 60).toString().padStart(2, '0');
       const ss    = (sec % 60).toString().padStart(2, '0');
-      const color = sec <= 0     ? '#FF2244'
-                  : sec < 300    ? '#FF6644'      // < 5 min
-                  : sec < 600    ? '#FFCC44'      // < 10 min
-                  :                '#FFFFFF';
-      const pStr = sec <= 0 ? '⏱  TOO LATE' : `⏱  ${mm}:${ss}`;
+      // Default: white → yellow → orange-red → red urgency ramp.
+      // Colorblind: white → amber → orange → blue-on-fire is no good
+      // (orange↔red is the unreadable pair), so remap to a CVD-safe
+      // blue→amber→orange ramp AND prefix a tier glyph so the urgency
+      // band is legible from the symbol alone, not the color.
+      //   >10m  ·     (calm)      / blue-white
+      //   5-10m ·!    (heads up)  / amber
+      //   <5m   ·!!   (hurry)     / orange
+      //   0     ✖     (TOO LATE)  / orange (kept bright)
+      const color = this._colorblind
+        ? (sec <= 0  ? '#FF7A00'
+         : sec < 300 ? '#FF7A00'      // < 5 min  (orange)
+         : sec < 600 ? '#FFD23D'      // < 10 min (amber)
+         :             '#9CD3FF')     // calm     (blue-white)
+        : (sec <= 0  ? '#FF2244'
+         : sec < 300 ? '#FF6644'      // < 5 min
+         : sec < 600 ? '#FFCC44'      // < 10 min
+         :             '#FFFFFF');
+      const tag = this._colorblind
+        ? (sec < 300 ? ' !!' : sec < 600 ? ' !' : '')
+        : '';
+      const pStr = sec <= 0
+        ? (this._colorblind ? '⏱  ✖ TOO LATE' : '⏱  TOO LATE')
+        : `⏱${tag}  ${mm}:${ss}`;
       if (this.hudPartyClock.text !== pStr) this.hudPartyClock.setText(pStr);
       if (this.hudPartyClock.style.color !== color) this.hudPartyClock.setColor(color);
     }
@@ -12816,7 +13853,7 @@ export class GameScene extends Phaser.Scene {
     if (rear?.count) {
       const distFt = Math.max(1, Math.round(-rear.nearestRelZ / 10));
       this.hudRearCop
-        .setText(`◀ PURSUIT ${rear.count > 1 ? '×' + rear.count + ' ' : ''}— ${distFt} ft behind`)
+        .setText(`${this._colorblind ? '[!] ' : ''}◀ PURSUIT ${rear.count > 1 ? '×' + rear.count + ' ' : ''}— ${distFt} ft behind`)
         .setVisible(true);
     } else {
       this.hudRearCop.setVisible(false);
@@ -12825,14 +13862,17 @@ export class GameScene extends Phaser.Scene {
     this._drawDrugBars();
     this._drawF12Inventory();
 
-    // Popup position depends on view mode.  Chase view: just below
-    // the rear-view mirror frame (y=62).  Cockpit view: there's no
-    // rear-view at the top and the dashboard fills the lower screen,
-    // so park popups on the dashboard panel so they read against the
-    // dark dash instead of getting lost on the road/sky.
-    const popupY = this._cockpitActive ? Math.floor(SCREEN_H * 0.72) : 62;
+    // Popup position depends on view mode.  Chase view: bottom-centre, just
+    // ABOVE the mile/town location line — bottom-anchored (origin 0.5,1) so
+    // multi-line toasts grow UP.  Cockpit view: no rear-view at the top and
+    // the dashboard fills the lower screen, so park popups on the dashboard
+    // panel (top-anchored, as before) where they read against the dark dash.
+    if (this._cockpitActive) {
+      this.hudPopup.setOrigin(0.5, 0).setY(Math.floor(SCREEN_H * 0.72));
+    } else {
+      this.hudPopup.setOrigin(0.5, 1).setY(HUD_POPUP_BOTTOM_Y);
+    }
     this.hudPopup
-      .setY(popupY)
       .setVisible(this.popupTimer > 0)
       .setAlpha(Math.min(1, this.popupTimer * 2));
 
@@ -12854,16 +13894,44 @@ export class GameScene extends Phaser.Scene {
         this.hudHelicopterImg.setPosition(x, bobY);
         this.hudHelicopterImg.setVisible(true);
         // Red/blue rotor flash via tint alternating each ~0.2s.
-        const tint = ((phase * 5) | 0) % 2 === 0 ? 0xFFAAAA : 0xAACCFF;
+        // Colorblind mode: swap the red phase for amber so the pulse is the
+        // CVD-safe amber↔blue emergency pair (red↔blue washes out for strong
+        // protan/deutan viewers). Blue phase unchanged. Non-colorblind look
+        // is left byte-identical.
+        const flashOn = ((phase * 5) | 0) % 2 === 0;
+        const tint = this._colorblind
+          ? (flashOn ? 0xFFC247 : 0xAACCFF)
+          : (flashOn ? 0xFFAAAA : 0xAACCFF);
         this.hudHelicopterImg.setTint(tint);
-        this.hudHelicopter.setVisible(false);
+        // Non-color cue (colorblind only): a redundant "5★" tag pinned under
+        // the chopper so the max-heat signal survives even without the rotor
+        // hue — and the chopper is identifiable as the 5★ overlay at a glance.
+        if (this._colorblind) {
+          this.hudHelicopter
+            .setPosition(x, bobY + 30)
+            .setText('5★')
+            .setStroke('#000000', 4)
+            .setColor('#FFC247')
+            .setVisible(true);
+        } else {
+          this.hudHelicopter.setVisible(false);
+        }
       } else {
         // Emoji fallback when the heli textures didn't load.
         const rotor = (Math.sin(phase * 28) > 0) ? '— —' : ' = ';
-        const tint  = ((phase * 5) | 0) % 2 === 0 ? '#FF3333' : '#3366FF';
+        // Colorblind mode: swap the red flash phase for amber (amber↔blue is
+        // CVD-safe; red↔blue is not reliably separable for protan/deutan),
+        // append a redundant "5★" tag so the max-heat signal isn't carried by
+        // the rotor hue alone. Non-colorblind look left byte-identical.
+        const flashOn = ((phase * 5) | 0) % 2 === 0;
+        const tint = this._colorblind
+          ? (flashOn ? '#FFB000' : '#3366FF')
+          : (flashOn ? '#FF3333' : '#3366FF');
+        const body = this._colorblind ? `${rotor}\n  🚁\n  5★` : `${rotor}\n  🚁`;
         this.hudHelicopter
           .setPosition(x, bobY)
-          .setText(`${rotor}\n  🚁`)
+          .setText(body)
+          .setColor('#222222')
           .setStroke(tint, 3)
           .setVisible(true);
       }
@@ -12907,6 +13975,12 @@ export class GameScene extends Phaser.Scene {
       ketamine: 'drug_ketamine',
       meth:     'drug_meth',
     };
+    // Colorblind: recolor the confusable bar-fill pairs (weed↔meth both greenish,
+    // lsd reddish — fentanyl keeps its lethal red) and stamp an authoritative
+    // one-letter badge on each card so the drug is read by LETTER, not hue.
+    const CB_FILL   = { weed: 0x3A9BFF, meth: 0xFF9A3D, lsd: 0xFFD23D, fentanyl: 0xFF2222 };
+    const CB_LETTER = { alcohol: 'B', weed: 'W', cocaine: 'C', shrooms: 'S', lsd: 'L', heroin: 'H', rx: 'R', fentanyl: 'F', ketamine: 'K', meth: 'M' };
+    if (!this._drugBadges) this._drugBadges = {};
     // 2-column grid of square-ish icons.  All 10 drugs fit in 5 rows
     // × 2 cols above the pedal stack, leaving the bottom of the
     // off-weapon edge for ACCEL/BRAKE.
@@ -12994,6 +14068,22 @@ export class GameScene extends Phaser.Scene {
       slot.icon.setAlpha(0.25 + 0.75 * level);
       used.add(id);
 
+      // ── Colorblind letter badge — authoritative drug ID, top-left ──
+      if (this._colorblind) {
+        let badge = this._drugBadges[id];
+        if (!badge) {
+          badge = this.add.text(0, 0, CB_LETTER[id] ?? '?', {
+            fontSize: '13px', fontFamily: IMPACT, color: '#FFFFFF',
+            stroke: '#000000', strokeThickness: 3,
+          }).setOrigin(0, 0).setDepth(26);
+          this._drugBadges[id] = badge;
+          if (this._hudObjects) { this._hudObjects.push(badge); this.cameras.main.ignore?.([badge]); }
+        }
+        badge.setPosition(x + 2, y + 1).setVisible(true);
+      } else if (this._drugBadges[id]) {
+        this._drugBadges[id].setVisible(false);
+      }
+
       // ── Card visuals ────────────────────────────────────────────
       // Dark translucent base so the icon reads against the road.
       g.fillStyle(0x000000, 0.45);
@@ -13003,7 +14093,7 @@ export class GameScene extends Phaser.Scene {
       if (level > 0.01) {
         const fillH = Math.max(2, Math.floor((iconH - 2) * level));
         const fillY = y + (iconH - 1) - fillH;
-        g.fillStyle(cfg.color, 0.55);
+        g.fillStyle(this._colorblind ? (CB_FILL[id] ?? cfg.color) : cfg.color, 0.55);
         g.fillRoundedRect(x + 1, fillY, iconW - 2, fillH, 4);
       }
       // Border
@@ -13012,7 +14102,16 @@ export class GameScene extends Phaser.Scene {
 
       // OD warning — pulsing red border at near-OD levels.
       if (cfg.canOD && level > cfg.odThreshold * 0.80) {
-        if (Math.abs(Math.sin(this.gameTime * 7)) > 0.5) {
+        if (this._colorblind) {
+          // CB: always-on amber border (white on the pulse peak) + a warning
+          // triangle in the corner — danger read by SHAPE + luminance, not red.
+          const pk = Math.abs(Math.sin(this.gameTime * 7)) > 0.5;
+          g.lineStyle(3, pk ? 0xFFFFFF : 0xFFB000, 1);
+          g.strokeRoundedRect(x - 1, y - 1, iconW + 2, iconH + 2, 5);
+          const tx = x + iconW - 11, ty = y + 2;
+          g.fillStyle(0x1A1205, 1); g.fillTriangle(tx - 1, ty + 9, tx + 9, ty + 9, tx + 4, ty - 1);
+          g.fillStyle(0xFFB000, 1); g.fillTriangle(tx, ty + 8, tx + 8, ty + 8, tx + 4, ty);
+        } else if (Math.abs(Math.sin(this.gameTime * 7)) > 0.5) {
           g.lineStyle(2, 0xFF2222, 1);
           g.strokeRoundedRect(x - 1, y - 1, iconW + 2, iconH + 2, 5);
         }
@@ -13027,7 +14126,10 @@ export class GameScene extends Phaser.Scene {
 
     // Hide any drugs we didn't render this frame (rest stop, etc.).
     for (const id of Object.keys(this._drugIcons)) {
-      if (!used.has(id)) this._drugIcons[id].icon.setVisible(false);
+      if (!used.has(id)) {
+        this._drugIcons[id].icon.setVisible(false);
+        this._drugBadges?.[id]?.setVisible(false);
+      }
     }
     // Old text labels — hide them all (legacy code path).
     if (this._drugLabels) {
@@ -13306,6 +14408,195 @@ export class GameScene extends Phaser.Scene {
   _showPopup(text, color = '#FFFFFF') {
     this.hudPopup.setText(text).setColor(color);
     this.popupTimer = 2.2;
+    // Phone-text popups (📱) buzz twice like an incoming-text notification —
+    // active on iOS once Capacitor Haptics is wrapped in; a clean no-op
+    // elsewhere.  Non-text popups (★ WANTED, crashes, drug lines) don't buzz.
+    if (typeof text === 'string' && text.startsWith('📱')) {
+      this.haptics?.notify?.();
+    }
+  }
+
+  /** Fire one characterful "flavor" text from a non-gameplay contact (The Ex /
+   *  Mom / The Boss / The Unknown).  Shows a phone-notification popup and logs
+   *  it to the per-run thread so the Messages app can show the conversation.
+   *  Pure tone — no gameplay effect. */
+  _fireBuddyText() {
+    this._buddyDefs ??= {
+      ex: { name: '🖤 The Ex', color: '#FF8FB0', pool: [
+        'so we\'re really not talking now?',
+        'I drove past your place. whose car was that',
+        'cool. ignore me. classic.',
+        'i\'m not even mad i just think it\'s hilarious',
+        'who is she',
+        'you looked weirdly happy in that photo',
+        'have FUN at your little party 🙄',
+        'remember when you said you\'d change lol',
+      ] },
+      mom: { name: '👜 The Mom', color: '#FFD27A', pool: [
+        'Did you eat today? You look thin ❤️',
+        'Drive safe honey, text me when you\'re there',
+        'Your father says hi (he can\'t work the phone)',
+        'There\'s a plate in the fridge for you',
+        'Are you SURE you\'re okay to be driving?',
+        'Saw on the news the police are out. Be careful!!',
+        'I love you. Call your mother.',
+      ] },
+      boss: { name: '💼 The Boss', color: '#FF6B5C', pool: [
+        'where are you',
+        'the Hendricks account won\'t close itself',
+        'I don\'t pay you to take road trips',
+        'call me back. now.',
+        'the company tracker says you\'re "busy" lol',
+        'if you\'re not in tomorrow, don\'t come in at all',
+        'this is your final warning. and your last one.',
+      ] },
+      unknown: { name: '❓ The Unknown', color: '#9FB4C8', pool: [
+        'I know what you\'re carrying.',
+        'we need to talk. you know who this is.',
+        'nice plates. real subtle.',
+        'they\'re waiting for you in Colfax. don\'t.',
+        'wrong number. or is it.',
+        'delete this thread.',
+      ] },
+      // Spam / scams — each carries its own fake "from", so it logs the sender.
+      spam: { name: '🚫 The Spam', color: '#7FE0A0', spam: true, pool: [
+        { from: 'USPS', text: 'Your package can\'t be delivered. Update info: usps-trk.co/x9' },
+        { from: 'IRS', text: 'FINAL NOTICE: you owe $4,829. Pay now or a warrant is issued.' },
+        { from: 'Scam Likely', text: 'We\'ve been trying to reach you about your car\'s extended warranty.' },
+        { from: 'PRIZE', text: 'CONGRATS! You\'ve won a $1,000 gift card. Claim in 24h: clm.gift/u' },
+        { from: 'Wells Fargo', text: 'Suspicious activity on your account. Verify SSN: wf-secure.co' },
+        { from: '+1 (800) 555-0147', text: 'Hi it\'s Brad from Apple Support. Your iCloud has been locked.' },
+        { from: 'CRYPTO', text: '$DOGE is up 4000% 🚀 don\'t miss out. Buy now: moon.bet' },
+        { from: 'Unknown', text: 'is this still your number? i have the photos.' },
+        { from: 'GOV-RELIEF', text: 'You qualify for a $750 deposit. Reply YES to claim.' },
+        { from: 'Prince A.', text: 'Dear friend, I have $20,000,000 USD to transfer to you...' },
+        { from: 'VOTE', text: 'Re-elect for a STRONGER tomorrow! Reply STOP to opt out.' },
+        { from: 'Singles', text: 'Lonely drivers near you want to meet 😏 tap: hot.sgl/near' },
+      ] },
+    };
+    const ids = Object.keys(this._buddyDefs);
+    const cid = ids[(Math.random() * ids.length) | 0];
+    const def = this._buddyDefs[cid];
+    const thread = (this._buddyThreads[cid] ??= []);
+    const txtOf = (e) => (typeof e === 'string' ? e : e.text);
+    const last = thread.length ? thread[thread.length - 1].text : null;
+    let entry = def.pool[(Math.random() * def.pool.length) | 0];
+    for (let i = 0; i < 4 && txtOf(entry) === last; i++) entry = def.pool[(Math.random() * def.pool.length) | 0];
+    const text = txtOf(entry);
+    // Spam carries its own fake sender; the others come from the contact.
+    const from = (typeof entry === 'string') ? def.name : entry.from;
+    this._logBuddyText(cid, from, text);
+  }
+
+  /** Log an incoming text to its Messages thread and show a generic on-screen
+   *  NOTIFICATION ("📱 New text — <sender>") rather than the message body — the
+   *  content lives in the Messages app, so the HUD just says a text arrived. */
+  _logBuddyText(cid, from, text) {
+    const thread = (this._buddyThreads[cid] ??= []);
+    thread.push({ text, from, mile: Math.round(this._odometer ?? 0) });
+    if (thread.length > 12) thread.shift();
+    this._showPopup('📱 New text — ' + from, '#9FE8FF');
+  }
+
+  // ── The Crush (the Girl) — relationship, not a cash faucet ──────────────
+  // Texting is FREE and once per town; text her each town to keep her warm.
+  // Skip a town and she cools to "…"; skip more than GIRL_MAX_SKIPS towns
+  // total and she's gone for the run.  Arrive at the party still together →
+  // GIRL_PARTY_BONUS (handled at the finish).  State lives in the save so the
+  // Messages app + the fresh-run reset both see it; `_girlTextPending` is the
+  // per-run "she's waiting for a text in the CURRENT town" flag.
+  /** Snapshot for the Messages app (window.__girl.status). */
+  _girlStatus() {
+    const s = this.registry.get('save');
+    const gone = s?.get?.('girlGone', false) === true;
+    const sent = s?.get?.('girlTexts', 0) ?? 0;
+    const skips = s?.get?.('girlSkips', 0) ?? 0;
+    return {
+      gone,
+      responded:  s?.get?.('girlResponded', false) === true,
+      sent,
+      everTexted: sent > 0,
+      canText:    !gone && !!this._girlTextPending,
+      skips,
+      skipsLeft:  Math.max(0, GIRL_MAX_SKIPS - skips),
+      thread:     (this._girlThread ?? []).slice(),
+    };
+  }
+
+  /** Log an incoming text FROM the Crush to the thread + a road notification.
+   *  `quiet` (the "…" silent-treatment bubbles) skips the loud popup. */
+  _girlMsg(text, quiet = false) {
+    (this._girlThread ??= []).push({ text, mile: Math.round(this._odometer ?? 0) });
+    if (this._girlThread.length > 12) this._girlThread.shift();
+    this._showPopup(quiet ? '💕 …' : '📱 New text — The Crush', quiet ? '#C9B6D8' : '#FF9FD0');
+  }
+
+  /** Player tapped "Text" in the Messages app.  Free, once per town.  Texting
+   *  3 towns in a row earns a miss-you reply. */
+  _girlText() {
+    const s = this.registry.get('save');
+    if (!s) return { ok: false, reason: 'nosave' };
+    if (s.get('girlGone', false) === true) return { ok: false, reason: 'gone' };
+    if (!this._girlTextPending)            return { ok: false, reason: 'soon' };  // already this town
+    s.set('girlTexts', (s.get('girlTexts', 0) ?? 0) + 1);
+    s.set('girlResponded', true);     // warm again (clears a "…" cool-down)
+    this._girlTextPending = false;    // satisfied this town
+    this._girlStreak = (this._girlStreak ?? 0) + 1;
+    if (this._girlStreak >= 3) {      // 3 towns in a row → they reply, miss you
+      this._girlStreak = 0;
+      this._girlMsg('ok i miss you 🥺 hurry uppp — people keep asking me to go to their party instead 👀');
+    }
+    return { ok: true };
+  }
+
+  /** Called when the player enters a NEW town (checkpoint).  If the relationship
+   *  is active and the town just left went un-texted, that's a skip → they cool
+   *  off and text you (annoyed → angry → silent "…"); past GIRL_MAX_SKIPS total
+   *  they find someone else. */
+  _girlOnNewTown() {
+    const s = this.registry.get('save');
+    if (!s || s.get('girlGone', false) === true) return;
+    const started = (s.get('girlTexts', 0) ?? 0) > 0;
+    if (started && this._girlTextPending) {
+      this._girlStreak = 0;           // a skip breaks the texting streak
+      const skips = (s.get('girlSkips', 0) ?? 0) + 1;
+      s.set('girlSkips', skips);
+      s.set('girlResponded', false);  // cools to "…"
+      if (skips > GIRL_MAX_SKIPS) {
+        s.set('girlGone', true);
+        this._girlMsg('forget it 💔 someone else is taking me to a party.');
+      } else if (skips === 1) {
+        this._girlMsg('hey?? did you forget about me already 🙄');
+      } else if (skips === 2) {
+        this._girlMsg('wow. not ONE text. cool cool cool 😤');
+      } else {
+        // skip 3 & 4 — the silent treatment: just "…" bubbles.
+        this._girlMsg('…', true);
+      }
+    }
+    this._girlTextPending = true;     // they're waiting for a text in the new town
+  }
+
+  /** Flashing cruiser lightbar overlay for the held traffic stop — alternates
+   *  a red half / blue half top band (plus soft side columns) ~5×/sec, the
+   *  reflection of the trooper parked behind you.  Drawn on the HUD layer so
+   *  it sits over the world but under the banner text. */
+  _drawTrapStopLights() {
+    const g = this._trapLightGfx;
+    if (!g) return;
+    g.clear();
+    this._trapLightWasOn = true;
+    const elapsed = COP_TRAP_HOLD_SEC - (this._trapStopHoldTimer ?? 0);
+    const redOn   = (Math.floor(elapsed * 5) % 2) === 0;   // swap ~5×/sec
+    const rA = redOn ? 0.40 : 0.12;
+    const bA = redOn ? 0.12 : 0.40;
+    const w = SCREEN_W, h = SCREEN_H, barH = h * 0.11;
+    // Top band: red over the left half, blue over the right half.
+    g.fillStyle(0xFF1E1E, rA); g.fillRect(0,       0, w * 0.5, barH);
+    g.fillStyle(0x2A5BFF, bA); g.fillRect(w * 0.5, 0, w * 0.5, barH);
+    // Soft side columns for a wraparound "lights filling the cabin" feel.
+    g.fillStyle(0xFF1E1E, rA * 0.6); g.fillRect(0,        0, w * 0.06, h);
+    g.fillStyle(0x2A5BFF, bA * 0.6); g.fillRect(w * 0.94, 0, w * 0.06, h);
   }
 
   /** Combined multiplier — strictly ADDITIVE, lands on a clean 0.5
@@ -13323,7 +14614,11 @@ export class GameScene extends Phaser.Scene {
     // additive `this.score += pts * _scoreMult()` callsite no-ops.
     if (Difficulty.noScore?.()) return 0;
     const mult = this.drugs.scoreMultiplier + (this.cops.starDisplay ?? 0);
-    return Math.round(mult * 2) / 2;
+    let m = Math.round(mult * 2) / 2;
+    // DUI penalty — a recent intoxicated traffic stop throttles ALL earnings
+    // to ×COP_DUI_EARN_MULT until the odometer passes the penalty mile.
+    if ((this._odometer ?? 0) < (this._duiEarnPenaltyMi ?? -1)) m *= COP_DUI_EARN_MULT;
+    return m;
   }
 
   /** Punchy display labels for each drug-line type — used by the spawner
@@ -13546,6 +14841,122 @@ export class GameScene extends Phaser.Scene {
     ].forEach(o => o?.setVisible(v));
     if (Array.isArray(this._titleLetters)) {
       this._titleLetters.forEach(img => img?.setVisible(v));
+    }
+  }
+
+  // ─── Player-profile plates (title screen) ────────────────────────────
+  // Three license plates on the left of the title = three independent
+  // player saves.  Tap a named plate to make that player active; tap a
+  // blank plate to name it (opens the DOM plate modal) and select it.
+  // The active player's plate is their rear-bumper tag + leaderboard name.
+  // Plate names are cleared only via Settings → Reset (per design).
+  _buildPlateSlots(d) {
+    const save = this.registry.get('save');
+    this._plateSlotObjs = [];
+    this._plateWidgets  = [];
+    if (!save?.slotInfo) return;
+
+    // Slots sized to the plate art's TRUE aspect (827:374 ≈ 2.21:1) so the
+    // plates aren't stretched — taller than the old 158×44 buttons.
+    const X = 16, W = 137, H = 62, GAP = 6;
+    // Center the 3-plate stack vertically between the top music/FF dock (~56)
+    // and the START / difficulty panel (panelY 350) — shifts it UP from the
+    // old Y0 150 so it reads centered against those button rows.
+    const Y0 = Math.round(56 + ((350 - 56) - (3 * H + 2 * GAP)) / 2);   // → 104
+    const hdr = this.add.text(X + W / 2, Y0 - 17, 'WHO’S DRIVING?', {
+      fontSize: '12px', fontFamily: 'Impact, "Arial Black", Arial, sans-serif',
+      color: '#E9F4FF', stroke: '#07111F', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(d + 12);
+    this._plateSlotObjs.push(hdr);
+
+    const count = save.slotCount ?? 3;
+    for (let i = 0; i < count; i++) {
+      const y = Y0 + i * (H + GAP);
+      const g = this.add.graphics().setDepth(d + 10);
+      // Plate art for a NAMED slot — aspect-correct, height-fit, centred in the
+      // row (texture is fixed per slot index; only visibility toggles).  Below
+      // the handle text, above the graphics face.
+      const plateKey = PLATE_KEYS[i] ?? PLATE_KEYS[0];
+      const img = this.textures.exists(plateKey)
+        ? this.add.image(X + W / 2, y + H / 2, plateKey).setDepth(d + 11).setVisible(false)
+        : null;
+      if (img) img.setDisplaySize(W, H);   // fill the whole slot (button-size)
+      const t = this.add.text(X + W / 2, y + H / 2, '', {
+        fontSize: '20px', fontFamily: '"Arial Black", Impact, sans-serif',
+        color: '#16233f', align: 'center',
+        stroke: '#FFFFFF', strokeThickness: 3,   // contrasting outline so the
+      }).setOrigin(0.5).setDepth(d + 12);          // handle reads over busy plate art
+      g.setInteractive(new Phaser.Geom.Rectangle(X, y, W, H), Phaser.Geom.Rectangle.Contains);
+      g.input.cursor = 'pointer';
+      g.on('pointerdown', (ptr) => { ptr.event?.stopPropagation?.(); this._onPlateSlotTap(i); });
+      this._plateWidgets.push({ g, t, img, x: X, y, w: W, h: H, index: i });
+      this._plateSlotObjs.push(g, t);
+      if (img) this._plateSlotObjs.push(img);
+    }
+    this._refreshPlateSlots();
+    // Track with the other title objects so the title show/hide toggle and
+    // the UI camera (text-only) both pick these up.
+    this._titleDifficultyBtns.push(...this._plateSlotObjs);
+  }
+
+  _refreshPlateSlots() {
+    const save = this.registry.get('save');
+    if (!save?.slotInfo || !this._plateWidgets) return;
+    const info   = save.slotInfo();
+    const active = save.activeSlot;
+    for (const wdg of this._plateWidgets) {
+      const slot     = info[wdg.index] || { used: false, plate: '' };
+      const isActive = wdg.index === active && slot.used;
+      const { g, t, img, x, y, w, h } = wdg;
+      g.clear();
+      // Every slot ALWAYS shows its fixed state plate (slot 0/1/2 → WA/OR/ID),
+      // filling the whole button-size slot.  Used → the handle in the number
+      // band; unused → "NEW".  Active player gets the gold-glow border.
+      if (img) {
+        img.setVisible(true);
+        g.lineStyle(isActive ? 4 : 2, isActive ? 0xFFD23F : 0x20304A, isActive ? 1 : 0.8);
+        g.strokeRoundedRect(x - 2, y - 2, w + 4, h + 4, 8);
+        if (isActive) {
+          g.lineStyle(1, 0xFFE98A, 0.9);
+          g.strokeRoundedRect(x, y, w, h, 7);
+        }
+      } else {
+        // No art available (texture missing) — fall back to the old face.
+        g.fillStyle(slot.used ? 0xECE7D5 : 0x121C2E, slot.used ? 1 : 0.92);
+        g.fillRoundedRect(x, y, w, h, 7);
+        g.lineStyle(isActive ? 4 : 2, isActive ? 0xFFD23F : 0x39506E, 1);
+        g.strokeRoundedRect(x, y, w, h, 7);
+      }
+      // Handle (used) or "NEW" (unused) in the plate's number band.
+      t.setScale(1);
+      t.setText(slot.used ? slot.plate : 'NEW');
+      t.setColor('#16233f');   // dark navy — legible on every plate's light number band
+      const maxW = w * 0.72;
+      if (t.width > maxW) t.setScale(maxW / t.width);
+      t.setPosition(x + w / 2, y + h * 0.60);
+    }
+  }
+
+  _onPlateSlotTap(i) {
+    if (!this._awaitingStart) return;   // only live while the title is up
+    const save = this.registry.get('save');
+    if (!save) return;
+    const selectAndRefresh = () => {
+      save.selectSlot?.(i);
+      this.registry.get('stats')?.reload?.();
+      this._refreshPlateSlots();
+    };
+    if (save.slotUsed?.(i)) {
+      selectAndRefresh();
+    } else {
+      // Blank slot → name it via the DOM modal, then make it active.
+      window.showPlateModal?.({
+        current: '',
+        onDone: (name) => {
+          save.setSlotPlate?.(i, name);
+          selectAndRefresh();
+        },
+      });
     }
   }
 
@@ -13847,8 +15258,25 @@ export class GameScene extends Phaser.Scene {
     this._addHudObjs(...objs);
   }
 
+  /** Start the radio at the earliest moment the browser allows.  All audio is
+   *  blocked until a user gesture, so the run can't auto-play music on load —
+   *  the START tap is the first legal gesture.  Called from _startGameplay (on
+   *  START) and again from fireFirstTap (first in-game input) as a fallback.
+   *  Inits on first call (which also arms the iOS native-gesture unlock),
+   *  resumes the context if an autoplay block suspended it, and never restarts
+   *  a song that's already playing.  Respects the mute toggle. */
+  _kickRadio() {
+    const a = this.audio;
+    if (!a) return;
+    if (!a.ready)                          a.init();             // first ever → inits + starts default station
+    else if (a._ctx?.state !== 'running') { a._enablePlayback?.(); a.play?.(); }  // resume after an autoplay block
+  }
+
   _startGameplay() {
     this._awaitingStart = false;
+    // Kick the radio NOW — this runs inside the START tap's gesture frame, the
+    // earliest point the browser permits audio (see _kickRadio).
+    this._kickRadio();
     // Fresh-run-only path — this is where a brand-new trip begins (rest-stop
     // resume + checkpoint respawn skip _startGameplay), so reset the per-trip
     // session and tick the lifetime trips-started counter here.
@@ -13859,11 +15287,22 @@ export class GameScene extends Phaser.Scene {
     // Space) flips the flag, the world starts scrolling, and gameTime
     // begins counting from that moment.
     this._awaitingFirstGameTap = true;
+    // First-ever run: ask the player to set their license plate (their
+    // name on the leaderboard).  DOM popup so the native keyboard is used;
+    // only shows when no plate is saved yet, so it appears exactly once.
+    if (window.__plate?.needsEntry?.()) window.showPlateModal?.();
     // Grace window — the START button's own pointerdown is currently
     // mid-dispatch, so any once-listener attached now would fire for
     // the same event and clear the flag immediately.  Delay listener
     // attachment past the event tick so only the NEXT input clears it.
-    const fireFirstTap = () => { this._awaitingFirstGameTap = false; };
+    const fireFirstTap = () => {
+      this._awaitingFirstGameTap = false;
+      // Fallback radio kick — _startGameplay already fired one on the START
+      // tap; this covers the case where that gesture frame didn't take (iOS
+      // routes Phaser input outside the native gesture frame).  No-ops if
+      // music is already running.
+      this._kickRadio();
+    };
     this.time.delayedCall(180, () => {
       this.input.once('pointerdown', fireFirstTap);
       // Either steering direction should kick the run off — previously
@@ -13902,22 +15341,22 @@ export class GameScene extends Phaser.Scene {
       this.score = 100000;
     }
     // Initialize/play radio on first user interaction (browser audio
-    // gate).  ARCADE (index 0) is the chiptune instrumental station —
-    // the default vibe when no other music is already playing.  But
-    // if the player started a song or a playlist from the iPhone-menu
-    // music app before launching, that selection takes priority — we
-    // do NOT switch them off it.
+    // gate).  PHONK (index 0) is the default station — the default vibe
+    // when no other music is already playing.  But if the player
+    // started a song or a playlist from the iPhone-menu music app
+    // before launching, that selection takes priority — we do NOT
+    // switch them off it.
     if (this.audio) {
       const customMusicPlaying =
         (!!this.audio._trackEl && !this.audio._trackEl.paused) ||
         (Array.isArray(this.audio._playlistQueue) && this.audio._playlistQueue.length > 0);
       if (!this.audio._inited) {
-        // First-ever init — default to ARCADE.
+        // First-ever init — default to PHONK.
         this.audio.currentStation = 0;
         this.audio.init?.();
         this.audio._inited = true;
       } else if (!customMusicPlaying) {
-        // No music currently playing — kick a fresh ARCADE track so
+        // No music currently playing — kick a fresh PHONK track so
         // Start Over / Checkpoint still drops the player into music
         // instead of silence.
         this.audio.currentStation = 0;
@@ -14012,9 +15451,115 @@ export class GameScene extends Phaser.Scene {
   _onArrested() {
     const cp         = this._lastCheckpoint;
     const earnedSince = Math.max(0, this.score - cp.scoreAtCP);
-    const lost        = Math.floor(earnedSince / 2);
+    let   lost        = Math.floor(earnedSince / 2);
+    // Lawyer on retainer → busted fine cut in half.
+    if (this.registry.get('save')?.get?.('lawyerRetained')) lost = Math.floor(lost * 0.5);
     this.score       -= lost;
     this._endGame('busted', { charge: 'DUI', losses: lost });
+  }
+
+  /** Speed-trap traffic stop (Stage 3) — assess the offense from the drug bars
+   *  AT THE TIME OF THE STOP.  Returns { dui, base }: `dui` = over the legal
+   *  limit (an intoxicated stop), `base` = the pre-lawyer fine.  Limit (sober):
+   *  alcohol < COP_DUI_ALCOHOL_LIMIT AND every OTHER drug < COP_DUI_DRUG_LIMIT.
+   *  Exception: with COP_DUI_MULTI_COUNT+ drugs active at once, EVERY drug
+   *  (alcohol included) must be < the stricter COP_DUI_MULTI_LIMIT. */
+  _assessTrafficStop() {
+    const ids = Object.values(DRUGS);
+    const lvl = (id) => this.drugs?.get?.(id) ?? 0;
+    const activeCount = ids.reduce((n, id) => n + (lvl(id) > 0 ? 1 : 0), 0);
+    let dui;
+    if (activeCount >= COP_DUI_MULTI_COUNT) {
+      dui = ids.some(id => lvl(id) >= COP_DUI_MULTI_LIMIT);
+    } else {
+      dui = lvl(DRUGS.ALCOHOL) >= COP_DUI_ALCOHOL_LIMIT
+         || ids.some(id => id !== DRUGS.ALCOHOL && lvl(id) >= COP_DUI_DRUG_LIMIT);
+    }
+    return { dui };
+  }
+
+  /** Resolve the held traffic stop (Stage 3): apply the lawyer discount, run
+   *  the bust checks, charge the fine, set the DUI earnings debuff, record the
+   *  stats, and surface the result.  A bust routes to GameOver; otherwise the
+   *  player pays up and drives off.  (Money == persisted score, so fines
+   *  subtract from score.) */
+  _issueTrafficTicket() {
+    const t = this._trapTicket;
+    this._trapTicket = null;
+    if (!t) { this._showPopup('✅ Ticket issued. Drive safe.', '#88FF88'); return; }
+
+    const hasLawyer = this.registry.get('save')?.get?.('lawyerRetained') === true;
+    // Fine = a fraction of current cash, capped at a dollar ceiling:
+    //   speeding = 50% of cash, max $300.   DUI = 100% of cash, max $10,000.
+    // Lawyer on retainer waives speeding and halves the DUI fine.  (The lawyer
+    // also halves arrest bail elsewhere — unchanged.)
+    const frac = t.dui ? COP_TICKET_DUI_FRAC : COP_TICKET_SPEEDING_FRAC;
+    const cap  = t.dui ? COP_TICKET_DUI_CAP  : COP_TICKET_SPEEDING_CAP;
+    let fine   = Math.min(cap, Math.round(Math.max(0, this.score) * frac));
+    if (hasLawyer) fine = t.dui ? Math.round(fine * 0.5) : 0;
+
+    // ── Bust: repeat-DUI suspended license. ────────────────────────────────
+    // Only intoxicated stops count toward the rolling COP_DUI_WINDOW_MI window;
+    // sober speeding tickets never suspend the license.  A DUI bust no longer
+    // ENDS the game — it sends the player back to the start (see
+    // _bustBackToStart).  The restart wipes the run, so no fine is charged here.
+    if (t.dui) {
+      const mi = this._odometer ?? 0;
+      this._duiStopMiles = (this._duiStopMiles ?? []).filter(m => m > mi - COP_DUI_WINDOW_MI);
+      this._duiStopMiles.push(mi);
+      const limit = hasLawyer ? COP_DUI_BUST_COUNT_LAWYER : COP_DUI_BUST_COUNT;
+      if (this._duiStopMiles.length >= limit) {
+        this.stats?.recordTrafficStop({ dui: true, amountPaid: 0, busted: true });
+        this._bustBackToStart();
+        return;
+      }
+    }
+
+    // ── No bust: pay the fine, set the DUI earnings debuff, drive off. ──────
+    this.score = Math.max(0, this.score - fine);
+    this.stats?.recordTrafficStop({ dui: t.dui, amountPaid: fine, busted: false });
+    if (t.dui) {
+      this._duiEarnPenaltyMi = (this._odometer ?? 0) + COP_DUI_EARN_MI;
+      this._showPopup(
+        (fine > 0 ? `🚔 DUI — −$${fine.toLocaleString()}` : '🚔 DUI — ⚖️ fine waived') +
+        `\nEarnings ×${COP_DUI_EARN_MULT} for ${COP_DUI_EARN_MI} mi`,
+        '#FF5C7A');
+    } else {
+      this._showPopup(
+        fine > 0 ? `🎫 Speeding ticket — −$${fine.toLocaleString()}\nDrive safe.`
+                 : '⚖️ Lawyer got the speeding ticket dropped.\nDrive safe.',
+        fine > 0 ? '#FFDD44' : '#88FF88');
+    }
+  }
+
+  /** DUI suspended-license outcome — NO LONGER a game-over.  Freeze the run,
+   *  show the BUSTED screen for 5 seconds, then restart from the very beginning
+   *  with the car already rolling (skipTitle).  The fresh run resets cash, HP,
+   *  and mileage to mile 0 — losing the run is the penalty, but the game keeps
+   *  going rather than dropping to the Game Over panel. */
+  _bustBackToStart() {
+    if (this._bustingToStart) return;
+    this._bustingToStart = true;            // update() freezes the world while shown
+    try { this.audio?.setPaused?.(true); } catch (_) {}
+    // Full-screen BUSTED screen (image if present, else a red wash) on the UI
+    // camera so world shake/sway can't move it.
+    const overlay = this.textures.exists('ui_end_busted_screen')
+      ? this.add.image(SCREEN_W / 2, SCREEN_H / 2, 'ui_end_busted_screen')
+          .setDisplaySize(SCREEN_W, SCREEN_H).setDepth(3000)
+      : this.add.rectangle(0, 0, SCREEN_W, SCREEN_H, 0x330000, 0.94)
+          .setOrigin(0).setDepth(3000);
+    const label = this.add.text(SCREEN_W / 2, SCREEN_H * 0.84,
+      'BUSTED — SUSPENDED LICENSE\nBack to the start…', {
+        fontSize: '22px', fontFamily: IMPACT, color: '#FF5C7A',
+        stroke: '#000000', strokeThickness: 5, align: 'center',
+      }).setOrigin(0.5).setDepth(3001);
+    this._hudObjects?.push(overlay, label);
+    this.cameras.main?.ignore?.([overlay, label]);
+    // 5-second hold, then a fresh rolling run from mile 0.
+    this.time.delayedCall(5000, () => {
+      try { this.audio?.setPaused?.(false); } catch (_) {}
+      this.scene.start('Game', { skipTitle: true });
+    });
   }
 
   /** Overdose handler — freezes the last frame and fades into the
@@ -14058,7 +15603,9 @@ export class GameScene extends Phaser.Scene {
       this._restartModalOpen = true;
       const cp = this._lastCheckpoint ?? { position: 0, scoreAtCP: 0 };
       const earnedSince = Math.max(0, this.score - (cp.scoreAtCP ?? 0));
-      const lost        = Math.floor(earnedSince / 2);
+      let   lost        = Math.floor(earnedSince / 2);
+      // Lawyer on retainer → busted fine cut in half.
+      if (this.registry.get('save')?.get?.('lawyerRetained')) lost = Math.floor(lost * 0.5);
       this.score        = Math.max(0, this.score - lost);
       this._showPopup(`💀 Cash penalty: −$${lost.toLocaleString()}`, '#FF4444');
       // Open slider modal in restart mode after a brief beat.

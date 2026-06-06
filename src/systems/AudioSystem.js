@@ -9,6 +9,16 @@
 // in per-genre subfolders.  Stations whose name doesn't appear here
 // keep their procedural sound.
 const STATION_TRACKS = {
+  'PHONK': [
+    'assets/music/phonk/2_am_gas.mp3',
+    'assets/music/phonk/cocktails.mp3',
+    'assets/music/phonk/death_grip.mp3',
+    'assets/music/phonk/headlights_gone.mp3',
+    'assets/music/phonk/party_run.mp3',
+    'assets/music/phonk/passenger_princess.mp3',
+    'assets/music/phonk/smoke_sparks.mp3',
+    'assets/music/phonk/toxic_cadence.mp3',
+  ],
   'ARCADE': [
     'assets/music/arcade/8-bit_bounce.mp3',
     'assets/music/arcade/90s_kid.mp3',
@@ -37,6 +47,7 @@ const STATION_TRACKS = {
     'assets/music/classic_rock/acid_picnic_at_vantage.mp3',
     'assets/music/classic_rock/free_love_motel.mp3',
     'assets/music/classic_rock/rain_on_the_ferry.mp3',
+    'assets/music/classic_rock/sirens_call.mp3',
     'assets/music/classic_rock/snoqualmie_moon.mp3',
     'assets/music/classic_rock/the_last_beer_in_ritzville.mp3',
     'assets/music/classic_rock/through_the_palouse.mp3',
@@ -88,10 +99,29 @@ const STATION_TRACKS = {
     'assets/music/reggae/pull_up.mp3',
     'assets/music/reggae/rum_revolution.mp3',
   ],
+  'METAL': [
+    'assets/music/metal/cascade_storm.mp3',
+    'assets/music/metal/gas_station_saints.mp3',
+    'assets/music/metal/last_exit.mp3',
+    'assets/music/metal/neon_poison.mp3',
+    'assets/music/metal/road_queen.mp3',
+    'assets/music/metal/sirens_call.mp3',
+  ],
 };
 
 const STATIONS = [
-  // ── ARCADE — chiptune-style instrumentals, default for new runs ─────
+  // ── PHONK — drift-phonk MP3s, default station (index 0) for new runs ─
+  // Procedural fallback fields are silent; real MP3s drive playback.
+  {
+    name: 'PHONK', color: '#E11D48', bpm: 145,
+    melody: { type: 'triangle', notes: [0,0,0,0], gain: 0.0 },
+    bass:   { notes: [0], gain: 0.0 },
+    drums:  { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+              snare:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+              hat:  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
+  },
+
+  // ── ARCADE — chiptune-style instrumentals ──────────────────────────
   // Procedural fallback fields are silent; real MP3s drive playback.
   {
     name: 'ARCADE', color: '#33DD66', bpm: 132,
@@ -379,6 +409,18 @@ const STATIONS = [
               snare:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
               hat:  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
   },
+
+  // ── METAL — real-track only.  Procedural fields silent fallback. ────
+  // Appended last so existing station indices (PHONK=0 default, etc.) are
+  // unchanged.
+  {
+    name: 'METAL', color: '#9FB2C4', bpm: 150,
+    melody: { type: 'triangle', notes: [0,0,0,0], gain: 0.0 },
+    bass:   { notes: [0], gain: 0.0 },
+    drums:  { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+              snare:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+              hat:  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
+  },
 ];
 
 // Annotate each station with its track list (if any).  Procedural-only
@@ -397,10 +439,15 @@ export class AudioSystem {
     this._schedTimer   = null;
     this._nextStepTime = 0;
     this._currentStep  = 0;
-    // Default radio station: ARCADE (index 0) — chiptune instrumentals
-    // play when a fresh run starts.
+    // Default radio station: PHONK (index 0) — drift-phonk MP3s play
+    // when a fresh run starts.
     this.currentStation = 0;
     this.muted         = false;
+    // Music-app pause (distinct from game-pause `paused`, which only ducks
+    // volume).  When true, the scheduler stops synthesizing AND any real
+    // track element is held paused — so the music genuinely stops until the
+    // user un-pauses from the phone-menu Music app.
+    this._musicPaused  = false;
     this.volume        = 0.20;
     this.ready         = false;
 
@@ -609,6 +656,9 @@ export class AudioSystem {
       if ((STATIONS[i].tracks ?? []).includes(url)) {
         this.currentStation = i;
         this._trackIdx = STATIONS[i].tracks.indexOf(url);
+        // Start a fresh genre playlist from this song; the rest of the genre
+        // plays out before rolling to the next genre.
+        this._genrePlayed   = new Set([this._trackIdx]);
         this._currentStep   = 0;
         this._songBarsTotal = 0;
         this._songPhase     = 'play';
@@ -649,7 +699,10 @@ export class AudioSystem {
     const st = STATIONS[this.currentStation];
     const hasTracks = st?.tracks && st.tracks.length > 0;
     if (hasTracks) {
-      this._trackIdx = Math.floor(Math.random() * st.tracks.length);
+      this._trackIdx    = Math.floor(Math.random() * st.tracks.length);
+      // Fresh genre playlist — track which songs have played so we can roll on
+      // to the NEXT genre once every track in this one has had a turn.
+      this._genrePlayed = new Set([this._trackIdx]);
       this._startTrack(st.tracks[this._trackIdx]);
     } else {
       this._stopTrack();
@@ -746,6 +799,22 @@ export class AudioSystem {
     }
   }
 
+  /** Current track position + length (seconds) for the music scrubber.
+   *  Returns null when nothing is playing or the length isn't known yet. */
+  trackProgress() {
+    const el = this._trackEl;
+    if (!el || !isFinite(el.duration) || el.duration <= 0) return null;
+    return { time: el.currentTime || 0, duration: el.duration, name: this.currentName ?? '' };
+  }
+
+  /** Seek the current track to a 0..1 fraction of its length. */
+  seekTrackFrac(frac) {
+    const el = this._trackEl;
+    if (!el || !isFinite(el.duration) || el.duration <= 0) return false;
+    try { el.currentTime = Math.max(0, Math.min(1, frac)) * el.duration; return true; }
+    catch (_) { return false; }
+  }
+
   _onTrackEnded() {
     // Safety brake against tight infinite recursion when every URL in
     // a station / playlist fails (404, CORS, decode error).  Each fail
@@ -777,15 +846,45 @@ export class AudioSystem {
     }
     const st = STATIONS[this.currentStation];
     if (!st?.tracks?.length) { this._stopTrack(); return; }
-    // Advance to a different track (avoid replaying the same file).
-    let next = this._trackIdx;
-    if (st.tracks.length > 1) {
-      while (next === this._trackIdx) {
-        next = Math.floor(Math.random() * st.tracks.length);
-      }
+    // Mark the just-finished song as played, then pick a track we HAVEN'T
+    // played yet this genre.  Once every track has had a turn the genre's
+    // playlist is done → roll on to the next genre.
+    const played = (this._genrePlayed ??= new Set([this._trackIdx]));
+    played.add(this._trackIdx);
+    const remaining = [];
+    for (let i = 0; i < st.tracks.length; i++) if (!played.has(i)) remaining.push(i);
+    if (!remaining.length) {
+      this._advanceToNextGenre();
+      return;
     }
+    const next = remaining[Math.floor(Math.random() * remaining.length)];
+    played.add(next);
     this._trackIdx = next;
     this._startTrack(st.tracks[next]);
+  }
+
+  /** Genre playlist exhausted — advance to the NEXT station that has real
+   *  tracks and start a fresh playlist there, wrapping past the last genre
+   *  back to the first.  (All current stations have tracks; the skip loop just
+   *  guards any future procedural-only station.) */
+  _advanceToNextGenre() {
+    const n = STATIONS.length;
+    for (let step = 1; step <= n; step++) {
+      const idx = (this.currentStation + step) % n;
+      if ((STATIONS[idx].tracks ?? []).length) {
+        this.currentStation = idx;
+        // Match nextStation()'s fresh-song reset so state stays clean and the
+        // music-app UI reflects the new genre.
+        this._currentStep   = 0;
+        this._songBarsTotal = 0;
+        this._songPhase     = 'play';
+        this._trackIdx      = Math.floor(Math.random() * STATIONS[idx].tracks.length);
+        this._genrePlayed   = new Set([this._trackIdx]);
+        this._startTrack(STATIONS[idx].tracks[this._trackIdx]);
+        return;
+      }
+    }
+    this._stopTrack();   // nothing has tracks
   }
 
   /** Public: skip to the next track on the current station.  No-op on
@@ -817,7 +916,7 @@ export class AudioSystem {
    *  directly so the perceptual curve and mute logic stay aligned. */
   _applyMasterGain() {
     if (!this._master) return;
-    this._master.gain.value = this.muted ? 0 : AudioSystem.volumeToGain(this.volume);
+    this._master.gain.value = (this.muted || this._musicPaused) ? 0 : AudioSystem.volumeToGain(this.volume);
   }
 
   setPaused(paused) {
@@ -862,6 +961,22 @@ export class AudioSystem {
     this.muted = !this.muted;
     this._applyMasterGain();
   }
+
+  /** Music-app pause/resume — HOLDS the music (stops the scheduler + any
+   *  real track) until un-paused, unlike setPaused() which just ducks. */
+  setMusicPaused(p) {
+    this._musicPaused = !!p;
+    if (p) {
+      try { this._trackEl?.pause(); } catch (_) {}
+    } else {
+      try { if (this._ctx?.state === 'suspended') this._ctx.resume(); } catch (_) {}
+      if (this._trackEl) { try { this._trackEl.play().catch(() => {}); } catch (_) {} }
+    }
+    // Force the master gain to 0 while paused so it's silent regardless of
+    // source (procedural voices, lingering tails, track) — restored on resume.
+    this._applyMasterGain();
+  }
+  get musicPaused() { return !!this._musicPaused; }
 
   get currentName()  { return STATIONS[this.currentStation].name; }
   get currentColor() { return STATIONS[this.currentStation].color; }
@@ -986,7 +1101,7 @@ export class AudioSystem {
   }
 
   _runScheduler() {
-    if (!this._ctx || this.muted || this.paused) return;
+    if (!this._ctx || this.muted || this.paused || this._musicPaused) return;
     // Skip procedural synthesis entirely when a real track is playing —
     // otherwise both would layer on top of each other.
     if (this._trackEl && !this._trackEl.paused) return;

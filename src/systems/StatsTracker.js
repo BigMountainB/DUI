@@ -74,6 +74,10 @@ function defaultStats() {
     sexWorkers:  { total: 0, bribes: 0 },
     // Times robbed + total cash taken (hitchhiker robs + gas-pump robbery).
     robberies:   { count: 0, amount: 0 },
+    // Speed-trap traffic stops (Stage 3): sober speeding tickets vs DUIs,
+    // dollars paid in fines, and times a stop ended in a bust (suspended
+    // license or couldn't afford the fine).
+    police:      { tickets: 0, duis: 0, finesPaid: 0, busts: 0 },
 
     // Total time spent in gameplay across ALL modes (incl. custom/sandbox).
     // lifetime.driveTimeSec counts only ranked runs, so the difference here
@@ -137,17 +141,22 @@ function deepFill(base, src) {
 export class StatsTracker {
   constructor(saveSystem) {
     this._save = saveSystem;
+    this.reload();
+    this.session = emptySession();
+  }
 
-    // Build the canonical shape, fill it with whatever was persisted, and
-    // write it back once so the on-disk save always carries the full schema.
+  /** (Re)bind to the ACTIVE player slot's stats bucket.  Builds the
+   *  canonical shape, fills it with whatever that slot persisted, writes it
+   *  back once (so the on-disk save carries the full schema), and re-points
+   *  the live `this.stats` reference.  Call after the active slot changes so
+   *  hot-path mutations land in the new player's save, not the previous one. */
+  reload() {
     const merged = deepFill(defaultStats(), this._save.get('stats', {}));
     merged.schemaVersion = SCHEMA_VERSION;
     this._save.set('stats', merged);     // persists once (full shape)
-
-    // Live reference into the save's global bucket — hot-path mutations land
-    // here directly; flush() pushes the whole save to localStorage.
-    this.stats   = this._save.get('stats');
-    this.session = emptySession();
+    // Live reference into the active slot's global bucket — hot-path
+    // mutations land here directly; flush() pushes the whole save out.
+    this.stats = this._save.get('stats');
   }
 
   // ── Small helpers ───────────────────────────────────────────────────────
@@ -195,6 +204,7 @@ export class StatsTracker {
         rec.fastestCompletionSec = timeSec;
       }
     }
+    this.recordRun({ score, miles, timeSec, completed: true });
     this.flush();
     return this.summarize({ score, miles, timeSec, completed: true });
   }
@@ -207,8 +217,29 @@ export class StatsTracker {
       if (score > rec.bestScore) rec.bestScore = score;
       if (miles > rec.mostMilesRun) rec.mostMilesRun = miles;
     }
+    this.recordRun({ score, miles, timeSec, completed: false });
     this.flush();
     return this.summarize({ score, miles, timeSec, completed: false });
+  }
+
+  /** Append a finished run to the LOCAL leaderboard bucket (the per-device
+   *  run history).  Kept to the top 50 by score so "Your Runs" stays a
+   *  meaningful comparison.  Sandbox/custom runs are not recorded.  Does NOT
+   *  flush — the trip-end caller flushes right after. */
+  recordRun({ score = 0, miles = 0, timeSec = 0, completed = false } = {}) {
+    if (!this.ranked) return;
+    const lb = this._save.get('leaderboard', { runs: [] }) || { runs: [] };
+    lb.runs = lb.runs || [];
+    lb.runs.push({
+      score:     Math.round(score),
+      miles:     Math.round(miles),
+      timeSec:   Math.round(timeSec),
+      completed: !!completed,
+      ts:        Date.now(),
+    });
+    lb.runs.sort((a, b) => (b.score || 0) - (a.score || 0));
+    if (lb.runs.length > 50) lb.runs.length = 50;
+    this._save.set('leaderboard', lb);
   }
 
   /** Snapshot of the current trip — feeds "this trip" UI and run records. */
@@ -307,6 +338,16 @@ export class StatsTracker {
       this._bump(this.stats.robberies, 'amount', amount);
       this._bump(this.session, 'robbedAmount', amount);
     }
+  }
+
+  /** Speed-trap traffic stop resolved (Stage 3).  `dui` = intoxicated stop
+   *  vs a plain speeding ticket; `amountPaid` = fine subtracted from score;
+   *  `busted` = the stop ended the run (suspended license / couldn't pay). */
+  recordTrafficStop({ dui = false, amountPaid = 0, busted = false } = {}) {
+    if (!this.ranked) return;
+    this._bump(this.stats.police, dui ? 'duis' : 'tickets');
+    if (amountPaid > 0) this._bump(this.stats.police, 'finesPaid', amountPaid);
+    if (busted) this._bump(this.stats.police, 'busts');
   }
 
   // ── Money in/out ────────────────────────────────────────────────────────

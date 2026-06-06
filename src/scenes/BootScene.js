@@ -113,6 +113,12 @@ export class BootScene extends Phaser.Scene {
     this.registry.set('wallet',       wallet);
     this.registry.set('stats',        stats);
 
+    // Apply the player's chosen default radio station (Music app) on boot.
+    const _defStation = save.get('settings.radio', 0);
+    if (Number.isInteger(_defStation) && _defStation > 0) {
+      this.registry.get('audio')?.setStation?.(_defStation);
+    }
+
     // Boot straight into GameScene — its own title overlay handles the
     // pre-start intro, so the road style is identical to gameplay (same
     // Road class, same painted asphalt) with no jarring scene transition.

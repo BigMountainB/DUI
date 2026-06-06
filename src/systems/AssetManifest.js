@@ -211,6 +211,10 @@ export const ASSET_MANIFEST = {
     { key: 'east_wa_herd_3_cows', path: 'assets/rural/eastern_washington/east_wa_herd_3_cows.webp' },
     { key: 'east_wa_herd_5_cows', path: 'assets/rural/eastern_washington/east_wa_herd_5_cows.webp' },
     { key: 'east_wa_herd_6_cows', path: 'assets/rural/eastern_washington/east_wa_herd_6_cows.webp' },
+    // Tumbleweeds — roll across the road through the Vantage crosswind zone.
+    { key: 'tumbleweed_1', path: 'assets/rural/eastern_washington/tumbleweed_1.png' },
+    { key: 'tumbleweed_2', path: 'assets/rural/eastern_washington/tumbleweed_2.png' },
+    { key: 'tumbleweed_3', path: 'assets/rural/eastern_washington/tumbleweed_3.png' },
     { key: 'east_wa_fence_post',   path: 'assets/rural/eastern_washington/east_wa_fence_post.webp' },
     { key: 'east_wa_utility_pole_plain', path: 'assets/rural/eastern_washington/east_wa_utility_pole_plain.webp' },
     { key: 'east_wa_utility_pole_transformer', path: 'assets/rural/eastern_washington/east_wa_utility_pole_transformer.webp' },
@@ -251,6 +255,7 @@ export const ASSET_MANIFEST = {
     { key: 'sign_V',  path: 'assets/businesses/sign_V.png'  },
     { key: 'sign_Y',  path: 'assets/businesses/sign_Y.png'  },
     { key: 'sign_O',  path: 'assets/businesses/sign_O.png'  },
+    { key: 'sign_H',  path: 'assets/businesses/sign_H.png'  },
     { key: 'sign_W',  path: 'assets/businesses/sign_W.png'  },
     { key: 'sign_L',  path: 'assets/businesses/sign_L.png'  },
     { key: 'sign_CO', path: 'assets/businesses/sign_CO.png' },
@@ -319,6 +324,12 @@ export const ASSET_MANIFEST = {
     { key: 'ui_end_crashed_neon', path: 'assets/ui/end_crashed_neon.webp' },
     { key: 'ui_end_overdose_neon', path: 'assets/ui/end_overdose_neon.webp' },
     { key: 'ui_end_busted_screen', path: 'assets/ui/end_busted_screen.webp' },
+    // License-plate art — one US state plate per save slot (slot 0/1/2 →
+    // WA/OR/ID).  Used on the title-screen "WHO'S DRIVING?" slots AND on the
+    // active player's car rear bumper.  827×374 source, shipped at 480×218.
+    { key: 'plate_wa',           path: 'assets/ui/plates/plate_wa.png' },
+    { key: 'plate_or',           path: 'assets/ui/plates/plate_or.png' },
+    { key: 'plate_id',           path: 'assets/ui/plates/plate_id.png' },
     // Gas-gauge HUD swap.  Full pump shows above 30 mi remaining,
     // empty pump shows once the tank is at 30 mi or less.
     { key: 'ui_gas_full',        path: 'assets/ui/gas_full.png' },
@@ -339,11 +350,10 @@ export const ASSET_MANIFEST = {
     // Full-frame neon/rain title treatment. Runtime copy is sized to the
     // 800x450 game viewport; the authored full-size PNG stays in Images/.
     { key: 'ui_title_screen',     path: 'assets/ui/title_screen.webp' },
-    // Title-screen letters — animated independently for a drunk/woozy
-    // sway+fade effect on the intro overlay.  See GameScene._buildHUD.
-    { key: 'ui_title_d',         path: 'assets/ui/title_d.png' },
-    { key: 'ui_title_u',         path: 'assets/ui/title_u.png' },
-    { key: 'ui_title_i',         path: 'assets/ui/title_i.png' },
+    // (Removed ui_title_d / ui_title_u / ui_title_i — the old per-letter intro
+    //  art was deleted in the title overhaul; the manifest entries pointed at
+    //  missing files and threw "Failed to process file" + a WebGL texImage2D
+    //  out-of-range error every load.  The title now uses ui_title_screen.)
   ],
 };
 

@@ -39,6 +39,12 @@ export class Road {
         screenW: 0, scale:   0, valid:   false, visible: false,
       };
     }
+    // Per-frame prefix-min of the terrain silhouette: crestMinY[n] = the
+    // smallest screenY (highest painted ground) among VISIBLE surface
+    // samples STRICTLY nearer than boundary n.  crestClipY() reads this so
+    // a scenery structure beyond a hill crest gets its lower half clipped
+    // at the crest line instead of floating.  Rebuilt each frame.
+    this._crestMinY = new Float32Array(DRAW_DIST + 1);
     this._drawnByN = new Array(DRAW_DIST);
     // Pre-allocated polyline points for the shoulder ribbons.  Sized
     // for the worst case (every boundary visible).  Reused frame-to-
@@ -889,15 +895,14 @@ export class Road {
       if (mx - mw < 0)        drawPeak(mx + SCREEN_W, mw, mh, nearColor, true);
     }
 
-    // Horizon haze band — sky-side only.  Previously this extended 14 px
-    // BELOW the horizon as a "fail-safe world fill", but the resulting
-    // sky-tinted bar sat directly under far building sprite bases (which
-    // anchor at H()) and read as a shelf the buildings were floating on
-    // top of — especially noticeable in cockpit mode where the horizon
-    // sits higher on screen.  The void-fill role is already covered by
-    // the grass / water-band branches below.
-    g.fillStyle(palette.horizon, 0.82);
-    g.fillRect(-MARGIN, H() - 14, W, 14);
+    // Horizon haze band REMOVED.  It was a 14px palette.horizon strip at
+    // 0.82 alpha just above the horizon, but the sky gradient above already
+    // paints down to H()+14 with the near-horizon fog colour (skyFogMix), so
+    // the band was redundant — it only re-tinted an already-painted strip and
+    // added a hard-edged "shelf" seam that cut across distant building/tree
+    // bases (visible in West Seattle + the Vantage desert).  Dropping it
+    // leaves the clean sky→ground horizon; the void-fill role it once had is
+    // covered by the sky gradient above and the grass / water bands below.
 
     // ── Lake Sammamish — visible on the LEFT during mile 15-16,
     // behind the houses, tucked just under the horizon line so it
@@ -1180,6 +1185,20 @@ export class Road {
     // We store projected data so we can draw far→near
     const drawn = [];
 
+    // Issaquah valley fog (mile 14-25): pull the distance haze far closer
+    // and lay a soft wash over even the nearest segments so the road melts
+    // into a pale wall ahead — a strong sense-of-depth cue through the basin.
+    // Zero outside the fog window, so distance fog is unchanged everywhere
+    // else.  (_mileNow + Weather are already in scope from the top of render.)
+    // Kept GENTLE on purpose: a hard exponent pull-in makes adjacent
+    // per-segment fog rects (painted full-width at 3469) jump enough in
+    // alpha to read as horizontal step-lines across the distant scenery.
+    // The heavy "socked-in" look is carried by the SMOOTH screen-space haze
+    // in EffectsSystem instead; here we only add a soft distant fade.
+    const _fogZone  = Weather.isFog(_mileNow) ? Weather.intensity(_mileNow) : 0;
+    const _fogExp   = FOG_DENSITY - 1.5 * _fogZone;   // 4 → ~2.5 in full fog (thicker; still gentle enough to avoid step-lines)
+    const _fogFloor = 0.20 * _fogZone;                // stronger near-seg wash
+
     for (let n = 0; n < DRAW_DIST; n++) {
       const segIdx = (startSegIdx + n) % this.segments.length;
       const seg    = this.segments[segIdx];
@@ -1197,8 +1216,10 @@ export class Road {
 
       if (!p || p.y < 0) continue;
 
-      // Fog: 0 = no fog, 1 = fully fogged
-      const fog = Math.min(1, Math.pow(n / DRAW_DIST, FOG_DENSITY));
+      // Fog: 0 = no fog, 1 = fully fogged.  Exponent + floor lift in the
+      // Issaquah fog zone (see _fogZone above) so the haze fills the basin.
+      let fog = Math.min(1, Math.pow(n / DRAW_DIST, _fogExp));
+      if (_fogFloor > 0) fog = Math.min(1, fog + _fogFloor * (1 - fog));
 
       // Slope offset — relative to the pivot at PLAYER_VIRTUAL_Z so
       // the road UNDER the visual player car stays planted on slopes.
@@ -1425,6 +1446,33 @@ export class Road {
         const left  = n > 0         ? dByN[n - 1] : null;
         const right = n < DRAW_DIST ? dByN[n]     : null;
         s.visible = !!(left?.visible || right?.visible);
+      }
+      // Terrain-silhouette prefix-min for per-sprite crest occlusion.
+      // crestMin[n] = highest painted ground (min screenY) among VISIBLE
+      // FLAT-OR-CLIMBING samples strictly nearer than n.  On flat / climbing
+      // ground nearer samples sit LOWER (larger Y) than a far structure, so
+      // crestMin stays below the structure's base → nothing clips.  Only
+      // BEYOND a real crest does a nearer sample rise above the structure,
+      // and crestClipY hands that Y to the renderer, which clips the sprite's
+      // bottom to it.
+      //
+      // GRADE GUARD (same lesson as the reverted band occluder): a steep
+      // DESCENT — e.g. the West Seattle hilltop dropping toward the bridge —
+      // gets a downhill pitch-boost that can project the nearer road HIGHER
+      // on screen than the far road, a pure looking-down artifact, NOT a hill
+      // in front.  Letting those samples lower crestMin would slice the bases
+      // of houses down the slope (the prior bottom-crop failure).  So only
+      // flat-or-climbing segments (grade > CREST_MIN_GRADE) form an occluder.
+      const CREST_MIN_GRADE = -0.004;
+      const crestMin = this._crestMinY;
+      let _runMinY = Infinity;
+      for (let n = 0; n <= DRAW_DIST; n++) {
+        crestMin[n] = _runMinY;
+        const s = samples[n];
+        if (!s.valid || s.visible === false) continue;
+        const d = dByN[n] ?? (n > 0 ? dByN[n - 1] : null);
+        if ((d?.seg?.gradePct ?? 0) <= CREST_MIN_GRADE) continue;   // descent → not an occluder
+        if (s.screenY < _runMinY) _runMinY = s.screenY;
       }
     }
 
@@ -1978,6 +2026,93 @@ export class Road {
     g.fillPoints(leftPiece, true);
     g.fillPoints(rightPiece, true);
 
+    // Normal highway portals otherwise read as one flat slab from a distance.
+    // Use BIG graphic shapes first (visible at bridge approach scale), then
+    // smaller seams/rocks as texture.
+    if (!isWildlifeFacade && sH > 0.018) {
+      const wallL = Math.max(-150, baseLeftX);
+      const wallR = Math.min(SCREEN_W + 150, baseRightX);
+      const wallW = wallR - wallL;
+      const faceTop = Math.min(crestY + dropY * 0.18, lintelY - archThk * 0.25);
+      const faceBot = groundY;
+      const lowerH = Math.max(8, Math.min(42, dropY * 0.30));
+
+      const drawWallBand = (y, h, color, alpha) => {
+        if (h <= 0) return;
+        g.fillStyle(color, alpha);
+        if (!cutMouth || y + h <= archTopY || y >= groundY) {
+          g.fillRect(wallL, y, wallW, h);
+          return;
+        }
+        g.fillRect(wallL, y, Math.max(0, outerL - wallL), h);
+        g.fillRect(outerR, y, Math.max(0, wallR - outerR), h);
+      };
+
+      // Large horizontal pour courses across the exterior wall. These are
+      // intentionally chunky: tiny texture disappears at the bridge approach,
+      // but broad bands make the tan facade read as engineered concrete.
+      const courseH = Math.max(2, Math.min(10, dropY * 0.045));
+      const yCourse1 = faceTop + dropY * 0.20;
+      const yCourse2 = faceTop + dropY * 0.38;
+      const yCourse3 = faceTop + dropY * 0.56;
+      drawWallBand(yCourse1, courseH, 0x9E9788, 0.62);
+      drawWallBand(yCourse1 + courseH, Math.max(1, courseH * 0.35), 0xD1CAB5, 0.55);
+      drawWallBand(yCourse2, courseH, 0x938D80, 0.58);
+      drawWallBand(yCourse2 + courseH, Math.max(1, courseH * 0.35), 0xD1CAB5, 0.50);
+      drawWallBand(yCourse3, courseH, 0x8B8579, 0.56);
+      drawWallBand(yCourse3 + courseH, Math.max(1, courseH * 0.35), 0xD1CAB5, 0.45);
+
+      // Stronger lower retaining-wall band. This breaks the huge beige shape
+      // into "upper hillside/concrete" + "engineered wall" at a glance.
+      g.fillStyle(0x8F897B, 0.92);
+      if (!cutMouth) {
+        g.fillRect(wallL, faceBot - lowerH, wallW, lowerH);
+      } else {
+        g.fillRect(wallL, faceBot - lowerH, Math.max(0, outerL - wallL), lowerH);
+        g.fillRect(outerR, faceBot - lowerH, Math.max(0, wallR - outerR), lowerH);
+      }
+      g.fillStyle(0xD1CAB5, 0.85);
+      g.fillRect(wallL, faceBot - lowerH, wallW, Math.max(2, lowerH * 0.10));
+
+      // Dark toe / shoreline band at the base, with small riprap blocks where
+      // bridge water meets the retaining wall.
+      const toeH = Math.max(3, Math.min(18, dropY * 0.13));
+      g.fillStyle(0x514D45, 0.95);
+      g.fillRect(wallL, faceBot - toeH, wallW, toeH);
+      const rockW = Math.max(2, 8500 * sW);
+      const rockH = Math.max(1, toeH * 0.55);
+      if (rockW >= 2.5 && wallW > rockW * 3) {
+        for (let rx = wallL; rx < wallR; rx += rockW * 1.45) {
+          if (cutMouth && rx > outerL - rockW && rx < outerR + rockW) continue;
+          const rowLift = ((Math.floor(rx / Math.max(1, rockW)) & 1) ? 0.18 : 0.52) * toeH;
+          g.fillStyle(0x46443E, 0.78);
+          g.fillRect(rx, faceBot - rowLift - rockH, rockW, rockH);
+        }
+      }
+
+      // Panel seams / pour joints.  Keep them subtle and skip the mouth so
+      // they don't draw across the opening.
+      const seamSpacing = Math.max(12, 32000 * sW);
+      const seamAlpha = clamp(rimAlpha * 0.62, 0.28, 0.58);
+      if (seamSpacing >= 9 && wallW > seamSpacing * 1.4) {
+        g.fillStyle(0x6F685C, seamAlpha);
+        for (let sx = wallL + seamSpacing; sx < wallR; sx += seamSpacing) {
+          if (cutMouth && sx > outerL && sx < outerR) continue;
+          const tHill = Math.min(1, Math.abs(sx - centerX) / Math.max(1, (baseRightX - baseLeftX) * 0.5));
+          const surfaceY = Math.max(faceTop, crestY + tHill * dropY + dropY * 0.035);
+          g.fillRect(Math.floor(sx), surfaceY, Math.max(1, seamSpacing * 0.035), Math.max(1, faceBot - toeH - surfaceY));
+        }
+        g.fillStyle(0x615A50, seamAlpha);
+        const hSeamY = Math.max(faceTop + 1, faceBot - lowerH);
+        if (!cutMouth) {
+          g.fillRect(wallL, hSeamY, wallW, Math.max(1, lowerH * 0.10));
+        } else {
+          g.fillRect(wallL, hSeamY, Math.max(0, outerL - wallL), Math.max(1, lowerH * 0.10));
+          g.fillRect(outerR, hSeamY, Math.max(0, wallR - outerR), Math.max(1, lowerH * 0.10));
+        }
+      }
+    }
+
     // Subtle vertical shading band on the LEFT slope for depth.
     // Skipped for wildlife (two mounds make a "valley" shading look
     // weird; the rim band already does the job).
@@ -2008,6 +2143,21 @@ export class Road {
       ];
       g.fillStyle(0xCFC9B6, rimAlpha);
       g.fillPoints(rimBand, true);
+      if (!isWildlifeFacade) {
+        const capDrop = Math.max(2, dropY * 0.022);
+        const capBand = [
+          ...upper,
+          ...upper.slice().reverse().map(p => ({ x: p.x, y: p.y + capDrop })),
+        ];
+        g.fillStyle(0x7F796D, 0.70);
+        g.fillPoints(capBand, true);
+        const hiBand = [
+          ...upper,
+          ...upper.slice().reverse().map(p => ({ x: p.x, y: p.y + Math.max(1, capDrop * 0.28) })),
+        ];
+        g.fillStyle(0xDED6C0, 0.55);
+        g.fillPoints(hiBand, true);
+      }
     }
 
     // Mouth decoration — arch ring for wildlife, rectangular lintel
@@ -2077,11 +2227,23 @@ export class Road {
     } else if (cutMouth && archThk > 1) {
       // ── Rectangular lintel beam (normal highway tunnels) ────────
       const archW = outerR - outerL;
-      const lintelL = outerL - archThk * 0.4;
-      const lintelW = archW + archThk * 0.8;
-      const lintelTopY = archTopY - archThk;
-      g.fillStyle(0xC4BFA8, 1);
-      g.fillRect(lintelL, lintelTopY, lintelW, archThk);
+      const portalPad = Math.max(4, archW * 0.13);
+      const portalL = outerL - portalPad;
+      const portalR = outerR + portalPad;
+      const lintelL = portalL;
+      const lintelW = portalR - portalL;
+      const lintelH = Math.max(5, archThk * 1.35);
+      const lintelTopY = archTopY - lintelH;
+      const columnW = Math.max(4, archW * 0.12);
+      // Large portal frame: thick cap and side columns, intentionally more
+      // contrasty than the wall so the end of the bridge reads as an entrance.
+      g.fillStyle(0x8B8577, 1);
+      g.fillRect(portalL, lintelTopY, lintelW, lintelH);
+      g.fillRect(portalL, archTopY, columnW, Math.max(0, groundY - archTopY));
+      g.fillRect(portalR - columnW, archTopY, columnW, Math.max(0, groundY - archTopY));
+      g.fillStyle(0xD4CCB8, 0.95);
+      g.fillRect(portalL, lintelTopY, lintelW, Math.max(2, lintelH * 0.22));
+      g.fillRect(portalL, archTopY, Math.max(2, columnW * 0.28), Math.max(0, groundY - archTopY));
       // Board-form imprints — vertical lines from the wood-form pour.
       const formSpacingPx = Math.max(3, 10000 * sW);
       if (formSpacingPx >= 3 && lintelW > formSpacingPx * 1.5) {
@@ -2097,13 +2259,33 @@ export class Road {
       // Lighter rim band along the lintel TOP.
       g.fillStyle(0xCFC9B6, rimAlpha);
       g.fillRect(lintelL, lintelTopY,
-                 lintelW, Math.max(1, archThk * 0.22));
+                 lintelW, Math.max(1, lintelH * 0.18));
       // Soft shadow under the lintel.
-      g.fillStyle(0x000000, 0.35);
-      g.fillRect(outerL, archTopY,
-                 archW, Math.max(1, archThk * 0.30));
+      g.fillStyle(0x000000, 0.55);
+      g.fillRect(portalL, archTopY,
+                 lintelW, Math.max(2, lintelH * 0.28));
+      // Darken the tunnel mouth itself so the portal reads as a real opening,
+      // then add tiny ceiling lights receding into the bore.
+      const mouthH = Math.max(0, groundY - archTopY);
+      if (mouthH > 3 && archW > 8) {
+        g.fillStyle(0x0A0D0C, 0.66);
+        g.fillRect(outerL + archW * 0.025, archTopY + lintelH * 0.12,
+                   archW * 0.95, mouthH - lintelH * 0.12);
+        const lightCount = 4;
+        const lightY = archTopY + Math.max(1, mouthH * 0.18);
+        const lightR = Math.max(1, Math.min(3.5, archW * 0.018));
+        if (lightR >= 1 && archW > 22) {
+          for (let k = 0; k < lightCount; k++) {
+            const t = (k + 0.5) / lightCount;
+            const lx = outerL + archW * (0.20 + 0.60 * t);
+            const fade = 0.95 - k * 0.12;
+            g.fillStyle(0xFFF1A6, 0.55 * fade);
+            g.fillEllipse(lx, lightY + k * lightR * 0.18, lightR * 2.2, lightR);
+          }
+        }
+      }
       // Dark stroke on jamb edges + lintel underside.
-      const stroke = Math.max(1.2, archThk * 0.10);
+      const stroke = Math.max(2, archW * 0.025);
       g.fillStyle(0x4A453B, 1);
       g.fillRect(outerL - stroke * 0.5, archTopY,
                  stroke, Math.max(0, groundY - archTopY));
@@ -3272,21 +3454,35 @@ export class Road {
       // The grass between the road's right edge and the ramp's inner
       // edge IS the visible gore — no special draw, the underlying
       // grass shows through because we leave that band unpainted.
-      // Per 2026-05-30 user direction: off-ramps stay the SAME size all
-      // the way through — big enough for a car to drive on without
-      // tapering down at the start of the window.  Previously a
-      // smoothstep t = rs²(3-2rs) grew the ramp from 0 → full over the
-      // 1 mi approach (visible "narrow → wide" pull-out); now t = 1 the
-      // whole time so the ramp opens at full divergence the moment
-      // rampStrength > 0.
-      const t = 1;
-      const rampW1 = w1 * 1.25;
-      const rampW2 = w2 * 1.25;
-      // Gore wedge stays at peak width too — ramp's inner edge sits
-      // ~2 road half-widths away from the road's outer edge, with a
-      // 1.25-lane ramp beyond it.
-      const gap1   = w1 * 2.05;
-      const gap2   = w2 * 2.05;
+      // Per 2026-05-30 user direction the ramp WIDTH stays the SAME the
+      // whole window — big enough to drive on, never tapering to a point.
+      // But freezing the GORE GAP at full too (the t = 1 version) painted
+      // the ramp as a detached parallel strip sitting in the grass the
+      // entire window — it never touched the road, so it read as a
+      // "dead-end behind the exit sign" instead of an off-ramp.
+      //
+      // Fix: keep width full, but grow the GORE GAP with rampStrength so
+      // the ramp's inner edge starts AT the road's outer edge (thin gore)
+      // and diverges outward as you near the exit — a true Y.  Because
+      // rampStrength climbs 0→1 across the approach window, the gore opens
+      // toward the exit; on the after-exit taper it runs 1→0, closing the
+      // gore back into a clean merge.  Width is unchanged (t = 1).
+      // Ramp width grows IN STEP with the gore — narrow throat (0.35w) at the
+      // apex up to a full 1.25w drivable lane at the exit.  This is what makes
+      // it read as a true diverging Y: a thin slip-lane peels off the road edge
+      // and fans out.  Freezing width at full (the old `t=1`, rampW = 1.25w
+      // everywhere) made the apex a blunt full-width strip flush to the road,
+      // so it looked like the road simply WIDENING (the "pullout" the player
+      // kept flagging) rather than forking.  The 0.35w floor honors the
+      // 2026-05-30 "never taper to a point" call — the throat stays drivable,
+      // and the lane is full width by the exit where you actually peel off.
+      const rampW1 = w1 * (0.35 + 0.90 * rs);
+      const rampW2 = w2 * (0.35 + 0.90 * rs);
+      // Gore opens with rampStrength: 0 at the apex (ramp flush against
+      // the road edge) → full ~2 road half-widths at the exit point.
+      const goreFrac = rs;
+      const gap1   = w1 * 2.05 * goreFrac;
+      const gap2   = w2 * 2.05 * goreFrac;
       // Asphalt fill — same color as the active road stripe so the ramp
       // doesn't read as a different road type, just a continuation.
       fillTrap(g, road,
@@ -4171,6 +4367,7 @@ export class Road {
    *  project()), so we MUST NOT subtract playerLatX again here. Doing so
    *  double-counted player lateral and made cars appear to "follow" the
    *  player's steering by 2× what they should. */
+
   /**
    *  Canonical road-surface query — every system that needs to know
    *  "where is the drivable pavement on screen at this depth?" should
@@ -4238,6 +4435,21 @@ export class Road {
     const s = this.sampleSurface(relativeZ, laneOffset);
     if (!s) return null;
     return { sx: s.sx, sy: s.sy, sw: s.sw };
+  }
+
+  /** Screen-Y of the nearest hill-crest silhouette in FRONT of `relativeZ`
+   *  — the highest painted ground (min screenY) among visible surface
+   *  samples strictly nearer than this depth.  A scenery structure at this
+   *  depth is hidden by that hill for everything BELOW this Y, so the
+   *  renderer clips the sprite's lower portion to it instead of letting it
+   *  float over the gap a crest-cull leaves (see _renderSceneSprites).
+   *  Returns Infinity when nothing nearer is visible (no occluder, no clip). */
+  crestClipY(relativeZ) {
+    const arr = this._crestMinY;
+    if (!arr) return Infinity;
+    const fIdx = (relativeZ + (this._cameraZ ?? 0)) / SEG_LENGTH;
+    const idx  = Math.max(0, Math.min(DRAW_DIST, Math.floor(fIdx)));
+    return arr[idx];
   }
 
   renderVehicle(g, screenX, screenY, screenW, scale, isCop, color, flash) {

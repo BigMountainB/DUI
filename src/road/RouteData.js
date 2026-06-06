@@ -1630,7 +1630,15 @@ export function buildRoute(count = ROUTE_SEGS) {
               v = Math.imul(v, 0xc2b2ae35) | 0;
               return ((v >>> 16) ^ v) >>> 0;
             };
-            const texKey = WEST_SEATTLE_HOMES[hashHome(homeSlot) % WEST_SEATTLE_HOMES.length];
+            // This corridor (mile 13.25-25) is Bellevue/Issaquah/eastside — use
+            // the Issaquah residential pool (codex_issaquah_*), NOT the oversized
+            // West Seattle hillside cutouts.  The WS art has heightMult 6.0 and
+            // bottom-anchors at the road plane, so on the foothill view (side
+            // terrain sloping away from the sampled road surface) its bases
+            // floated.  The Issaquah profiles are smaller (heightMult 4.4-4.8)
+            // with per-texture groundDrop already tuned to sit on the road plane
+            // at RESIDENTIAL_FRONTAGE_GAP_CARS (2.75).
+            const texKey = CODEX_ISSAQUAH_BUILDINGS[hashHome(homeSlot) % CODEX_ISSAQUAH_BUILDINGS.length];
             const offset = fogLineOffset(texKey, sign, RESIDENTIAL_FRONTAGE_GAP_CARS);
             sprites.push({
               type:      'building',
@@ -2373,37 +2381,125 @@ export function buildRoute(count = ROUTE_SEGS) {
     }
   }
 
-  // ── Random roadside cops — every 15–30 miles, 50/50 parked vs driving.
+  // ── Speed traps — parked troopers in select cities (0★ police layer) ──
   //
-  // Parked cops sit on the shoulder facing the road (left or right side
-  // → uses car_left_police / car_right_police side-view art).  Driving
-  // cops cruise in same-direction lanes alongside other traffic, using
-  // the back-view police art.
+  // 5–7 traps per playthrough.  Issaquah + Colfax are PERMANENT; the rest are
+  // drawn at random from the full city pool, FRESH EACH PLAY (Math.random —
+  // deliberately NOT the fixed route seed, so players can't memorize trap
+  // locations).  No minimum spacing: the RNG may cluster traps, which is fine
+  // since every one is avoidable by braking under COP_TRAP_SPEED_MPH.
   //
-  // GameScene watches for the player passing one of these (with stars ≥ 1)
-  // and converts the encounter into an active rear-pursuit cop.
+  // Parked cops sit on the shoulder facing the road (car_left/right_police
+  // side-view art).  GameScene watches for the player passing one: at 0★ it
+  // opens a 30s "pull over" civil-stop window; at ≥1★ (an active warrant) the
+  // trap cop just joins the pursuit.
   const SEGS_PER_MILE = count / TOTAL_ROUTE_MILES;
-  let mile = 18 + rng.range(0, 12);                 // first cop at mile 18-30
-  while (mile < TOTAL_ROUTE_MILES - 1) {
-    const segIdx = Math.floor(mile * SEGS_PER_MILE) % count;
-    const seg    = segments[segIdx];
-    if (seg) {
-      const parked   = rng.bool(0.5);
-      const sideRight = rng.bool(0.5);
-      seg.sprites.push({
-        type:        parked ? 'cop_random_parked' : 'cop_random_driving',
-        offset:      parked
-          ? (sideRight ? rng.range(1.20, 1.45) : -rng.range(1.20, 1.45))  // shoulder
-          : (rng.bool(0.5) ? 0.25 : 0.65),                                  // same-direction lane
-        side:        parked ? (sideRight ? 'right' : 'left') : null,
-        baseW:       parked ? 700 : 600,
-        baseH:       parked ? 900 : 1000,
-        collected:   false,
-        copEncounter: true,                          // GameScene flag
-        triggered:   false,
-      });
+  {
+    // Eligible cities: named towns with a real roadside.  Exclude the dense
+    // start block, the mountain pass, and the finish strip.
+    const TRAP_EXCLUDE = new Set(['West Seattle', 'Seattle', 'Snoqualmie Pass', 'Pullman, WA']);
+    const PERMANENT    = new Set(['Issaquah', 'Colfax']);
+    const cityPool  = CHECKPOINTS.filter(cp => !TRAP_EXCLUDE.has(cp.name));
+    const permanent = cityPool.filter(cp =>  PERMANENT.has(cp.name));
+    const optional  = cityPool.filter(cp => !PERMANENT.has(cp.name));
+    // Fisher–Yates shuffle the optional pool (Math.random → per-play variety).
+    for (let i = optional.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [optional[i], optional[j]] = [optional[j], optional[i]];
     }
-    mile += 15 + rng.range(0, 15);                  // next cop 15–30 mi later
+    const extras     = 3 + Math.floor(Math.random() * 3);          // 3–5 extras → 5–7 total
+    const trapCities = permanent.concat(optional.slice(0, extras));
+
+    // Trap mile markers, exposed on the segments array so GameScene can fire a
+    // friend's advance "speed trap in <city> ~mile N" text 15-20 mi ahead.
+    const _trapMiles = [];
+
+    for (const cp of trapCities) {
+      // Park at a random spot inside the city window (a little off each edge).
+      const lo   = cp.mileage;
+      const hi   = cp.end ?? (cp.mileage + 1);
+      const span = Math.max(0.5, hi - lo);
+      const mile = lo + (0.20 + Math.random() * 0.60) * span;
+      const seg  = segments[Math.floor(mile * SEGS_PER_MILE) % count];
+      if (!seg) continue;
+      seg.sprites = seg.sprites || [];
+      const sideRight = Math.random() < 0.5;
+      const shoulder  = 1.20 + Math.random() * 0.25;               // 1.20–1.45 off-center
+      seg.sprites.push({
+        type:         'cop_random_parked',
+        offset:       sideRight ? shoulder : -shoulder,
+        side:         sideRight ? 'right' : 'left',
+        baseW:        1100,                          // larger so the roadside trap reads clearly
+        baseH:        1400,
+        collected:    false,
+        copEncounter: true,                          // GameScene flag
+        triggered:    false,
+      });
+      _trapMiles.push(mile);
+    }
+
+    // ── TEST TRAP — REMOVE BEFORE RELEASE ──────────────────────────────
+    // A guaranteed parked speed trap at ~mile 2.3 (first dry Seattle road
+    // just past the West Seattle Bridge mi1.0-1.7, where the pull-over
+    // auto-stop is guarded off) so getting pulled over is testable seconds
+    // into a run instead of hunting for a randomly-placed city trap.
+    // DELETE this block before shipping.
+    {
+      let testSeg = null;
+      for (let k = 0; k < 250 && !testSeg; k++) {
+        const s = segments[Math.floor((2.3 + k * 0.02) * SEGS_PER_MILE) % count];
+        if (s && !s.bridge && !s.tunnel && !s.water) testSeg = s;
+      }
+      if (testSeg) {
+        testSeg.sprites = testSeg.sprites || [];
+        testSeg.sprites.push({
+          type:         'cop_random_parked',
+          offset:       1.30,                        // right shoulder
+          side:         'right',
+          baseW:        1100,                        // larger so the roadside trap reads clearly
+          baseH:        1400,
+          collected:    false,
+          copEncounter: true,
+          triggered:    false,
+        });
+      }
+    }
+
+    // Expose the trap mile markers for GameScene's advance friend-warning.
+    _trapMiles.sort((a, b) => a - b);
+    segments.trapMiles = _trapMiles;
+  }
+
+  // ── Ambient driving cops — cruise same-direction lanes every ~15-30 mi ──
+  //
+  // Highway presence, NOT speed traps.  Deterministic placement (route seed,
+  // same every play) like the original roadside-cop pass.  They render +
+  // collide via the shared `copEncounter` flag, but the GameScene witness
+  // scan keys off `type`: a driving cop opens NO 0★ civil stop — it only
+  // JOINS an active pursuit when the player is already wanted (≥1★).  ~50%
+  // hit rate per step mirrors the old loop's parked/driving split (parked
+  // troopers now live in the city-trap pass above).
+  {
+    let mile = 18 + rng.range(0, 12);                 // first at mile 18-30
+    while (mile < TOTAL_ROUTE_MILES - 1) {
+      if (rng.bool(0.5)) {
+        const seg = segments[Math.floor(mile * SEGS_PER_MILE) % count];
+        if (seg) {
+          seg.sprites = seg.sprites || [];
+          seg.sprites.push({
+            type:         'cop_random_driving',
+            offset:       rng.bool(0.5) ? 0.25 : 0.65,   // same-direction lane
+            side:         null,
+            baseW:        600,
+            baseH:        1000,
+            collected:    false,
+            copEncounter: true,                          // render/collide flag
+            triggered:    false,
+          });
+        }
+      }
+      mile += 15 + rng.range(0, 15);                  // next 15-30 mi later
+    }
   }
 
   // ── Rest-stop signage + exit ramp markers ─────────────────────────────
@@ -2422,6 +2518,11 @@ export function buildRoute(count = ROUTE_SEGS) {
   // — no dead zones where the rest-stop window is open but the asphalt
   // hasn't been painted yet.
   const RAMP_WINDOW_SEG = Math.floor(1.0 / TOTAL_ROUTE_MILES * count); // ≈1442 segs ≈ 1 mi
+  // The off-ramp PAVEMENT only opens over the last RAMP_TAIL_SEG (~0.5 mi)
+  // of that window, so the ramp Ys off CLOSE to the exit instead of right
+  // behind the mile-out green sign.  The full window is still used for the
+  // exit trigger, scenery clearance, and hitchhiker seeding.
+  const RAMP_TAIL_SEG   = Math.floor(0.5 / TOTAL_ROUTE_MILES * count); // ≈721 segs ≈ 0.5 mi
   // ── Real mileage signs at every checkpoint ──────────────────────────
   // For each location in CHECKPOINTS (every named town/landmark in the
   // route), drop a green I-90-style location sign 1 mile before the
@@ -2619,9 +2720,9 @@ export function buildRoute(count = ROUTE_SEGS) {
     // STOPS_WITHOUT_BAKED_SIGN: rest stops with no sign_<id>.png on disk
     // (no overlay PNG → the placard renders as a blank white frame).
     // Skip the placard spawn entirely for those stops until the asset is
-    // baked via `npm run build:signs`.  Hatton ('H') is currently the
-    // only one missing.
-    const STOPS_WITHOUT_BAKED_SIGN = new Set(['H']);
+    // baked via `npm run build:signs`.  All stops now have baked signs
+    // (Hatton's sign_H.png was baked 2026-06-05).
+    const STOPS_WITHOUT_BAKED_SIGN = new Set();
     if (!STOPS_WITHOUT_BAKED_SIGN.has(rs.id)) {
     const amenSegIdx = findDrySeg(((segAt(Math.max(0, rs.mileage - 0.75)) % count) + count) % count);
     segments[amenSegIdx].sprites.push({
@@ -2665,9 +2766,13 @@ export function buildRoute(count = ROUTE_SEGS) {
       const seg = segments[segIdx];
       if (!seg) continue;
       if (isWet(seg)) continue;                  // never paint over water/bridge/tunnel
-      const t = (k - dryStart) / dryRange;       // 0 (first dry seg) → 1 (at exit)
-      seg.rampStrength = Math.max(seg.rampStrength ?? 0, t);
-      seg.rampStopId   = rs.id;
+      seg.rampStopId   = rs.id;                   // associate the whole window with the stop
+      // Ramp strength (= how far the gore has diverged) opens 0 → 1 only
+      // across the last RAMP_TAIL_SEG before the exit, so the asphalt peels
+      // off near the exit rather than a full mile back at the green sign.
+      const distToExit = (RAMP_WINDOW_SEG - 1) - k;        // segs left to the exit point
+      const t = Math.max(0, Math.min(1, 1 - distToExit / RAMP_TAIL_SEG));
+      if (t > 0) seg.rampStrength = Math.max(seg.rampStrength ?? 0, t);
     }
     // After-exit window — extend to 0.3 mi to match the trigger window's
     // winAfter so the ramp is paved for the player's whole pull-over zone.
@@ -2892,22 +2997,24 @@ export function buildRoute(count = ROUTE_SEGS) {
   segments[needleSeg].sprites.push({
     type:      'landmark',
     texKey:    'space_needle',
-    offset:    -3.0,               // FAR LEFT of the road — horizon landmark
+    offset:    -1.5,               // LEFT of the road — close, prominent landmark (profile minOffset must be ≤1.5 or it'd clamp back out)
     baseW:     2500, baseH: 2500,
     renderDepth: 1.5,              // behind cranes (2.0) and most scenery
     collected: false,
   });
 
-  // ── Wind warning sign at Vantage (mile 137) ─────────────────────────
+  // ── Wind warning sign at Vantage (mile 132) ─────────────────────────
   // "STRONG WINDS!" cantilever sign — pole base on the right shoulder,
-  // sign body hangs over the right travel lane.  PNG already contains
+  // sign body hangs over the right travel lane.  Sits at mile 132, right
+  // as the crosswind starts its build-up (131→137), so it reads as the
+  // warning just before the car starts drifting.  PNG already contains
   // the pole + cantilever as one composite image, so we spawn it as a
   // building-type sprite with collidable:false (the image rect would
   // otherwise let the sign body crash the car mid-lane).  The pole's
   // actual collision is a segment-flag check in GameScene._barriers
   // (same model as utility_pole — −10 HP, 1.5 s cooldown).
   {
-    const windSeg = Math.floor((137 / TOTAL_ROUTE_MILES) * count) % count;
+    const windSeg = Math.floor((132 / TOTAL_ROUTE_MILES) * count) % count;
     const seg = segments[windSeg];
     if (seg && !seg.bridge && !seg.tunnel && !seg.water) {
       seg.sprites = seg.sprites ?? [];
