@@ -14,10 +14,15 @@ jobs:
         run: npm ci
       - name: Build site
         run: npm run build
+      # Modern wrangler (v3) — the deprecated cloudflare/pages-action@v1
+      # threw a 10000 "Authentication error" on valid cfut_-format tokens.
+      # wrangler-action@v3 runs the same `wrangler pages deploy` that works
+      # locally, using the CF_PAGES_API_TOKEN (Account→Cloudflare Pages→Edit)
+      # + CF_ACCOUNT_ID secrets.
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_PAGES_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          projectName: dui
-          directory: dist
+          wranglerVersion: '3'
+          command: pages deploy dist --project-name=dui --branch=main
