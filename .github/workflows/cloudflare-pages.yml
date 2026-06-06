@@ -14,24 +14,12 @@ jobs:
         run: npm ci
       - name: Build site
         run: npm run build
-      # TEMP DEBUG: print the CI secret fingerprints (length + sha prefix —
-      # NOT the raw values, which GitHub masks) to compare against the known-
-      # good local values. Remove once push-to-deploy is confirmed green.
-      - name: Debug secret fingerprints
-        env:
-          T: ${{ secrets.CF_PAGES_API_TOKEN }}
-          A: ${{ secrets.CF_ACCOUNT_ID }}
-        run: |
-          echo "CI token len=${#T} sha=$(printf %s "$T" | sha256sum | cut -c1-16)"
-          echo "CI acct  len=${#A} sha=$(printf %s "$A" | sha256sum | cut -c1-16)"
-      # Modern wrangler (v3) via env vars — the exact form that deploys
-      # successfully from the terminal. The deprecated pages-action@v1 (and
-      # wrangler-action with `with: apiToken`) threw 10000 auth errors.
+      # Plain wrangler invocation — the EXACT command that deploys from the
+      # terminal. The cloudflare/pages-action@v1 (10000 on cfut_ tokens) and
+      # cloudflare/wrangler-action@v3 (didn't forward CLOUDFLARE_API_TOKEN to
+      # the wrangler child) both failed; a `run:` step with env: is reliable.
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          wranglerVersion: '3'
-          command: pages deploy dist --project-name=dui --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_PAGES_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: npx --yes wrangler@3 pages deploy dist --project-name=dui --branch=main
